@@ -1,0 +1,146 @@
+/* MAISA · design system (por MAISA) — mesmo idioma visual do Psico Manager
+ * Tema único acolhedor: papel creme + azul calmo (primário) + mel/âmbar (fills/gradientes) + textura de papel.
+ * Amarelo/âmbar SÓ em fills/gradientes, nunca em texto. Sidebar/topbar navy da marca + wordmark dourado.
+ * Estilos são inline via helper s() + tokens — sem Tailwind. Mudar VALORES de token reskina tudo. */
+:root {
+  /* neutros terrosos quentes */
+  --bg: oklch(0.97 0.012 85);
+  --surface: oklch(0.99 0.006 90);
+  --surface-2: oklch(0.945 0.02 82);
+  --ink: oklch(0.28 0.02 60);
+  --muted: oklch(0.48 0.02 62);
+  --border: oklch(0.90 0.012 80);
+  --line: oklch(0.935 0.010 82);
+
+  /* primário — azul calmo (dessaturado, WCAG AA sobre creme e branco) */
+  --primary: oklch(0.50 0.145 248);
+  --primary-dark: oklch(0.42 0.14 248);
+  --primary-soft: oklch(0.93 0.045 245);
+  --ring: oklch(0.50 0.145 248 / 0.26);
+
+  /* sidebar/topbar — navy da marca MAISA (royal navy + dourado) */
+  --nav: oklch(0.37 0.095 262);
+  --nav-ink: oklch(0.98 0.008 95);
+  --nav-muted: oklch(0.77 0.05 262);
+  --nav-active: oklch(0.45 0.09 262);
+  --nav-accent: oklch(0.80 0.13 250);
+  --nav-line: oklch(0.51 0.07 262);
+
+  /* acento — mel / âmbar (SÓ fills e gradientes de conforto; nunca texto) */
+  --warm: oklch(0.83 0.14 82);
+  --warm-soft: oklch(0.92 0.07 88);
+
+  /* semânticos */
+  --success: oklch(0.52 0.11 150);
+  --success-soft: oklch(0.94 0.05 150);
+  --warn: oklch(0.50 0.10 68);
+  --warn-soft: oklch(0.92 0.07 85);
+  --danger: oklch(0.55 0.18 27);
+  --danger-soft: oklch(0.93 0.05 30);
+  --whatsapp: #25D366;
+
+  /* profundidade + forma + numerais */
+  --shadow-card: 0 1px 2px oklch(0.30 0.03 60 / 0.05), 0 6px 20px oklch(0.30 0.03 60 / 0.06);
+  --shadow-pop: 0 18px 50px oklch(0.25 0.03 60 / 0.20);
+  --radius-card: 16px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* ===== MOTION — durações ===== */
+  --dur-fast: 140ms;   /* hover, focus ring, press release, exits curtos */
+  --dur-base: 200ms;   /* entrada de página/tab, reveal de container */
+  --dur-slow: 280ms;   /* reveal de elemento, accordion */
+  /* especiais (literais, não viram token): press 90ms · knob 240ms */
+  /* transição ÚNICA e abrangente p/ elementos interativos — evita colisão de shorthand
+     quando classes (.m-hov-*, .m-press, .m-focus, .m-lift) se empilham no mesmo elemento */
+  --tr-ui: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+
+  /* ===== MOTION — easings ===== */
+  /* --ease-out (acima) = cubic-bezier(0.16,1,0.3,1) — reusar em TUDO que entra/hover/focus/press */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);  /* overshoot ~5% · SÓ no knob do toggle */
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'%3E%3Cfilter id='mpaper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.06'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23mpaper)'/%3E%3C/svg%3E");
+  background-size: 240px 240px;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+button, input, select, textarea { font-family: inherit; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: oklch(30% 0.02 60 / 0.16);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+@keyframes mspin { to { transform: rotate(360deg); } }
+@keyframes mfade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mrise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes mfloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes mpop { 0% { transform: scale(.82); opacity: .3; } 60% { transform: scale(1.04); } 100% { transform: scale(1); opacity: 1; } }
+.m-pop { animation: mpop .32s var(--ease-out); }
+/* dots do card circular "TOTAL" — entrada escalonada (delay inline por índice) */
+@keyframes mdot { from { opacity: 0; transform: scale(0); } to { opacity: .72; transform: scale(1); } }
+@keyframes mdraw { from { stroke-dashoffset: var(--len, 1000); } to { stroke-dashoffset: 0; } }
+
+/* hover helpers (estilos inline não suportam :hover) */
+.m-hov-bg { transition: var(--tr-ui); }
+.m-hov-bg:hover { background: var(--surface-2) !important; }
+.m-hov-primary { transition: var(--tr-ui); }
+.m-hov-primary:hover { background: var(--primary-dark) !important; transform: translateY(-1px); box-shadow: 0 8px 20px var(--ring); }
+.m-hov-bright { transition: var(--tr-ui); }
+.m-hov-bright:hover { filter: brightness(.98); transform: translateY(-1px); }
+.m-hov-prim-border { transition: var(--tr-ui); }
+.m-hov-prim-border:hover { border-color: var(--primary) !important; color: var(--primary) !important; background: var(--primary-soft) !important; }
+.m-card-hov { transition: var(--tr-ui); }
+.m-card-hov:hover { transform: translateY(-3px) scale(1.012); box-shadow: 0 16px 40px oklch(30% 0.03 60 / 0.13); }
+.m-nav-item { transition: var(--tr-ui); }
+/* shader sutil: realce por sombra/borda (sem trocar cor de fundo) — hover e estado aberto */
+.m-lift { transition: var(--tr-ui); }
+.m-lift:hover, .m-lift.is-open { box-shadow: 0 10px 30px oklch(30% 0.03 60 / 0.12) !important; border-color: oklch(0.86 0.014 80) !important; }
+
+/* ===== MOTION — VOCABULÁRIO (contrato único; ver ESPEC de motion) ===== */
+/* (i) entrada de página premium — fade + rise sutil (200ms) */
+.m-enter { animation: mrise var(--dur-base) var(--ease-out) both; }
+/* (ii) reveal de 1 elemento/bloco no mount (280ms) */
+.m-reveal { animation: mrise var(--dur-slow) var(--ease-out) both; }
+/* (iii) stagger: SEM keyframe — usar .m-reveal + animation-delay inline (50ms×índice, teto 8) */
+
+/* (v) press / :active de botão — só transform, seca por assimetria de duração */
+.m-press { transition: var(--tr-ui); }
+.m-press:active { transform: translateY(1px) scale(0.97); transition-duration: 90ms; }
+/* botões-ícone: press mais discreto (scale menor) */
+.m-press-icon { transition: var(--tr-ui); }
+.m-press-icon:active { transform: translateY(1px) scale(0.94); transition-duration: 90ms; }
+
+/* (vi) focus-visible ring — não desloca layout */
+.m-focus { transition: var(--tr-ui); }
+.m-focus:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+
+/* (vii) knob do toggle deslizando — spring SÓ aqui (240ms) */
+.m-knob { transition: transform var(--ease-spring); transition-duration: 240ms; transform-origin: center; }
+
+/* (viii) accordion reveal — ÚNICA exceção grid-template-rows */
+.m-acc { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-slow) var(--ease-out); }
+.m-acc.is-open { grid-template-rows: 1fr; }
+.m-acc > * { overflow: hidden; min-height: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
