@@ -78,9 +78,14 @@ export default function ClinicoDashboard() {
   const primaryBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 9, padding: "14px 22px", border: "none", borderRadius: 999, background: "var(--primary)", color: "#fff", fontWeight: 700, fontSize: 14.5, cursor: "pointer", fontFamily: "inherit" };
 
   return (
+    <>
+    {/* Brilho de fundo: camada fixa no viewport, atras de tudo (zIndex -1).
+        Sidebar e topbar navy sao opacas e cobrem as bordas de cima/esquerda,
+        entao nao da pra ver onde o brilho acaba. Fica fora do Screen de
+        proposito: o Screen tem transform (.m-enter) e prenderia o fixed. */}
+    <div aria-hidden style={{ position: "fixed", inset: 0, zIndex: -1, pointerEvents: "none", background: "radial-gradient(62% 58% at 32% 15%, var(--primary-soft) 0%, transparent 60%), radial-gradient(54% 54% at 90% 92%, var(--warm-soft) 0%, transparent 58%)" }} />
     <Screen style={{ padding: 0 }}>
-    <div style={{ position: "relative", minHeight: "calc(100vh - 120px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 28px", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "radial-gradient(58% 58% at 16% 12%, var(--primary-soft) 0%, transparent 66%), radial-gradient(52% 52% at 86% 88%, var(--warm-soft) 0%, transparent 66%)" }} />
+    <div style={{ position: "relative", minHeight: "calc(100vh - 120px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 28px" }}>
       <div style={glass}>
         {next ? (
           <>
@@ -119,5 +124,6 @@ export default function ClinicoDashboard() {
       </div>
     </div>
     </Screen>
+    </>
   );
 }
