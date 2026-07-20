@@ -175,7 +175,7 @@ export default function MaisaApp() {
             <Monogram name={data.shop.nome} id={data.shop.nome} size={38} radius={11} />
             <div style={s("min-width:0;line-height:1.3")}>
               <div style={s("font-size:13px;font-weight:700;color:var(--nav-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{data.shop.nome}</div>
-              <div style={s("font-size:11.5px;color:var(--nav-muted)")}>Plano {data.shop.plano}</div>
+              <div style={s("font-size:11.5px;color:var(--nav-soft)")}>Plano {data.shop.plano}</div>
             </div>
           </div>
         </aside>

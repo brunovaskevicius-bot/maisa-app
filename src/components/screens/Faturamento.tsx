@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Screen, s, fmt, initials, toast } from "@/lib/ui";
+import { Screen, s, fmt, initials, toast, ConfirmDialog } from "@/lib/ui";
 import { pacientes, resumoBy, notas, prestador, avatarClin, type NFInfo } from "@/lib/clinicoMock";
 
 /* ---------- helpers locais ---------- */
@@ -26,6 +26,8 @@ export default function Faturamento() {
   const [generating, setGenerating] = useState(false);
   const [gen, setGen] = useState({ done: 0, total: 0 });
   const [pdfId, setPdfId] = useState<string | null>(null);
+  // ação irreversível pendente de confirmação (emitir todas OU emitir a NF de um paciente)
+  const [confirm, setConfirm] = useState<{ tipo: "todas" | "uma"; pid?: string; nome?: string } | null>(null);
   const busy = useRef<Set<string>>(new Set());
   const numRef = useRef(117); // próximo número de NF (as 116 primeiras já existem no mock)
 
@@ -34,6 +36,8 @@ export default function Faturamento() {
   /* ---------- derivados ---------- */
   const totalFaturar = useMemo(() => actives.reduce((a, p) => a + (resView[p.id]?.valor || 0), 0), [actives, resView]);
   const emitidas = actives.filter((p) => nf[p.id]?.status === "emitida").length;
+  const pendentes = useMemo(() => actives.filter((p) => (nf[p.id]?.status || "pendente") === "pendente"), [actives, nf]);
+  const totalPendente = useMemo(() => pendentes.reduce((a, p) => a + (resView[p.id]?.valor || 0), 0), [pendentes, resView]);
 
   /* ---------- ações (estado local + toast) ---------- */
   const emitir = async (pid: string) => {
@@ -42,7 +46,16 @@ export default function Faturamento() {
     setNf((st) => ({ ...st, [pid]: { status: "emitida", numero: nextNumero(), notaId: "nf-" + pid, dataEmissao: "2026-06-30" } }));
   };
 
-  const gerarUma = async (pid: string) => {
+  // abre a confirmação da NF de um paciente (emissão é irreversível)
+  const gerarUma = (pid: string) => {
+    if (busy.current.has(pid)) return;
+    const st = nf[pid]?.status;
+    if (st && st !== "pendente") return;
+    const nome = actives.find((p) => p.id === pid)?.nome || "paciente";
+    setConfirm({ tipo: "uma", pid, nome });
+  };
+
+  const emitirUma = async (pid: string) => {
     if (busy.current.has(pid)) return;
     const st = nf[pid]?.status;
     if (st && st !== "pendente") return;
@@ -53,7 +66,14 @@ export default function Faturamento() {
     busy.current.delete(pid);
   };
 
-  const gerarTodas = async () => {
+  // abre a confirmação da emissão em lote (irreversível)
+  const gerarTodas = () => {
+    if (generating) return;
+    if (!pendentes.length) { toast("Todas as NFs já foram emitidas"); return; }
+    setConfirm({ tipo: "todas" });
+  };
+
+  const emitirTodas = async () => {
     if (generating) return;
     const pend = actives.filter((p) => (nf[p.id]?.status || "pendente") === "pendente");
     if (!pend.length) { toast("Todas as NFs já foram emitidas"); return; }
@@ -62,6 +82,15 @@ export default function Faturamento() {
     for (let i = 0; i < pend.length; i++) { await emitir(pend[i].id); setGen({ done: i + 1, total: pend.length }); }
     toast(`${pend.length} nota${pend.length > 1 ? "s" : ""} fiscal${pend.length > 1 ? "is" : ""} emitida${pend.length > 1 ? "s" : ""}`);
     setTimeout(() => setGenerating(false), 400);
+  };
+
+  // confirma a ação pendente e dispara a emissão de fato
+  const confirmarEmissao = () => {
+    if (!confirm) return;
+    const c = confirm;
+    setConfirm(null);
+    if (c.tipo === "todas") emitirTodas();
+    else if (c.pid) emitirUma(c.pid);
   };
 
   const enviar = async (pid: string) => {
@@ -196,6 +225,24 @@ export default function Faturamento() {
           </div>
         );
       })()}
+
+      {/* CONFIRMAÇÃO — emitir NF é irreversível (uma ou em lote) */}
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.tipo === "todas" ? "Emitir todas as NFs?" : "Emitir nota fiscal?"}
+        message={
+          confirm?.tipo === "todas"
+            ? `Emitir ${pendentes.length} nota${pendentes.length > 1 ? "s" : ""} fiscal${pendentes.length > 1 ? "is" : ""} somando ${fmt(totalPendente)}? A emissão é irreversível.`
+            : confirm?.nome
+              ? `Emitir a NF de ${confirm.nome}? A emissão é irreversível.`
+              : undefined
+        }
+        confirmText="Emitir"
+        cancelText="Cancelar"
+        tone="primary"
+        onConfirm={confirmarEmissao}
+        onCancel={() => setConfirm(null)}
+      />
     </Screen>
   );
 }

@@ -139,7 +139,7 @@ export function Btn({ variant = "primary", icon, children, onClick, style, full,
 export function IconBtn({ icon, onClick, tone = "neutral", title }: { icon: string; onClick?: () => void; tone?: "neutral" | "danger" | "primary"; title?: string }) {
   const c = tone === "danger" ? "color:var(--danger)" : tone === "primary" ? "color:var(--primary)" : "color:var(--muted)";
   return (
-    <button title={title} onClick={onClick} className="m-hov-bg m-press-icon m-focus" style={s(`width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:9px;background:var(--surface);cursor:pointer;${c}`)}>
+    <button title={title} aria-label={title} onClick={onClick} className="m-hov-bg m-press-icon m-focus" style={s(`width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:9px;background:var(--surface);cursor:pointer;${c}`)}>
       <Icon name={icon} size={16} sw={2} />
     </button>
   );
@@ -164,18 +164,19 @@ export function Badge({ tone = "neutral", children, dot }: { tone?: Tone; childr
   );
 }
 
+// outline:none + classe .m-focus => mesmo anel de foco (:focus-visible) dos botões
 const INPUT = "width:100%;border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:14px;background:var(--surface);color:var(--ink);outline:none";
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  const { style, ...rest } = props;
-  return <input {...rest} style={{ ...s(INPUT), ...(style || {}) }} />;
+  const { style, className, ...rest } = props;
+  return <input {...rest} className={["m-focus", className].filter(Boolean).join(" ")} style={{ ...s(INPUT), ...(style || {}) }} />;
 }
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  const { style, ...rest } = props;
-  return <textarea {...rest} style={{ ...s(INPUT + ";resize:vertical;min-height:92px;line-height:1.55"), ...(style || {}) }} />;
+  const { style, className, ...rest } = props;
+  return <textarea {...rest} className={["m-focus", className].filter(Boolean).join(" ")} style={{ ...s(INPUT + ";resize:vertical;min-height:92px;line-height:1.55"), ...(style || {}) }} />;
 }
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  const { style, children, ...rest } = props;
-  return <select {...rest} style={{ ...s(INPUT + ";cursor:pointer;appearance:none"), ...(style || {}) }}>{children}</select>;
+  const { style, className, children, ...rest } = props;
+  return <select {...rest} className={["m-focus", className].filter(Boolean).join(" ")} style={{ ...s(INPUT + ";cursor:pointer;appearance:none"), ...(style || {}) }}>{children}</select>;
 }
 export function Field({ label, hint, children, style }: { label?: string; hint?: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
@@ -290,13 +291,95 @@ export function Toaster() {
     };
   }, []);
   return (
-    <div style={s("position:fixed;left:0;right:0;bottom:26px;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:9999;pointer-events:none")}>
+    <div role="status" aria-live="polite" style={s("position:fixed;left:0;right:0;bottom:26px;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:9999;pointer-events:none")}>
       {items.map((i) => (
         <div key={i.id} className="m-pop" style={s("display:flex;align-items:center;gap:9px;background:var(--ink);color:var(--surface);font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:var(--shadow-pop)")}>
           <Icon name="check" size={16} sw={2.4} stroke="var(--surface)" />
           {i.msg}
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ---------- ConfirmDialog: confirmação reutilizável no idioma visual do app ----------
+   Modelado nos modais de Faturamento/Pacientes: backdrop escuro (mfade) + card central
+   var(--surface) (mrise). Esc/backdrop chamam onCancel. prefers-reduced-motion respeitado
+   pela regra global (@media reduce zera as durações das animações inline). */
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmText = "Confirmar",
+  cancelText = "Cancelar",
+  tone = "primary",
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message?: string;
+  confirmText?: string;
+  cancelText?: string;
+  tone?: "danger" | "primary";
+  onConfirm?: () => void;
+  onCancel?: () => void;
+}) {
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel?.();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel]);
+
+  if (!open) return null;
+
+  const danger = tone === "danger";
+  const confirmVar = danger ? "background:var(--danger);color:#fff" : "background:var(--primary);color:#fff";
+  const confirmHov = danger ? "m-hov-bright" : "m-hov-primary";
+
+  return (
+    <div
+      onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      style={{ ...s("position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:28px;background:rgba(25,30,28,.5)"), backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", animation: "mfade .2s ease" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ ...s("position:relative;width:420px;max-width:92vw;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-pop);padding:24px"), animation: "mrise .25s var(--ease-out)" }}
+      >
+        <button
+          onClick={onCancel}
+          title={cancelText}
+          aria-label={cancelText}
+          className="m-hov-bg m-press-icon m-focus"
+          style={s("position:absolute;top:14px;right:14px;width:30px;height:30px;border:none;border-radius:8px;background:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted)")}
+        >
+          <Icon name="x" size={16} sw={2.2} />
+        </button>
+        <h2 style={s("font-size:17px;font-weight:800;letter-spacing:-.01em;padding-right:34px")}>{title}</h2>
+        {message && <p style={s("font-size:13.5px;color:var(--muted);line-height:1.55;margin-top:8px")}>{message}</p>}
+        <div style={s("display:flex;justify-content:flex-end;gap:10px;margin-top:22px")}>
+          <button
+            onClick={onCancel}
+            className="m-hov-bg m-press m-focus"
+            style={s("border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;padding:10px 17px")}
+          >
+            {cancelText}
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`${confirmHov} m-press m-focus`}
+            style={s(`border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;padding:10px 17px;${confirmVar}`)}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

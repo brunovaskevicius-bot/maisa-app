@@ -26,6 +26,9 @@ export const formatCompact = (n: number) => {
 };
 const fmtNum = (n: number) => n.toLocaleString("pt-BR");
 
+/* alternativa textual p/ leitor de tela — INLINE (não acopla a classe global de outro agente) */
+const SR_ONLY = s("position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap");
+
 /* barras: sobem via scaleY (origin bottom) em stagger — só na montagem (troca p/ view "barra").
    startDelay entra na cascata "construindo" (só no 1º load; nos toggles vem 0) */
 function Bars({ data, color, min, span, X, W, H, padX, padTop, padBot, hover, startDelay = 0 }: {
@@ -91,7 +94,7 @@ function Chart({ data, color, view, drawDelay = 0 }: { data: Pt[]; color: string
 
   return (
     <div ref={wrapRef} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={s("position:relative;width:100%;height:100%")}>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" width="100%" height="100%" style={{ display: "block" }}>
+      <svg aria-hidden viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" width="100%" height="100%" style={{ display: "block" }}>
         <defs>
           <linearGradient id={`g${gid}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.22" />
@@ -129,15 +132,15 @@ function Chart({ data, color, view, drawDelay = 0 }: { data: Pt[]; color: string
 }
 
 function ViewToggle({ view, onChange }: { view: View; onChange: (v: View) => void }) {
-  const opt = (k: View, path: React.ReactNode) => (
-    <button onClick={() => onChange(k)} style={s(`width:27px;height:22px;display:flex;align-items:center;justify-content:center;border:none;border-radius:6px;cursor:pointer;background:${view === k ? "var(--surface)" : "transparent"};color:${view === k ? "var(--ink)" : "var(--muted)"}`)}>
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{path}</svg>
+  const opt = (k: View, label: string, path: React.ReactNode) => (
+    <button onClick={() => onChange(k)} aria-label={label} aria-pressed={view === k} title={label} style={s(`width:27px;height:22px;display:flex;align-items:center;justify-content:center;border:none;border-radius:6px;cursor:pointer;background:${view === k ? "var(--surface)" : "transparent"};color:${view === k ? "var(--ink)" : "var(--muted)"}`)}>
+      <svg aria-hidden width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{path}</svg>
     </button>
   );
   return (
-    <div style={s("display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px")}>
-      {opt("linha", <path d="M4 15.5 10 9l3.5 3.5L20 6" />)}
-      {opt("barra", <><path d="M5 20V10" /><path d="M12 20V4" /><path d="M19 20v-7" /></>)}
+    <div role="group" aria-label="Tipo de gráfico" style={s("display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px")}>
+      {opt("linha", "Ver como linha", <path d="M4 15.5 10 9l3.5 3.5L20 6" />)}
+      {opt("barra", "Ver como barras", <><path d="M5 20V10" /><path d="M12 20V4" /><path d="M19 20v-7" /></>)}
     </div>
   );
 }
@@ -164,8 +167,14 @@ export function MetricCard({ title, data, unit, prefix, accent, total, deltaLabe
   const trIcon = trend === "flat" ? "arrow-right" : trend === "down" ? "trending-down" : "trending-up";
   const sign = (v: number) => (v >= 0 ? "+" : "−") + formatCompact(Math.abs(v));
 
+  // alternativa textual concisa: título + valor headline + tendência (o SVG é aria-hidden)
+  const headlineText = `${prefix ?? ""}${total ?? formatCompact(sum)}${unit ? " " + unit : ""}`;
+  const trendWord = trend === "flat" ? "estável" : trend === "up" ? "em alta" : "em queda";
+  const a11yText = `${title}: ${headlineText}. Tendência ${trendWord}, ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(1)}% no período de ${PERIODS[pi].label}.`;
+
   return (
     <div style={s("position:relative;display:flex;flex-direction:column;overflow:hidden;border-radius:24px;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-card);min-height:276px")}>
+      <span style={SR_ONLY}>{a11yText}</span>
       {/* topo — título + número (nenhum gráfico atrás do texto) */}
       <div style={s("position:relative;z-index:2;padding:22px 24px 0")}>
         <div style={s("display:flex;align-items:center;justify-content:space-between;gap:12px")}>
@@ -175,11 +184,15 @@ export function MetricCard({ title, data, unit, prefix, accent, total, deltaLabe
           </div>
           <div style={s("display:flex;align-items:center;gap:12px;flex-shrink:0")}>
             <span style={{ ...s("display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:700"), color: c.text }}>
-              <span className="m-pop" style={s("display:inline-flex")}><Icon name={trIcon} size={15} sw={2.4} /></span>{Math.abs(pct).toFixed(1)}%
+              <span aria-hidden className="m-pop" style={s("display:inline-flex")}><Icon name={trIcon} size={15} sw={2.4} /></span>{Math.abs(pct).toFixed(1)}%
             </span>
-            <select value={pi} onChange={(e) => setPi(Number(e.target.value))} style={s("appearance:none;border:none;background:transparent;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;outline:none")}>
-              {PERIODS.map((p, i) => <option key={p.label} value={i}>{p.label}</option>)}
-            </select>
+            {/* seletor de período — chevron visível deixa claro que é um dropdown (não texto estático) */}
+            <span style={s("position:relative;display:inline-flex;align-items:center")}>
+              <select aria-label="Período do gráfico" value={pi} onChange={(e) => setPi(Number(e.target.value))} style={s("appearance:none;border:none;background:transparent;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;outline:none;padding-right:16px")}>
+                {PERIODS.map((p, i) => <option key={p.label} value={i}>{p.label}</option>)}
+              </select>
+              <span aria-hidden style={{ ...s("position:absolute;right:0;display:inline-flex;pointer-events:none;color:var(--muted)") }}><Icon name="chevron-down" size={13} sw={2.4} /></span>
+            </span>
           </div>
         </div>
         <div style={s("margin-top:14px;font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1;font-family:var(--font-mono)")}>
@@ -228,8 +241,12 @@ export function RingTotalCard({ total, label = "TOTAL", sub, onDetails }: { tota
     <circle key={k} cx={p.x} cy={p.y} r="9" fill={fill} style={{ transformBox: "fill-box", transformOrigin: "center", opacity: 0, animation: "mdot .5s var(--ease-out) both", animationDelay: `${p.d}s` }} />
   );
 
+  // alternativa textual: total + as 2 sub-métricas (o anel de dots é aria-hidden)
+  const a11yText = `${label}: ${total}. ${sub.map((x) => `${x.label}: ${x.value} (${x.pct})`).join(", ")}.`;
+
   return (
     <div style={s("position:relative;overflow:hidden;border-radius:24px;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-card);display:flex;flex-direction:column;min-height:264px")}>
+      <span style={SR_ONLY}>{a11yText}</span>
       <div style={s("position:relative;flex:1;padding:6px 6px 0")}>
         {/* o anel e o texto compartilham o MESMO quadro → texto no centro exato do anel */}
         <div style={s("position:relative")}>

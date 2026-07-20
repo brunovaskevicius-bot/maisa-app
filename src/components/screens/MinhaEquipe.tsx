@@ -10,6 +10,7 @@ import {
   Monogram,
   Screen,
   toast,
+  ConfirmDialog,
 } from "@/lib/ui";
 import { type Barbeiro } from "@/lib/mock";
 import { useAdmin } from "@/lib/adminConfig";
@@ -25,8 +26,27 @@ export default function MinhaEquipe() {
     }, {})
   );
 
-  const toggle = (id: string) =>
-    setDisp((prev) => ({ ...prev, [id]: !prev[id] }));
+  // profissional pendente de confirmação de pausa (desativar é a ação irreversível/impactante)
+  const [aPausar, setAPausar] = useState<Barbeiro | null>(null);
+
+  const toggle = (b: Barbeiro) => {
+    if (disp[b.id]) {
+      // vai PAUSAR: pede confirmação antes
+      setAPausar(b);
+    } else {
+      // reativar não precisa de confirmação
+      setDisp((prev) => ({ ...prev, [b.id]: true }));
+      toast(`${b.nome} voltou a receber agendamentos`);
+    }
+  };
+
+  const confirmarPausa = () => {
+    if (!aPausar) return;
+    const b = aPausar;
+    setAPausar(null);
+    setDisp((prev) => ({ ...prev, [b.id]: false }));
+    toast(`${b.nome} pausado(a)`);
+  };
 
   return (
     <Screen>
@@ -141,13 +161,25 @@ export default function MinhaEquipe() {
                     />
                     {disponivel ? "Ativo" : "Pausado"}
                   </span>
-                  <Toggle on={disponivel} onChange={() => toggle(b.id)} />
+                  <Toggle on={disponivel} onChange={() => toggle(b)} />
                 </div>
               </div>
             </Card>
           );
         })}
       </div>
+
+      {/* CONFIRMAÇÃO — pausar deixa o profissional sem novos agendamentos */}
+      <ConfirmDialog
+        open={!!aPausar}
+        title={aPausar ? `Pausar ${aPausar.nome}?` : ""}
+        message="Ele(a) deixará de receber novos agendamentos."
+        confirmText="Pausar"
+        cancelText="Cancelar"
+        tone="danger"
+        onConfirm={confirmarPausa}
+        onCancel={() => setAPausar(null)}
+      />
     </Screen>
   );
 }
