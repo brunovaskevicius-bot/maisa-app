@@ -119,18 +119,22 @@ export default function MaisaApp() {
 
   return (
     <div style={s("display:flex;flex-direction:column;height:100vh;padding:14px;gap:14px;background:transparent")}>
-      {/* TOPBAR — card flutuante, separada do corpo com respiro creme e sombra própria */}
-      <header style={s("display:flex;align-items:center;gap:18px;background:var(--nav);border:1px solid var(--nav-line);border-radius:20px;box-shadow:0 8px 28px oklch(0.30 0.05 250 / 0.22);padding:14px 22px;position:relative;z-index:2")}>
-        <div style={s("display:flex;flex-direction:column;line-height:1")}>
-          <span style={{ ...s("font-size:25px;font-weight:800;color:var(--warm);letter-spacing:-.01em"), textShadow: "0 1.5px 0 oklch(0.58 0.12 68), 0 3px 5px rgba(0,0,0,.22)" }}>maisa</span>
-          <span style={s("font-size:10px;font-weight:700;color:var(--nav-muted);letter-spacing:.14em;margin-top:3px")}>ASSISTENTE</span>
+      {/* TOP ROW — a barrinha navy (logo) fica SÓ acima da sidebar (250px);
+          o título da tela vai no creme, à direita, alinhado com a barrinha */}
+      <div style={s("display:grid;grid-template-columns:250px 1fr;gap:14px;align-items:stretch")}>
+        {/* BARRINHA — logo, só acima da sidebar */}
+        <header style={s("display:flex;align-items:center;background:var(--nav);border:1px solid var(--nav-line);border-radius:20px;box-shadow:0 8px 28px oklch(0.30 0.05 250 / 0.22);padding:14px 20px")}>
+          <div style={s("display:flex;flex-direction:column;line-height:1")}>
+            <span style={{ ...s("font-size:25px;font-weight:800;color:var(--warm);letter-spacing:-.01em"), textShadow: "0 1.5px 0 oklch(0.58 0.12 68), 0 3px 5px rgba(0,0,0,.22)" }}>maisa</span>
+            <span style={s("font-size:10px;font-weight:700;color:var(--nav-muted);letter-spacing:.14em;margin-top:3px")}>ASSISTENTE</span>
+          </div>
+        </header>
+        {/* TÍTULO DA TELA — no creme, sem navy por cima do conteúdo */}
+        <div style={s("display:flex;flex-direction:column;justify-content:center;min-width:0;padding:0 6px")}>
+          <h1 style={s("font-size:20px;font-weight:800;color:var(--ink);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{labelFor(effScreen)}</h1>
+          <p style={s("font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px")}>{subFor(effScreen)}</p>
         </div>
-        <div style={s("width:1px;height:34px;background:var(--nav-line)")} />
-        <div style={s("min-width:0")}>
-          <h1 style={s("font-size:16px;font-weight:700;color:var(--nav-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{labelFor(effScreen)}</h1>
-          <p style={s("font-size:12px;color:var(--nav-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{subFor(effScreen)}</p>
-        </div>
-      </header>
+      </div>
 
       {/* BODY */}
       <div style={s("display:grid;grid-template-columns:250px 1fr;gap:14px;flex:1;min-height:0")}>
