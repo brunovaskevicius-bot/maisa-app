@@ -268,7 +268,7 @@ export default function Dashboard() {
       {/* ===== Bento ===== */}
       <div
         style={s(
-          "display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(132px,auto);gap:16px"
+          "display:grid;grid-template-columns:var(--bento-cols);grid-auto-rows:minmax(132px,auto);gap:16px"
         )}
       >
         {/* ---------- 1. AGENDA (2×2, herói) ---------- */}

@@ -65,6 +65,18 @@ const SUB_STATICO: Partial<Record<Key, string>> = {
 export default function MaisaApp() {
   const { isOn, t, data, profissao } = useAdmin();
   const [screen, setScreen] = useState<Key>("dashboard");
+  const [isMobile, setIsMobile] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // viewport mobile (≤900px): estilos inline não têm @media, então o shell reage por estado.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  useEffect(() => { if (!isMobile) setDrawerOpen(false); }, [isMobile]);
 
   // Fallback: primeira feature ligada (na ordem do registry) — nunca cai numa tela desligada.
   const firstEnabled = (): Key =>
@@ -98,7 +110,7 @@ export default function MaisaApp() {
     const active = effScreen === k;
     return (
       <button
-        onClick={() => setScreen(k)}
+        onClick={() => { setScreen(k); setDrawerOpen(false); }}
         className="m-nav-item m-press m-focus"
         style={s(`display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;border:1px solid ${active ? "oklch(1 0 0 / 0.08)" : "transparent"};border-radius:12px;cursor:pointer;font-size:14px;font-weight:600;text-align:left;background:${active ? "var(--nav-active)" : "transparent"};color:${active ? "var(--nav-ink)" : "var(--nav-muted)"}`)}
       >
@@ -118,26 +130,40 @@ export default function MaisaApp() {
     .filter((x) => x.itens.length > 0);
 
   return (
-    <div style={s("display:flex;flex-direction:column;height:100vh;padding:14px;gap:14px;background:transparent")}>
+    <div style={s(`display:flex;flex-direction:column;height:100vh;padding:${isMobile ? "10px" : "14px"};gap:${isMobile ? "10px" : "14px"};background:transparent`)}>
       {/* TOPBAR — barra navy flutuante (logo + título da tela DENTRO dela).
           Opaca e full-width: âncora sólida no topo → o conteúdo rola por baixo
-          sem "derreter" no creme. Separada do corpo pelo respiro de 14px. */}
-      <header style={s("display:flex;align-items:center;gap:18px;background:var(--nav);border:1px solid var(--nav-line);border-radius:20px;box-shadow:0 8px 28px oklch(0.30 0.05 250 / 0.22);padding:14px 22px;position:relative;z-index:2")}>
+          sem "derreter" no creme. No mobile ganha o hambúrguer que abre a gaveta. */}
+      <header style={s(`display:flex;align-items:center;gap:${isMobile ? "12px" : "18px"};background:var(--nav);border:1px solid var(--nav-line);border-radius:20px;box-shadow:0 8px 28px oklch(0.30 0.05 250 / 0.22);padding:${isMobile ? "12px 16px" : "14px 22px"};position:relative;z-index:2`)}>
+        {isMobile && (
+          <button onClick={() => setDrawerOpen((o) => !o)} aria-label="Abrir menu" aria-expanded={drawerOpen} className="m-press m-focus" style={s("display:flex;align-items:center;justify-content:center;width:42px;height:42px;flex-shrink:0;border:1px solid var(--nav-line);border-radius:12px;background:var(--nav-active);color:var(--nav-ink);cursor:pointer")}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          </button>
+        )}
         <div style={s("display:flex;flex-direction:column;line-height:1")}>
           <span style={{ ...s("font-size:25px;font-weight:800;color:var(--warm);letter-spacing:-.01em"), textShadow: "0 1.5px 0 oklch(0.58 0.12 68), 0 3px 5px rgba(0,0,0,.22)" }}>maisa</span>
           <span style={s("font-size:10px;font-weight:700;color:var(--nav-muted);letter-spacing:.14em;margin-top:3px")}>ASSISTENTE</span>
         </div>
-        <div style={s("width:1px;height:34px;background:var(--nav-line)")} />
+        {!isMobile && <div style={s("width:1px;height:34px;background:var(--nav-line)")} />}
         <div style={s("min-width:0")}>
           <h1 style={s("font-size:16px;font-weight:700;color:var(--nav-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{labelFor(effScreen)}</h1>
           <p style={s("font-size:12px;color:var(--nav-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{subFor(effScreen)}</p>
         </div>
       </header>
 
-      {/* BODY */}
-      <div style={s("display:grid;grid-template-columns:250px 1fr;gap:14px;flex:1;min-height:0")}>
-        {/* SIDEBAR — card flutuante próprio, separado da topbar (todos os cantos arredondados) */}
-        <aside style={s("background:var(--nav);border:1px solid var(--nav-line);border-radius:24px;box-shadow:0 12px 36px oklch(0.30 0.05 250 / 0.28);display:flex;flex-direction:column;padding:16px 14px;gap:6px;overflow-y:auto")}>
+      {/* BODY — no mobile a sidebar sai do grid (vira gaveta fixa), sobra só o main em 1 coluna */}
+      <div style={s(`display:grid;grid-template-columns:${isMobile ? "1fr" : "250px 1fr"};gap:14px;flex:1;min-height:0`)}>
+        {/* BACKDROP — só no mobile; escurece o fundo quando a gaveta abre. Clique fecha. */}
+        {isMobile && (
+          <div
+            onClick={() => setDrawerOpen(false)}
+            style={{ ...s("position:fixed;inset:0;z-index:55;background:oklch(0.20 0.03 260 / 0.5)"), backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)", opacity: drawerOpen ? 1 : 0, pointerEvents: drawerOpen ? "auto" : "none", transition: "opacity .25s var(--ease-out)" }}
+          />
+        )}
+        {/* SIDEBAR — card flutuante; no mobile é gaveta fixa que desliza pela esquerda */}
+        <aside style={isMobile
+          ? { ...s("background:var(--nav);border:1px solid var(--nav-line);border-radius:24px;box-shadow:0 24px 60px oklch(0.20 0.05 250 / 0.45);display:flex;flex-direction:column;padding:16px 14px;gap:6px;overflow-y:auto"), position: "fixed", top: 10, left: 10, bottom: 10, width: 272, maxWidth: "82vw", zIndex: 60, transform: drawerOpen ? "translateX(0)" : "translateX(calc(-100% - 24px))", transition: "transform .3s var(--ease-out)" }
+          : s("background:var(--nav);border:1px solid var(--nav-line);border-radius:24px;box-shadow:0 12px 36px oklch(0.30 0.05 250 / 0.28);display:flex;flex-direction:column;padding:16px 14px;gap:6px;overflow-y:auto")}>
           {gruposVisiveis.map(({ g, itens }, gi) => (
             <React.Fragment key={g}>
               {gi > 0 && <div style={s("height:1px;background:var(--nav-line);margin:14px 8px")} />}

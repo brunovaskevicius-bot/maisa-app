@@ -84,7 +84,7 @@ export default function ConfigAssistente() {
     <Screen style={s("padding:20px 28px 28px")}>
       <div
         style={s(
-          "display:grid;grid-template-columns:minmax(0,1fr) 404px;gap:26px;align-items:start"
+          "display:grid;grid-template-columns:var(--rail-config);gap:26px;align-items:start"
         )}
       >
         {/* ============ COLUNA ESQUERDA — seções que rolam ============ */}
@@ -296,7 +296,7 @@ export default function ConfigAssistente() {
         </div>
 
         {/* ============ COLUNA DIREITA — celular estático (sticky, ancorado no topo da sidebar) ============ */}
-        <div style={s("position:sticky;top:0;height:calc(100vh - 162px);display:flex;flex-direction:column;align-items:center;justify-content:flex-start")}>
+        <div style={s("position:var(--config-phone-pos);top:0;height:var(--config-phone-h);display:flex;flex-direction:column;align-items:center;justify-content:flex-start")}>
           <Phone sec={secAtual} nome={nome} tom={tom} ativo={ativo} />
         </div>
       </div>

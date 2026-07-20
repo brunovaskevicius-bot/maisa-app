@@ -58,6 +58,26 @@
   /* ===== MOTION — easings ===== */
   /* --ease-out (acima) = cubic-bezier(0.16,1,0.3,1) — reusar em TUDO que entra/hover/focus/press */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);  /* overshoot ~5% · SÓ no knob do toggle */
+
+  /* ===== responsividade — estilos inline (s()) não aceitam @media, então o
+     layout de 2 colunas troca por variáveis que viram single-column no breakpoint ===== */
+  --rail-side: minmax(0, 1fr) 340px;    /* Agenda/Calendário: conteúdo + trilho direito */
+  --rail-config: minmax(0, 1fr) 404px;  /* Config: formulário + celular */
+  --config-phone-pos: sticky;
+  --config-phone-h: calc(100vh - 162px);
+  --bento-cols: repeat(4, minmax(0, 1fr)); /* Dashboard: grade bento de 4 colunas */
+}
+
+@media (max-width: 900px) {
+  :root {
+    /* minmax(0,1fr), não 1fr: 1fr = minmax(auto,1fr) e o `auto` não encolhe
+       abaixo do min-content (o celular/tabela forçava overflow). min 0 resolve. */
+    --rail-side: minmax(0, 1fr);
+    --rail-config: minmax(0, 1fr);
+    --config-phone-pos: static;
+    --config-phone-h: auto;
+    --bento-cols: minmax(0, 1fr); /* bento vira coluna única; spans viram no-op */
+  }
 }
 
 * { box-sizing: border-box; }

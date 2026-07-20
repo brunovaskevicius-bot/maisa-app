@@ -74,7 +74,7 @@ export default function Agenda() {
 
   return (
     <Screen style={s("padding:24px 28px;height:100%")}>
-      <div style={s("display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:stretch;height:100%")}>
+      <div style={s("display:grid;grid-template-columns:var(--rail-side);gap:20px;align-items:stretch;height:100%")}>
         {/* CALENDÁRIO */}
         <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-card);overflow:hidden;display:flex;flex-direction:column;min-height:0")}>
           {/* toolbar */}
