@@ -5,6 +5,7 @@ import {
 } from "@/lib/ui";
 import { assinatura, faturasMaisa, metodoPagamento, empresaMaisa } from "@/lib/mock";
 import { useAdmin } from "@/lib/adminConfig";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 type PlanoOpt = { id: string; nome: string; valor: number; resumo: string };
 const PLANOS: PlanoOpt[] = [
@@ -15,6 +16,7 @@ const PLANOS: PlanoOpt[] = [
 
 export default function MeusPagamentos() {
   const { data } = useAdmin();
+  const isMobile = useIsMobile();
   const atualId = PLANOS.find((p) => p.nome === assinatura.plano)?.id ?? "profissional";
   const [trocando, setTrocando] = React.useState(false);
   const [escolhido, setEscolhido] = React.useState(atualId);
@@ -26,7 +28,7 @@ export default function MeusPagamentos() {
   };
 
   return (
-    <Screen>
+    <Screen style={isMobile ? s("padding:16px") : undefined}>
       {/* toast leve de confirmação */}
       {nota && (
         <div
@@ -50,7 +52,7 @@ export default function MeusPagamentos() {
           "overflow:hidden;animation-delay:0ms;background:linear-gradient(135deg,var(--primary-soft),var(--surface) 78%);border:1px solid var(--border)"
         )}
       >
-        <div style={s("padding:22px 24px")}>
+        <div style={s(isMobile ? "padding:20px" : "padding:22px 24px")}>
           <div style={s("display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap")}>
             <div style={s("display:flex;align-items:center;gap:12px")}>
               <div
@@ -82,16 +84,16 @@ export default function MeusPagamentos() {
             <span style={s("font-size:14px;color:var(--muted);font-weight:600")}>/mês</span>
           </div>
 
-          <div style={s("display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:18px")}>
+          <div style={s(isMobile ? "display:flex;flex-direction:column;gap:14px;margin-top:18px" : "display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:18px")}>
             <InfoLine icon="calendar-check" label="Próxima cobrança" value={assinatura.proximaCobranca} mono />
             <InfoLine icon="chat" label="Limite de conversas" value={assinatura.limiteConversas} />
           </div>
 
-          <div style={s("display:flex;gap:10px;margin-top:20px;flex-wrap:wrap")}>
-            <Btn variant="primary" icon="card" onClick={() => flash("Abrindo o portal de gerenciamento do plano…")}>
+          <div style={s(isMobile ? "display:flex;flex-direction:column;gap:10px;margin-top:20px" : "display:flex;gap:10px;margin-top:20px;flex-wrap:wrap")}>
+            <Btn variant="primary" icon="card" full={isMobile} onClick={() => flash("Abrindo o portal de gerenciamento do plano…")}>
               Gerenciar plano
             </Btn>
-            <Btn variant="secondary" icon="refresh" onClick={() => setTrocando((v) => !v)}>
+            <Btn variant="secondary" icon="refresh" full={isMobile} onClick={() => setTrocando((v) => !v)}>
               Mudar de plano
             </Btn>
           </div>
@@ -99,8 +101,8 @@ export default function MeusPagamentos() {
 
         {/* seletor de planos (aparece ao clicar em "Mudar de plano") */}
         {trocando && (
-          <div style={s("padding:18px 24px 22px;border-top:1px solid var(--line);background:var(--surface)")}>
-            <div style={s("display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px")}>
+          <div style={s((isMobile ? "padding:16px 20px 20px;" : "padding:18px 24px 22px;") + "border-top:1px solid var(--line);background:var(--surface)")}>
+            <div style={s(isMobile ? "display:flex;flex-direction:column;gap:12px" : "display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px")}>
               {PLANOS.map((p) => {
                 const sel = escolhido === p.id;
                 const atual = atualId === p.id;
@@ -130,10 +132,11 @@ export default function MeusPagamentos() {
                 );
               })}
             </div>
-            <div style={s("display:flex;gap:10px;margin-top:16px;flex-wrap:wrap")}>
+            <div style={s(isMobile ? "display:flex;flex-direction:column;gap:10px;margin-top:16px" : "display:flex;gap:10px;margin-top:16px;flex-wrap:wrap")}>
               <Btn
                 variant="primary"
                 icon="check"
+                full={isMobile}
                 onClick={() => {
                   const nome = PLANOS.find((p) => p.id === escolhido)?.nome ?? "";
                   setTrocando(false);
@@ -148,6 +151,7 @@ export default function MeusPagamentos() {
               </Btn>
               <Btn
                 variant="ghost"
+                full={isMobile}
                 onClick={() => {
                   setTrocando(false);
                   setEscolhido(atualId);
@@ -162,7 +166,7 @@ export default function MeusPagamentos() {
 
       {/* (B) Forma de pagamento */}
       <Card hover className="m-reveal" style={s("margin-top:16px;animation-delay:60ms")}>
-        <div style={s("display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap")}>
+        <div style={s(isMobile ? "display:flex;flex-direction:column;align-items:stretch;gap:16px" : "display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap")}>
           <div style={s("display:flex;align-items:center;gap:14px")}>
             <div
               style={s(
@@ -184,7 +188,7 @@ export default function MeusPagamentos() {
               </div>
             </div>
           </div>
-          <Btn variant="secondary" icon="edit" onClick={() => flash("Abrindo formulário para atualizar o cartão…")}>
+          <Btn variant="secondary" icon="edit" full={isMobile} onClick={() => flash("Abrindo formulário para atualizar o cartão…")}>
             Atualizar cartão
           </Btn>
         </div>
@@ -194,42 +198,88 @@ export default function MeusPagamentos() {
       <Card style={s("margin-top:16px")} pad={0}>
         <div style={s("padding:16px 20px 8px;font-size:15px;font-weight:700;color:var(--ink)")}>Faturas</div>
         <div>
-          {faturasMaisa.map((f, i) => (
-            <div
-              key={f.id}
-              style={s(
-                "display:flex;align-items:center;gap:14px;padding:13px 20px;" +
-                  (i < faturasMaisa.length - 1 ? "border-bottom:1px solid var(--line)" : "")
-              )}
-            >
-              <span style={s("font-family:var(--font-mono);font-size:12.5px;color:var(--muted);min-width:86px")}>
-                {f.data}
-              </span>
-              <span style={s("flex:1;font-size:13.5px;color:var(--ink);font-weight:500;min-width:120px")}>
-                {f.descricao}
-              </span>
-              <span style={s("font-family:var(--font-mono);font-size:13.5px;font-weight:700;color:var(--ink)")}>
-                {fmt(f.valor)}
-              </span>
+          {faturasMaisa.map((f, i) => {
+            const naoUltima = i < faturasMaisa.length - 1;
+            const statusBadge = (
               <Badge tone={f.status === "pago" ? "success" : "warn"}>
                 {f.status === "pago" ? "Pago" : "Em aberto"}
               </Badge>
-              <IconBtn icon="download" title="Baixar recibo" onClick={() => flash("Recibo de " + f.data + " baixado.")} />
-            </div>
-          ))}
+            );
+
+            // Mobile: cada fatura vira um bloco empilhado e legível (nada de tabela apertada)
+            if (isMobile) {
+              return (
+                <div
+                  key={f.id}
+                  style={s("padding:15px 18px;" + (naoUltima ? "border-bottom:1px solid var(--line)" : ""))}
+                >
+                  <div style={s("display:flex;align-items:flex-start;justify-content:space-between;gap:12px")}>
+                    <span style={s("font-size:14px;font-weight:600;color:var(--ink);line-height:1.4")}>
+                      {f.descricao}
+                    </span>
+                    <span style={s("font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--ink);white-space:nowrap")}>
+                      {fmt(f.valor)}
+                    </span>
+                  </div>
+                  <div style={s("display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px")}>
+                    <div style={s("display:flex;align-items:center;gap:10px")}>
+                      <span style={s("font-family:var(--font-mono);font-size:12.5px;color:var(--muted)")}>
+                        {f.data}
+                      </span>
+                      {statusBadge}
+                    </div>
+                    <Btn
+                      variant="secondary"
+                      size="sm"
+                      icon="download"
+                      style={s("min-height:44px")}
+                      onClick={() => flash("Recibo de " + f.data + " baixado.")}
+                    >
+                      Recibo
+                    </Btn>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={f.id}
+                style={s(
+                  "display:flex;align-items:center;gap:14px;padding:13px 20px;" +
+                    (naoUltima ? "border-bottom:1px solid var(--line)" : "")
+                )}
+              >
+                <span style={s("font-family:var(--font-mono);font-size:12.5px;color:var(--muted);min-width:86px")}>
+                  {f.data}
+                </span>
+                <span style={s("flex:1;font-size:13.5px;color:var(--ink);font-weight:500;min-width:120px")}>
+                  {f.descricao}
+                </span>
+                <span style={s("font-family:var(--font-mono);font-size:13.5px;font-weight:700;color:var(--ink)")}>
+                  {fmt(f.valor)}
+                </span>
+                {statusBadge}
+                <IconBtn icon="download" title="Baixar recibo" onClick={() => flash("Recibo de " + f.data + " baixado.")} />
+              </div>
+            );
+          })}
         </div>
       </Card>
 
       {/* (D) rodapé — empresa MAISA */}
       <div
         style={s(
-          "display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;margin:22px 4px 6px;font-size:12px;color:var(--muted)"
+          "display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);text-align:center;" +
+            (isMobile
+              ? "flex-direction:column;gap:6px;margin:22px 4px 6px"
+              : "gap:10px;flex-wrap:wrap;margin:22px 4px 6px")
         )}
       >
         <span style={s("font-weight:600;color:var(--ink)")}>{empresaMaisa.razao}</span>
-        <Divider vertical />
+        {!isMobile && <Divider vertical />}
         <span>CNPJ {empresaMaisa.cnpj}</span>
-        <Divider vertical />
+        {!isMobile && <Divider vertical />}
         <span>Suporte: {empresaMaisa.suporte}</span>
       </div>
     </Screen>

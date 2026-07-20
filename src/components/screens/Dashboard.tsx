@@ -23,6 +23,7 @@ import {
   type Conversa,
 } from "@/lib/mock";
 import { useAdmin } from "@/lib/adminConfig";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 /* ---------- tokens do "molde" compartilhado ---------- */
 const MONO = "font-family:var(--font-mono);font-weight:800;letter-spacing:-.02em";
@@ -70,8 +71,9 @@ const estadoMeta: Record<
 
 /* ---------- cabeçalho de card (fixo em todos os widgets) ---------- */
 function CardHead({ icon, title, action }: { icon: string; title: string; action?: React.ReactNode }) {
+  const isMobile = useIsMobile();
   return (
-    <div style={s("display:flex;align-items:center;gap:11px")}>
+    <div style={s(`display:flex;align-items:center;gap:11px${isMobile ? ";flex-wrap:wrap;row-gap:10px" : ""}`)}>
       <span
         style={s(
           "width:36px;height:36px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-dark)"
@@ -79,8 +81,10 @@ function CardHead({ icon, title, action }: { icon: string; title: string; action
       >
         <Icon name={icon} size={19} />
       </span>
-      <span style={s("font-size:15px;font-weight:700;letter-spacing:-.01em;color:var(--ink)")}>{title}</span>
-      {action ? <div style={s("margin-left:auto;display:flex;align-items:center;gap:8px")}>{action}</div> : null}
+      <span style={s(`font-size:${isMobile ? "16px" : "15px"};font-weight:700;letter-spacing:-.01em;color:var(--ink)`)}>{title}</span>
+      {action ? (
+        <div style={s(`margin-left:auto;display:flex;align-items:center;gap:8px${isMobile ? ";flex-wrap:wrap;row-gap:8px;justify-content:flex-end" : ""}`)}>{action}</div>
+      ) : null}
     </div>
   );
 }
@@ -88,6 +92,7 @@ function CardHead({ icon, title, action }: { icon: string; title: string; action
 /* ---------- link "ver tudo →" (cor muted→primary + nudge da seta, só transform/cor) ---------- */
 function VerTudo({ label, onClick }: { label: string; onClick: () => void }) {
   const [h, setH] = useState(false);
+  const isMobile = useIsMobile();
   return (
     <button
       onClick={onClick}
@@ -95,7 +100,11 @@ function VerTudo({ label, onClick }: { label: string; onClick: () => void }) {
       onMouseLeave={() => setH(false)}
       className="m-press m-focus"
       style={s(
-        `display:inline-flex;align-items:center;gap:4px;border:none;background:transparent;cursor:pointer;font-size:12.5px;font-weight:600;padding:2px;white-space:nowrap;transition:color var(--dur-fast) var(--ease-out);color:${
+        `display:inline-flex;align-items:center;gap:4px;border:none;background:transparent;cursor:pointer;font-size:${
+          isMobile ? "13px" : "12.5px"
+        };font-weight:600;padding:${isMobile ? "9px 6px" : "2px"}${
+          isMobile ? ";min-height:44px" : ""
+        };white-space:nowrap;transition:color var(--dur-fast) var(--ease-out);color:${
           h ? "var(--primary)" : "var(--muted)"
         }`
       )}
@@ -153,6 +162,7 @@ function Spark({ data }: { data: number[] }) {
 
 export default function Dashboard() {
   const { data, t, isOn } = useAdmin();
+  const isMobile = useIsMobile();
   const { shop, assistant, equipe, servicos, agendaHoje, conversas, faqs, campanhas, kpis } = data;
   const barbeiroNome = data.nomeDoProfissional;
 
@@ -242,17 +252,21 @@ export default function Dashboard() {
       {/* ===== Cabeçalho + tira-pulso (o 1 destaque) ===== */}
       <div
         className="m-reveal"
-        style={s("display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:20px")}
+        style={s(
+          isMobile
+            ? "display:flex;flex-direction:column;align-items:flex-start;gap:14px;margin-bottom:18px"
+            : "display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:20px"
+        )}
       >
         <div>
-          <div style={s("font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--ink)")}>
+          <div style={s(`font-size:${isMobile ? "21px" : "24px"};font-weight:800;letter-spacing:-.02em;color:var(--ink)`)}>
             Bom dia, {shop.dono.split(" ")[0]} <span aria-hidden>👋</span>
           </div>
-          <div style={s("margin-top:5px;font-size:14px;color:var(--muted);line-height:1.5")}>
+          <div style={s(`margin-top:5px;font-size:${isMobile ? "13.5px" : "14px"};color:var(--muted);line-height:1.5`)}>
             A MAISA está cuidando do seu WhatsApp.
           </div>
         </div>
-        <div style={s("display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-bottom:2px")}>
+        <div style={s(`display:flex;align-items:center;gap:16px;flex-wrap:wrap${isMobile ? "" : ";padding-bottom:2px"}`)}>
           <Badge tone="success" dot>MAISA no ar</Badge>
           <span style={s("display:inline-flex;align-items:baseline;gap:6px")}>
             <span style={s(`${MONO};font-size:16px;color:var(--ink)`)}>{kpis.agendamentosHoje}</span>
@@ -268,7 +282,9 @@ export default function Dashboard() {
       {/* ===== Bento ===== */}
       <div
         style={s(
-          "display:grid;grid-template-columns:var(--bento-cols);grid-auto-rows:minmax(132px,auto);gap:16px"
+          isMobile
+            ? "display:flex;flex-direction:column;gap:16px"
+            : "display:grid;grid-template-columns:var(--bento-cols);grid-auto-rows:minmax(132px,auto);gap:16px"
         )}
       >
         {/* ---------- 1. AGENDA (2×2, herói) ---------- */}
@@ -298,9 +314,10 @@ export default function Dashboard() {
               </div>
               <Btn
                 variant="primary"
-                size="sm"
+                size={isMobile ? "md" : "sm"}
                 icon="check"
                 full
+                style={isMobile ? s("min-height:50px;font-size:15px") : undefined}
                 onClick={() => {
                   setAgStatus((p) => ({ ...p, [proximo.id]: "concluido" }));
                   toast(`Chegada de ${proximo.cliente.split(" ")[0]} confirmada ✅`);
@@ -483,7 +500,7 @@ export default function Dashboard() {
                         setFerias((p) => ({ ...p, [b.id]: !p[b.id] }));
                         toast(fer ? `${b.nome.split(" ")[0]} voltou das férias` : `${b.nome.split(" ")[0]} marcado em férias`);
                       }}
-                      style={s("border:none;background:transparent;cursor:pointer;font-size:11.5px;font-weight:600;color:var(--muted);padding:2px")}
+                      style={s(`border:none;background:transparent;cursor:pointer;font-size:${isMobile ? "12.5px" : "11.5px"};font-weight:600;color:var(--muted);padding:${isMobile ? "8px 4px" : "2px"}`)}
                     >
                       {fer ? "voltar" : "entrou de férias?"}
                     </button>
@@ -543,7 +560,7 @@ export default function Dashboard() {
           <Spark data={sparkData} />
           <div style={s("margin-top:auto;display:flex;flex-direction:column;gap:9px")}>
             <span style={s("font-size:11.5px;color:var(--muted)")}>{dadoSub}</span>
-            <div style={s("display:inline-flex;padding:3px;border-radius:10px;background:var(--surface-2);gap:3px;align-self:flex-start")}>
+            <div style={s(`display:inline-flex;padding:3px;border-radius:10px;background:var(--surface-2);gap:3px${isMobile ? ";align-self:stretch" : ";align-self:flex-start"}`)}>
               {(["fat", "ocup"] as const).map((k) => {
                 const sel = serie === k;
                 return (
@@ -552,7 +569,9 @@ export default function Dashboard() {
                     onClick={() => setSerie(k)}
                     className="m-press m-focus"
                     style={s(
-                      `border:none;cursor:pointer;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:8px;transition:background-color var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out),box-shadow var(--dur-base) var(--ease-out);${
+                      `border:none;cursor:pointer;font-size:${isMobile ? "13px" : "11.5px"};font-weight:700;padding:${isMobile ? "11px 14px" : "5px 11px"};border-radius:8px;transition:background-color var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out),box-shadow var(--dur-base) var(--ease-out);${
+                        isMobile ? "flex:1;" : ""
+                      }${
                         sel ? "background:var(--surface);color:var(--ink);box-shadow:var(--shadow-card)" : "background:transparent;color:var(--muted)"
                       }`
                     )}
@@ -638,7 +657,7 @@ export default function Dashboard() {
                 <span style={s("display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted)")}>
                   <span style={s(`${MONO};font-size:12px;color:var(--ink)`)}>{faqAtual.usos}</span> usos
                 </span>
-                <Btn variant="secondary" size="sm" icon="refresh" onClick={() => setFaqIdx((v) => v + 1)}>
+                <Btn variant="secondary" size="sm" icon="refresh" style={isMobile ? s("min-height:44px") : undefined} onClick={() => setFaqIdx((v) => v + 1)}>
                   ver outra
                 </Btn>
               </div>
@@ -666,7 +685,7 @@ export default function Dashboard() {
               </>
             }
           />
-          <div style={s("display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:auto")}>
+          <div style={s(`display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:auto${isMobile ? ";flex-direction:column;align-items:stretch;gap:14px" : ""}`)}>
             <div style={s("display:flex;flex-direction:column;gap:2px")}>
               <span style={s(MICRO)}>Plano {assinatura.plano}</span>
               <span style={s(`${MONO};font-size:20px;color:var(--ink);line-height:1`)}>{fmt(assinatura.valor)}<span style={s("font-size:12px;font-weight:600;color:var(--muted);font-family:inherit;letter-spacing:0")}>/mês</span></span>
@@ -679,7 +698,7 @@ export default function Dashboard() {
               <span style={s(MICRO)}>Método</span>
               <span style={s("font-size:13px;font-weight:600;color:var(--ink)")}>Cartão final {metodoPagamento.final}</span>
             </div>
-            <div style={s("margin-left:auto;display:flex;align-items:center;gap:9px")}>
+            <div style={s(`display:flex;align-items:center;gap:9px${isMobile ? ";justify-content:space-between;padding-top:12px;border-top:1px solid var(--line)" : ";margin-left:auto"}`)}>
               <span style={s("font-size:12.5px;font-weight:600;color:var(--ink)")}>Renovação automática</span>
               <Toggle
                 on={renovacao}
@@ -703,7 +722,7 @@ export default function Dashboard() {
           style={wStyle(8, "grid-column:span 2;opacity:.82")}
         >
           <CardHead icon="marketing" title="Marketing" action={<Badge tone="neutral">Em breve</Badge>} />
-          <div style={s("display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:auto")}>
+          <div style={s(`display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:auto${isMobile ? ";flex-direction:column;align-items:stretch;gap:14px" : ""}`)}>
             <div style={s("flex:1;min-width:0;display:flex;flex-direction:column;gap:3px")}>
               <span style={s("font-size:13px;font-weight:600;color:var(--ink)")}>Campanhas e disparos no WhatsApp</span>
               <span style={s("font-size:12px;color:var(--muted)")}>
@@ -711,7 +730,7 @@ export default function Dashboard() {
               </span>
             </div>
             {avisado ? (
-              <span style={s("display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--success)")}>
+              <span style={s(`display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--success)${isMobile ? ";justify-content:center;padding:6px 0" : ""}`)}>
                 <Icon name="check" size={16} sw={2.4} stroke="var(--success)" />
                 Você será avisado
               </span>
@@ -720,6 +739,8 @@ export default function Dashboard() {
                 variant="secondary"
                 size="sm"
                 icon="bell"
+                full={isMobile}
+                style={isMobile ? s("min-height:48px;font-size:15px") : undefined}
                 onClick={() => {
                   setAvisado(true);
                   toast("Avisaremos quando o Marketing chegar 🔔");

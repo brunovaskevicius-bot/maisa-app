@@ -6,6 +6,7 @@
 import React from "react";
 import { s, Icon, Card, Badge, Toggle, Screen, SectionTitle, Monogram, fmt } from "@/lib/ui";
 import { useAdmin } from "@/lib/adminConfig";
+import { useIsMobile } from "@/lib/useIsMobile";
 import {
   FEATURE_REGISTRY,
   GRUPOS_ORDEM,
@@ -30,6 +31,7 @@ function ProfMark({ emoji, size = 30 }: { emoji: string; size?: number }) {
 
 export default function SuperAdm() {
   const { profissao, setProfissao, isOn, toggle, t, data } = useAdmin();
+  const isMobile = useIsMobile();
 
   // telas ativas (para a mini-lista de efeito) — label dinâmico p/ serviços
   const telasAtivas = FEATURE_REGISTRY.filter((f) => isOn(f.id)).map((f) => ({
@@ -47,12 +49,64 @@ export default function SuperAdm() {
         action={<Badge tone="primary" dot>Reskin ao vivo</Badge>}
       />
 
-      <div style={s("display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start")}>
+      <div
+        style={s(
+          isMobile
+            ? "display:flex;flex-direction:column;gap:16px"
+            : "display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start"
+        )}
+      >
         {/* cards de profissão (radio) */}
-        <div style={s("display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px")}>
+        <div
+          style={s(
+            isMobile
+              ? "display:flex;flex-direction:column;gap:10px"
+              : "display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px"
+          )}
+        >
           {PROFISSOES_ORDEM.map((p, i) => {
             const sel = profissao === p;
             const spec = PROFISSOES[p];
+            if (isMobile) {
+              // MOBILE: cada profissão vira uma LINHA cheia (visão-lista), alvo de toque generoso
+              return (
+                <button
+                  key={p}
+                  onClick={() => setProfissao(p)}
+                  aria-pressed={sel}
+                  className="m-press m-focus m-reveal"
+                  style={s(
+                    `display:flex;align-items:center;gap:14px;width:100%;text-align:left;cursor:pointer;` +
+                      `padding:14px 16px;border-radius:16px;min-height:64px;animation-delay:${i * 45}ms;` +
+                      "transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out);" +
+                      "background:" + (sel ? "var(--primary-soft)" : "var(--surface)") + ";" +
+                      "border:1.5px solid " + (sel ? "var(--primary)" : "var(--border)")
+                  )}
+                >
+                  <span
+                    style={s(
+                      "width:44px;height:44px;border-radius:12px;flex-shrink:0;display:grid;place-items:center;" +
+                        (sel ? "background:var(--surface)" : "background:var(--surface-2)")
+                    )}
+                  >
+                    <ProfMark emoji={spec.terms.emoji} size={26} />
+                  </span>
+                  <div style={s("flex:1;min-width:0")}>
+                    <div style={s("font-size:15.5px;font-weight:800;color:var(--ink)")}>
+                      {PROFISSAO_LABELS[p]}
+                    </div>
+                    <div style={s("font-size:13px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>
+                      {spec.terms.negocioNome}
+                    </div>
+                  </div>
+                  {sel ? (
+                    <Icon name="check" size={22} sw={2.6} style={s("color:var(--primary);flex-shrink:0")} />
+                  ) : (
+                    <span style={s("width:20px;height:20px;border-radius:50%;border:2px solid var(--border);flex-shrink:0")} />
+                  )}
+                </button>
+              );
+            }
             return (
               <button
                 key={p}
@@ -106,7 +160,7 @@ export default function SuperAdm() {
           </div>
 
           {/* vocabulário resolvido */}
-          <div style={s("display:grid;grid-template-columns:1fr 1fr;gap:8px 12px")}>
+          <div style={s(isMobile ? "display:grid;grid-template-columns:1fr;gap:10px" : "display:grid;grid-template-columns:1fr 1fr;gap:8px 12px")}>
             <TermRow k="cliente" v={t.clienteSing} />
             <TermRow k="clientes" v={t.clientePlur} />
             <TermRow k="profissional" v={t.profissionalSing} />
@@ -167,34 +221,39 @@ export default function SuperAdm() {
                 <div>
                   {itens.map((f, i) => {
                     const on = isOn(f.id);
+                    // MOBILE: a LINHA inteira é o alvo de toque (o Toggle vira indicador; o clique
+                    // borbulha da linha e dispara uma única vez). Desktop mantém o Toggle clicável.
                     return (
                       <div
                         key={f.id}
+                        onClick={isMobile ? () => toggle(f.id) : undefined}
+                        className={isMobile ? "m-press" : undefined}
                         style={s(
-                          "display:flex;align-items:center;gap:12px;padding:13px 18px;" +
+                          "display:flex;align-items:center;gap:12px;" +
+                            (isMobile ? "padding:16px 18px;cursor:pointer;min-height:64px;" : "padding:13px 18px;") +
                             (i < itens.length - 1 ? "border-bottom:1px solid var(--line)" : "")
                         )}
                       >
                         <span
                           style={s(
-                            `width:36px;height:36px;border-radius:11px;flex-shrink:0;display:grid;place-items:center;` +
+                            `width:${isMobile ? 40 : 36}px;height:${isMobile ? 40 : 36}px;border-radius:11px;flex-shrink:0;display:grid;place-items:center;` +
                               (on ? "background:var(--primary-soft);color:var(--primary-dark)" : "background:var(--surface-2);color:var(--muted)")
                           )}
                         >
-                          <Icon name={f.id === "servicos" ? t.servicoIcon : f.icon} size={18} />
+                          <Icon name={f.id === "servicos" ? t.servicoIcon : f.icon} size={isMobile ? 20 : 18} />
                         </span>
                         <div style={s("flex:1;min-width:0")}>
                           <div style={s("display:flex;align-items:center;gap:8px")}>
-                            <span style={s("font-size:14px;font-weight:700;color:var(--ink)")}>
+                            <span style={s(`font-size:${isMobile ? 15 : 14}px;font-weight:700;color:var(--ink)`)}>
                               {f.id === "servicos" ? t.catalogoLabel : f.label}
                             </span>
                             {f.modulo === "clinico" && <Badge tone="primary">clínico</Badge>}
                           </div>
-                          <div style={s("font-size:12px;color:var(--muted);margin-top:2px")}>
+                          <div style={s(`font-size:${isMobile ? 13 : 12}px;color:var(--muted);margin-top:2px`)}>
                             {on ? "Visível na sidebar" : "Oculto"}
                           </div>
                         </div>
-                        <Toggle on={on} onChange={() => toggle(f.id)} />
+                        <Toggle on={on} onChange={isMobile ? undefined : () => toggle(f.id)} />
                       </div>
                     );
                   })}

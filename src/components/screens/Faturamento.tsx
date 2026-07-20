@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Screen, s, fmt, initials, toast, ConfirmDialog } from "@/lib/ui";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { pacientes, resumoBy, notas, prestador, avatarClin, type NFInfo } from "@/lib/clinicoMock";
 
 /* ---------- helpers locais ---------- */
@@ -9,6 +10,8 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 type WaStatus = "idle" | "enviando" | "enviado" | "erro";
 
 export default function Faturamento() {
+  const isMobile = useIsMobile();
+
   /* ---------- dados estáticos (mock clínico) ---------- */
   const actives = useMemo(() => pacientes.filter((p) => p.status === "ATIVO"), []);
   const ativosN = actives.length;
@@ -118,6 +121,9 @@ export default function Faturamento() {
   /* ---------- render ---------- */
   return (
     <Screen>
+      {/* ============ DESKTOP (idêntico ao original) ============ */}
+      {!isMobile && (
+        <>
       {/* RESUMO + AÇÕES */}
       <div className="m-reveal" style={s("display:flex;align-items:center;gap:16px;margin-bottom:18px;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-card);padding:18px 22px;flex-wrap:wrap")}>
         <div style={s("display:flex;flex-direction:column")}>
@@ -178,6 +184,87 @@ export default function Faturamento() {
           );
         })}
       </div>
+        </>
+      )}
+
+      {/* ============ MOBILE — resumo empilhado + cada linha vira um CARD ============ */}
+      {isMobile && (
+        <>
+          {/* RESUMO + AÇÕES (empilhado, toque grande) */}
+          <div className="m-reveal" style={s("display:flex;flex-direction:column;gap:16px;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-card);padding:20px")}>
+            <div style={s("display:flex;flex-direction:column;gap:2px")}>
+              <span style={s("font-size:13px;color:var(--muted);font-weight:600")}>Total a faturar em junho</span>
+              <span style={s("font-size:30px;font-weight:800;letter-spacing:-.02em;font-family:var(--font-mono);font-variant-numeric:tabular-nums")}>{fmt(totalFaturar)}</span>
+            </div>
+            <div style={s("display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--bg);border-radius:12px")}>
+              <span style={s("font-size:13px;color:var(--muted);font-weight:600")}>NFs emitidas</span>
+              <span style={s("font-size:17px;font-weight:800;color:var(--success)")}>{emitidas} / {ativosN}</span>
+            </div>
+            <div style={s("display:flex;flex-direction:column;gap:10px")}>
+              <button onClick={gerarTodas} className="m-hov-primary m-press m-focus" style={s("display:flex;align-items:center;justify-content:center;gap:9px;min-height:50px;padding:0 20px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-weight:700;font-size:15px;cursor:pointer")}>
+                {generating && <span style={{ ...s("width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%"), animation: "mspin .7s linear infinite" }} />}
+                {generating ? `Gerando ${gen.done}/${gen.total}…` : "Gerar todas as NFs"}
+              </button>
+              <button onClick={enviarTodas} className="m-hov-bg m-press m-focus" style={s("display:flex;align-items:center;justify-content:center;gap:9px;min-height:50px;padding:0 20px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:700;font-size:15px;cursor:pointer")}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#25D366" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z" /></svg>Enviar todas
+              </button>
+            </div>
+            {generating && <div style={s("width:100%")}><div style={s("height:7px;border-radius:5px;background:var(--line);overflow:hidden")}><div style={{ ...s("height:100%;background:var(--primary)"), width: (gen.total ? Math.round(gen.done / gen.total * 100) : 0) + "%", transition: "width .3s ease" }} /></div></div>}
+          </div>
+
+          {/* LISTA — cada paciente vira um card empilhado */}
+          {actives.map((p, i) => {
+            const [ab, af] = avatarClin(p.id);
+            const r = resView[p.id];
+            const info = nf[p.id];
+            const st = info?.status || "pendente";
+            const wa = whats[p.id] || "idle";
+            const emit = st === "emitida";
+            return (
+              <div key={p.id} className="m-reveal" style={{ ...s("background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-card);padding:16px;margin-bottom:12px"), animationDelay: Math.min(i, 8) * 45 + "ms" }}>
+                {/* topo: avatar + nome + valor */}
+                <div style={s("display:flex;align-items:center;gap:12px")}>
+                  <div style={s(`width:44px;height:44px;border-radius:50%;background:${ab};color:${af};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0`)}>{initials(p.nome)}</div>
+                  <div style={s("display:flex;flex-direction:column;min-width:0;flex:1")}>
+                    <span style={s("font-size:15.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{p.nome}</span>
+                    <span style={s("font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{r?.servicoNome || "—"} · {r?.sessoes || 0} sessões</span>
+                  </div>
+                  <span style={s("font-size:17px;font-weight:800;font-family:var(--font-mono);letter-spacing:-.02em;flex-shrink:0")}>{fmt(r?.valor || 0)}</span>
+                </div>
+
+                {/* status da nota fiscal */}
+                <div style={s("display:flex;align-items:center;gap:8px;margin-top:14px")}>
+                  <span style={s("font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.04em")}>NOTA FISCAL</span>
+                  {st === "pendente" && <span style={s("display:inline-flex;align-items:center;font-size:12px;font-weight:700;padding:4px 11px;border-radius:20px;background:var(--warn-soft);color:var(--warn)")}>Pendente</span>}
+                  {st === "gerando" && <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:4px 11px;border-radius:20px;background:var(--line);color:var(--muted)")}><span style={{ ...s("width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%"), animation: "mspin .7s linear infinite" }} />Gerando…</span>}
+                  {st === "processando" && <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:4px 11px;border-radius:20px;background:var(--warn-soft);color:var(--warn)")}><span style={{ ...s("width:12px;height:12px;border:2px solid var(--warn-soft);border-top-color:var(--warn);border-radius:50%"), animation: "mspin .7s linear infinite" }} />Processando…</span>}
+                  {emit && <span className="m-pop" style={s("display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:4px 11px;border-radius:20px;background:var(--success-soft);color:var(--success)")}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M20 6 9 17l-5-5" /></svg>{info?.numero}</span>}
+                </div>
+
+                <div style={s("height:1px;background:var(--line);margin-top:14px")} />
+
+                {/* ações: Gerar/Ver NF + Enviar WhatsApp (alvos de toque grandes) */}
+                <div style={s("display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px")}>
+                  {emit ? (
+                    <button onClick={() => setPdfId(p.id)} className="m-hov-bg m-press m-focus" style={s("display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer")}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 20.5V5.2A1.7 1.7 0 0 1 6.7 3.5h10.6A1.7 1.7 0 0 1 19 5.2V20.5l-2.33-1.6-2.34 1.6-2.33-1.6-2.34 1.6-2.33-1.6-2.33 1.6Z" /><path d="M8.5 8.4h7M8.5 11.8h4.5" /></svg>Ver NF
+                    </button>
+                  ) : (
+                    <button onClick={() => gerarUma(p.id)} disabled={st !== "pendente"} className="m-hov-prim-border m-press m-focus" style={s(`display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:700;font-size:14px;cursor:${st === "pendente" ? "pointer" : "not-allowed"};opacity:${st === "pendente" ? "1" : ".5"}`)}>
+                      Gerar NF
+                    </button>
+                  )}
+
+                  {wa === "idle" && <button onClick={() => emit && enviarUm(p.id)} disabled={!emit} className="m-hov-bright m-press m-focus" style={s(`display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);font-weight:700;font-size:14px;cursor:${emit ? "pointer" : "not-allowed"};opacity:${emit ? "1" : ".5"};color:var(--ink)`)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#25D366" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z" /></svg>Enviar</button>}
+                  {wa === "enviando" && <span style={s("display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border-radius:12px;background:var(--line);font-size:14px;font-weight:700;color:var(--muted)")}><span style={{ ...s("width:14px;height:14px;border:2px solid var(--border);border-top-color:#25D366;border-radius:50%"), animation: "mspin .7s linear infinite" }} />Enviando…</span>}
+                  {wa === "enviado" && <span className="m-pop" style={s("display:flex;align-items:center;justify-content:center;gap:7px;min-height:48px;border-radius:12px;background:var(--success-soft);font-size:14px;font-weight:700;color:var(--success)")}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round"><path d="m20 6-11 11-5-5" /></svg>Enviado</span>}
+                  {wa === "erro" && <button onClick={() => emit && enviarUm(p.id)} className="m-press m-focus" style={s("display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border:1px solid var(--danger);border-radius:12px;background:var(--danger-soft);color:var(--danger);font-weight:700;font-size:14px;cursor:pointer")}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8" /><path d="M3 3v5h5" /></svg>Tentar de novo</button>}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
 
       {/* PDF MODAL — pré-visualização da NFS-e (homologação) */}
       {pdfP && (() => {

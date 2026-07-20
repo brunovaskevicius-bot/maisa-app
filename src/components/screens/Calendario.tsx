@@ -1,11 +1,14 @@
 "use client";
 import { useMemo, useState } from "react";
 import { s, Icon, Screen, toast, initials } from "@/lib/ui";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { fixos as fixosMock, pacientes, servicos, avatarClin, type Fixo } from "@/lib/clinicoMock";
 
 /* ---------- calendário clínico (clone do Psico Manager) ----------
  * Grade por hora + navegação de semana. Dados 100% de @/lib/clinicoMock (sem fetch).
- * "Hoje" é FIXO em 17/jun/2026 (SSR-safe: nada de Date.now/new Date() dinâmico). */
+ * "Hoje" é FIXO em 17/jun/2026 (SSR-safe: nada de Date.now/new Date() dinâmico).
+ * MOBILE: mesma abordagem da Agenda — sem grade de 7 colunas; vira lista-agenda de
+ * uma coluna (visão-dia com faixa de dias + seções por dia nas visões maiores). */
 
 type View = "dia" | "semana" | "duas" | "mes";
 
@@ -35,6 +38,7 @@ const TODAY = new Date(2026, 5, 17); // qua, 17 de junho de 2026
 let localSeq = 0;
 
 export default function Calendario() {
+  const isMobile = useIsMobile();
   const [view, setView] = useState<View>("semana");
   const [anchor, setAnchor] = useState<Date>(TODAY);
   const [fixos, setFixos] = useState<Fixo[]>(fixosMock);
@@ -112,6 +116,188 @@ export default function Calendario() {
 
   const inputCss = "width:100%;border:1px solid var(--border);border-radius:10px;padding:9px 12px;font-size:13.5px;background:var(--surface);color:var(--ink);outline:none;font-family:inherit";
 
+  // MODAL de agendamento — compartilhado entre desktop e mobile (posição fixa; renderizado igual nos dois)
+  const scheduleModal = showSchedule && (
+    <div onClick={() => setShowSchedule(false)} style={s("position:fixed;inset:0;z-index:9998;background:oklch(0.20 0.03 250 / 0.34);display:flex;align-items:center;justify-content:center;padding:24px")}>
+      <div onClick={(e) => e.stopPropagation()} className="m-pop" style={s("width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-pop);padding:24px;display:flex;flex-direction:column;gap:14px")}>
+        <div style={s("display:flex;align-items:center;justify-content:space-between")}>
+          <h3 style={s("font-size:17px;font-weight:800;letter-spacing:-.01em")}>Agendar sessão</h3>
+          <button onClick={() => setShowSchedule(false)} className="m-hov-bg m-press-icon" style={s("width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:9px;background:var(--surface);cursor:pointer;color:var(--muted)")}><Icon name="x" size={16} sw={2} /></button>
+        </div>
+        <label style={s("display:flex;flex-direction:column;gap:6px")}>
+          <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>Paciente</span>
+          <select value={sched.pid} onChange={(e) => setSched((v) => ({ ...v, pid: e.target.value }))} style={{ ...s(inputCss + ";cursor:pointer;appearance:none") }}>
+            {ativos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+          </select>
+        </label>
+        <label style={s("display:flex;flex-direction:column;gap:6px")}>
+          <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>Serviço</span>
+          <select value={sched.sid} onChange={(e) => setSched((v) => ({ ...v, sid: e.target.value }))} style={{ ...s(inputCss + ";cursor:pointer;appearance:none") }}>
+            {svcAtivos.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+          </select>
+        </label>
+        <div style={s("display:grid;grid-template-columns:1fr 1fr;gap:12px")}>
+          <label style={s("display:flex;flex-direction:column;gap:6px")}>
+            <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>Data</span>
+            <input type="date" value={sched.data} onChange={(e) => setSched((v) => ({ ...v, data: e.target.value }))} style={{ ...s(inputCss) }} />
+          </label>
+          <label style={s("display:flex;flex-direction:column;gap:6px")}>
+            <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>Hora</span>
+            <input type="time" value={sched.hora} onChange={(e) => setSched((v) => ({ ...v, hora: e.target.value }))} style={{ ...s(inputCss) }} />
+          </label>
+        </div>
+        <div style={s("display:flex;gap:10px;margin-top:4px")}>
+          <button onClick={() => setShowSchedule(false)} className="m-hov-bg m-press m-focus" style={s("flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer")}>Cancelar</button>
+          <button onClick={agendar} className="m-hov-primary m-press m-focus" style={s("flex:1;padding:11px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-weight:700;font-size:14px;cursor:pointer")}>Confirmar</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ═══════════════════════════════ MOBILE ═══════════════════════════════
+   * Repensado, não encolhido: uma coluna, lista-agenda. Sem grade de 7 col.
+   * Visão-dia com faixa de dias; visões maiores empilham seções por dia. */
+  if (isMobile) {
+    const mNavBtn = (dir: number, icon: string, label: string) => (
+      <button onClick={() => nav(dir)} className="m-hov-bg m-press" title={label} aria-label={label} style={s("width:44px;height:44px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink)")}>
+        <Icon name={icon} size={18} sw={2.2} />
+      </button>
+    );
+
+    // faixa de dias da semana do âncora (só na visão-dia) — navegação rápida por dia
+    const weekStrip = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i));
+
+    // linha de sessão (card colorido) — índice contínuo p/ o stagger do reveal
+    let ri = 0;
+    const row = (ap: ReturnType<typeof apptsForDate>[number]) => {
+      const i = ri++;
+      const rev = i < REVEAL_CAP;
+      return (
+        <div key={`m-${ap.id}`} onClick={() => toast(`${ap.nome} · ${ap.servicoNome} · ${ap.hora}`)} className={"m-press" + (rev ? " m-reveal" : "")} style={{ ...s("display:flex;gap:12px;align-items:stretch;cursor:pointer"), ...(rev ? s(`animation-delay:${i * REVEAL_STEP}ms`) : {}) }}>
+          <div style={s("width:46px;flex-shrink:0;text-align:right;font-size:12.5px;font-weight:700;color:var(--muted);font-family:var(--font-mono);font-variant-numeric:tabular-nums;padding-top:15px")}>{ap.hora}</div>
+          <div className="m-hov-bright m-lift" style={{ ...s("flex:1;min-width:0;border-radius:12px;padding:11px 14px;min-height:54px;display:flex;flex-direction:column;justify-content:center;gap:3px"), background: ap.bg, borderLeft: `3px solid ${ap.dot}` }}>
+            <div style={{ ...s("font-size:14px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"), color: ap.fg }}>{ap.nome}</div>
+            <div style={{ ...s("font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"), color: ap.fg, opacity: 0.8 }}>{ap.servicoNome}</div>
+          </div>
+        </div>
+      );
+    };
+
+    const emptyDay = (
+      <div style={s("display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:36px 16px;color:var(--muted)")}>
+        <span style={s("width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-dark)")}><Icon name="calendar" size={22} /></span>
+        <span style={s("font-size:14px;font-weight:700;color:var(--ink)")}>Nenhuma sessão neste dia</span>
+        <span style={s("font-size:12.5px")}>Toque em Agendar para incluir uma sessão.</span>
+      </div>
+    );
+
+    const dayItems = apptsForDate(anchor);
+    const groups = visDays.map((d) => ({ d, items: apptsForDate(d) })).filter((g) => g.items.length > 0);
+
+    return (
+      <Screen style={s("padding:16px;height:auto")}>
+        <div style={s("display:flex;flex-direction:column;gap:16px")}>
+          {/* CALENDÁRIO */}
+          <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-card);overflow:hidden;display:flex;flex-direction:column")}>
+            {/* toolbar mobile */}
+            <div style={s("padding:14px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:12px")}>
+              {/* navegação de período */}
+              <div style={s("display:flex;align-items:center;gap:10px")}>
+                {mNavBtn(-1, "chevron-left", "Anterior")}
+                <div style={s("flex:1;min-width:0;text-align:center;font-size:15.5px;font-weight:800;text-transform:capitalize;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{rangeLabel}</div>
+                {mNavBtn(1, "chevron-right", "Próximo")}
+              </div>
+              {/* seletor de visão (rolável se faltar largura) */}
+              <div style={s("display:flex;background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:3px;gap:2px;overflow-x:auto")}>
+                {(["dia", "semana", "duas", "mes"] as const).map((k) => (
+                  <button key={k} onClick={() => setView(k)} className="m-press m-focus" style={s(`flex:1 0 auto;padding:9px 12px;border:none;border-radius:8px;cursor:pointer;font-size:12.5px;font-weight:700;white-space:nowrap;background:${view === k ? "var(--primary)" : "transparent"};color:${view === k ? "#fff" : "var(--muted)"}`)}>
+                    {k === "dia" ? "Dia" : k === "semana" ? "Semana" : k === "duas" ? "2 Semanas" : "Mês"}
+                  </button>
+                ))}
+              </div>
+              {/* ações: Hoje + Agendar (alcançáveis pelo polegar) */}
+              <div style={s("display:flex;gap:10px")}>
+                <button onClick={() => setAnchor(TODAY)} className="m-hov-bg m-press m-focus" style={s("flex:0 0 auto;padding:0 18px;height:46px;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;font-size:14px;font-weight:700;color:var(--ink)")}>Hoje</button>
+                <button onClick={() => setShowSchedule(true)} className="m-hov-primary m-press m-focus" style={s("flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-weight:700;font-size:14px;cursor:pointer")}>
+                  <Icon name="plus" size={17} sw={2.2} />Agendar
+                </button>
+              </div>
+              {/* faixa de dias — navegação rápida na visão-dia */}
+              {view === "dia" && (
+                <div style={s("display:flex;gap:6px")}>
+                  {weekStrip.map((d) => {
+                    const sel = sameDay(d, anchor);
+                    const today = sameDay(d, TODAY);
+                    return (
+                      <button key={d.toISOString()} onClick={() => setAnchor(d)} className="m-press" aria-label={`${DOW[d.getDay()]} ${d.getDate()}`} style={s(`flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0;border:1px solid ${sel ? "var(--primary)" : "var(--border)"};border-radius:12px;background:${sel ? "var(--primary)" : "var(--surface)"};cursor:pointer`)}>
+                        <span style={s(`font-size:10px;font-weight:800;letter-spacing:.03em;color:${sel ? "rgba(255,255,255,.85)" : "var(--muted)"}`)}>{DOW[d.getDay()]}</span>
+                        <span style={s(`font-size:15px;font-weight:800;color:${sel ? "#fff" : today ? "var(--primary)" : "var(--ink)"}`)}>{d.getDate()}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* lista-agenda */}
+            <div style={s("padding:16px 14px;display:flex;flex-direction:column;gap:8px")}>
+              {view === "dia" ? (
+                dayItems.length ? dayItems.map(row) : emptyDay
+              ) : groups.length ? (
+                groups.map((g, gi) => {
+                  const today = sameDay(g.d, TODAY);
+                  return (
+                    <div key={g.d.toISOString()} style={s(`display:flex;flex-direction:column;gap:8px;${gi > 0 ? "margin-top:14px" : ""}`)}>
+                      <div style={s("display:flex;align-items:baseline;gap:8px;padding:0 2px 2px")}>
+                        <span style={s("font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--muted)")}>{DOW[g.d.getDay()]}</span>
+                        <span style={s(`font-size:15px;font-weight:800;color:${today ? "var(--primary)" : "var(--ink)"}`)}>{g.d.getDate()} de {MONTHS[g.d.getMonth()]}</span>
+                        <span style={s("margin-left:auto;font-size:11.5px;font-weight:700;color:var(--muted)")}>{g.items.length} {g.items.length === 1 ? "sessão" : "sessões"}</span>
+                      </div>
+                      {g.items.map(row)}
+                    </div>
+                  );
+                })
+              ) : (
+                <div style={s("display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:36px 16px;color:var(--muted)")}>
+                  <span style={s("width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-dark)")}><Icon name="calendar" size={22} /></span>
+                  <span style={s("font-size:14px;font-weight:700;color:var(--ink)")}>Nenhuma sessão neste período</span>
+                  <span style={s("font-size:12.5px")}>Navegue entre os períodos ou toque em Agendar.</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SESSÕES POR PACIENTE — card lateral empilhado */}
+          <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-card);padding:20px;display:flex;flex-direction:column")}>
+            <h2 style={s("font-size:16px;font-weight:800;letter-spacing:-.01em")}>Sessões por paciente</h2>
+            <span style={s("font-size:12.5px;color:var(--muted);font-weight:600;text-transform:capitalize;margin-top:2px")}>{rangeLabel}</span>
+            <div style={s("display:flex;align-items:baseline;gap:8px;margin-top:14px")}>
+              <span style={s("font-size:34px;font-weight:800;letter-spacing:-.02em;font-family:var(--font-mono);font-variant-numeric:tabular-nums")}>{totalVis}</span>
+              <span style={s("font-size:13px;color:var(--muted)")}>{totalVis === 1 ? "sessão no período" : "sessões no período"}</span>
+            </div>
+            <div style={s("height:1px;background:var(--line);margin:16px 0")} />
+            <div style={s("display:flex;flex-direction:column;gap:8px")}>
+              {sessoesVis.map((x) => {
+                const [ab, af] = avatarClin(x.pid);
+                return (
+                  <div key={x.pid} onClick={() => toast(`${x.nome} — ${x.count} ${x.count === 1 ? "sessão" : "sessões"} no período`)} className="m-hov-bg m-press" style={s("display:flex;align-items:center;gap:12px;padding:8px 6px;border-radius:12px;cursor:pointer")}>
+                    <div style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 14, textShadow: "0 1px 2px rgba(30,20,10,.25)", background: `radial-gradient(circle at 28% 20%, ${af} 0%, transparent 60%), radial-gradient(circle at 80% 85%, ${ab} 0%, transparent 58%), ${af}` }}>{initials(x.nome)}</div>
+                    <span style={s("font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{x.nome}</span>
+                    <span style={s("font-size:12px;font-weight:700;color:var(--primary-dark);background:var(--primary-soft);padding:4px 11px;border-radius:20px;font-family:var(--font-mono);font-variant-numeric:tabular-nums")}>{x.count}</span>
+                  </div>
+                );
+              })}
+              {!sessoesVis.length && <div style={s("font-size:13px;color:var(--muted);text-align:center;padding:24px 10px")}>Nenhuma sessão neste período.</div>}
+            </div>
+          </div>
+        </div>
+
+        {scheduleModal}
+      </Screen>
+    );
+  }
+
+  /* ═══════════════════════════════ DESKTOP (intacto) ═══════════════════════════════ */
   return (
     <Screen style={s("padding:24px 28px;height:100%")}>
       <div style={s("display:grid;grid-template-columns:var(--rail-side);gap:20px;align-items:stretch;height:100%")}>
@@ -233,43 +419,7 @@ export default function Calendario() {
         </div>
       </div>
 
-      {/* MODAL: agendar sessão (ação local) */}
-      {showSchedule && (
-        <div onClick={() => setShowSchedule(false)} style={s("position:fixed;inset:0;z-index:9998;background:oklch(0.20 0.03 250 / 0.34);display:flex;align-items:center;justify-content:center;padding:24px")}>
-          <div onClick={(e) => e.stopPropagation()} className="m-pop" style={s("width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-pop);padding:24px;display:flex;flex-direction:column;gap:14px")}>
-            <div style={s("display:flex;align-items:center;justify-content:space-between")}>
-              <h3 style={s("font-size:17px;font-weight:800;letter-spacing:-.01em")}>Agendar sessão</h3>
-              <button onClick={() => setShowSchedule(false)} className="m-hov-bg m-press-icon" style={s("width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:9px;background:var(--surface);cursor:pointer;color:var(--muted)")}><Icon name="x" size={16} sw={2} /></button>
-            </div>
-            <label style={s("display:flex;flex-direction:column;gap:6px")}>
-              <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>Paciente</span>
-              <select value={sched.pid} onChange={(e) => setSched((v) => ({ ...v, pid: e.target.value }))} style={{ ...s(inputCss + ";cursor:pointer;appearance:none") }}>
-                {ativos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
-              </select>
-            </label>
-            <label style={s("display:flex;flex-direction:column;gap:6px")}>
-              <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>Serviço</span>
-              <select value={sched.sid} onChange={(e) => setSched((v) => ({ ...v, sid: e.target.value }))} style={{ ...s(inputCss + ";cursor:pointer;appearance:none") }}>
-                {svcAtivos.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
-              </select>
-            </label>
-            <div style={s("display:grid;grid-template-columns:1fr 1fr;gap:12px")}>
-              <label style={s("display:flex;flex-direction:column;gap:6px")}>
-                <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>Data</span>
-                <input type="date" value={sched.data} onChange={(e) => setSched((v) => ({ ...v, data: e.target.value }))} style={{ ...s(inputCss) }} />
-              </label>
-              <label style={s("display:flex;flex-direction:column;gap:6px")}>
-                <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>Hora</span>
-                <input type="time" value={sched.hora} onChange={(e) => setSched((v) => ({ ...v, hora: e.target.value }))} style={{ ...s(inputCss) }} />
-              </label>
-            </div>
-            <div style={s("display:flex;gap:10px;margin-top:4px")}>
-              <button onClick={() => setShowSchedule(false)} className="m-hov-bg m-press m-focus" style={s("flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer")}>Cancelar</button>
-              <button onClick={agendar} className="m-hov-primary m-press m-focus" style={s("flex:1;padding:11px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-weight:700;font-size:14px;cursor:pointer")}>Confirmar</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {scheduleModal}
     </Screen>
   );
 }

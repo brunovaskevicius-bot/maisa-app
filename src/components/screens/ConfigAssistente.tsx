@@ -14,6 +14,7 @@ import {
   Screen,
 } from "@/lib/ui";
 import { useAdmin } from "@/lib/adminConfig";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 type Tom = "amigável" | "profissional" | "descontraído";
 type HorarioState = { dia: string; aberto: boolean; de: string; ate: string };
@@ -26,6 +27,10 @@ const TONS: { id: Tom; label: string; icon: string }[] = [
 
 export default function ConfigAssistente() {
   const { data } = useAdmin();
+  const isMobile = useIsMobile();
+
+  // ---- preview do WhatsApp no mobile (colapsável, discreto) ----
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // ---- estado da config ----
   const [nome] = useState(data.assistant.nome);
@@ -80,15 +85,8 @@ export default function ConfigAssistente() {
   const secAtual =
     data.configSecoes.find((c) => c.id === secAtiva) || data.configSecoes[0];
 
-  return (
-    <Screen style={s("padding:20px 28px 28px")}>
-      <div
-        style={s(
-          "display:grid;grid-template-columns:var(--rail-config);gap:26px;align-items:start"
-        )}
-      >
-        {/* ============ COLUNA ESQUERDA — seções que rolam ============ */}
-        <div style={s("display:flex;flex-direction:column;gap:20px")}>
+  const secoes = (
+    <>
           {/* --- Personalidade --- */}
           <Secao
             id="personalidade"
@@ -158,63 +156,129 @@ export default function ConfigAssistente() {
             idx={1}
           >
             <div style={s("display:flex;flex-direction:column;gap:4px")}>
-              {hs.map((h, i) => (
-                <div
-                  key={h.dia}
-                  style={s(
-                    `display:grid;grid-template-columns:120px auto 1fr;gap:14px;align-items:center;padding:11px 0;${
-                      i < hs.length - 1 ? "border-bottom:1px solid var(--line);" : ""
-                    }`
-                  )}
-                >
-                  <span
+              {hs.map((h, i) =>
+                isMobile ? (
+                  // MOBILE: dia + toggle em cima; horários embaixo, largos (sem grade espremida)
+                  <div
+                    key={h.dia}
                     style={s(
-                      `font-size:14px;font-weight:700;color:${
-                        h.aberto ? "var(--ink)" : "var(--muted)"
+                      `display:flex;flex-direction:column;gap:10px;padding:14px 0;${
+                        i < hs.length - 1 ? "border-bottom:1px solid var(--line);" : ""
                       }`
                     )}
                   >
-                    {h.dia}
-                  </span>
-
-                  <Toggle
-                    on={h.aberto}
-                    onChange={(v) => setHorario(i, { aberto: v })}
-                  />
-
-                  {h.aberto ? (
                     <div
                       style={s(
-                        "display:flex;align-items:center;gap:8px;justify-self:end"
+                        "display:flex;align-items:center;justify-content:space-between;gap:12px"
                       )}
                     >
-                      <Input
-                        value={h.de}
-                        onChange={(e) => setHorario(i, { de: e.target.value })}
+                      <span
                         style={s(
-                          "width:78px;text-align:center;font-family:var(--font-mono);padding:8px 8px"
+                          `font-size:15px;font-weight:700;color:${
+                            h.aberto ? "var(--ink)" : "var(--muted)"
+                          }`
                         )}
-                      />
-                      <span style={s("color:var(--muted);font-size:13px")}>às</span>
-                      <Input
-                        value={h.ate}
-                        onChange={(e) => setHorario(i, { ate: e.target.value })}
-                        style={s(
-                          "width:78px;text-align:center;font-family:var(--font-mono);padding:8px 8px"
-                        )}
+                      >
+                        {h.dia}
+                      </span>
+                      <Toggle
+                        on={h.aberto}
+                        onChange={(v) => setHorario(i, { aberto: v })}
                       />
                     </div>
-                  ) : (
+
+                    {h.aberto ? (
+                      <div
+                        style={s(
+                          "display:flex;align-items:center;gap:10px"
+                        )}
+                      >
+                        <Input
+                          value={h.de}
+                          onChange={(e) => setHorario(i, { de: e.target.value })}
+                          style={s(
+                            "flex:1;min-width:0;text-align:center;font-family:var(--font-mono);padding:11px 8px"
+                          )}
+                        />
+                        <span style={s("color:var(--muted);font-size:13px;flex-shrink:0")}>
+                          às
+                        </span>
+                        <Input
+                          value={h.ate}
+                          onChange={(e) => setHorario(i, { ate: e.target.value })}
+                          style={s(
+                            "flex:1;min-width:0;text-align:center;font-family:var(--font-mono);padding:11px 8px"
+                          )}
+                        />
+                      </div>
+                    ) : (
+                      <span
+                        style={s(
+                          "font-size:13px;color:var(--muted);font-weight:600"
+                        )}
+                      >
+                        Fechado
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    key={h.dia}
+                    style={s(
+                      `display:grid;grid-template-columns:120px auto 1fr;gap:14px;align-items:center;padding:11px 0;${
+                        i < hs.length - 1 ? "border-bottom:1px solid var(--line);" : ""
+                      }`
+                    )}
+                  >
                     <span
                       style={s(
-                        "justify-self:end;font-size:13px;color:var(--muted);font-weight:600"
+                        `font-size:14px;font-weight:700;color:${
+                          h.aberto ? "var(--ink)" : "var(--muted)"
+                        }`
                       )}
                     >
-                      Fechado
+                      {h.dia}
                     </span>
-                  )}
-                </div>
-              ))}
+
+                    <Toggle
+                      on={h.aberto}
+                      onChange={(v) => setHorario(i, { aberto: v })}
+                    />
+
+                    {h.aberto ? (
+                      <div
+                        style={s(
+                          "display:flex;align-items:center;gap:8px;justify-self:end"
+                        )}
+                      >
+                        <Input
+                          value={h.de}
+                          onChange={(e) => setHorario(i, { de: e.target.value })}
+                          style={s(
+                            "width:78px;text-align:center;font-family:var(--font-mono);padding:8px 8px"
+                          )}
+                        />
+                        <span style={s("color:var(--muted);font-size:13px")}>às</span>
+                        <Input
+                          value={h.ate}
+                          onChange={(e) => setHorario(i, { ate: e.target.value })}
+                          style={s(
+                            "width:78px;text-align:center;font-family:var(--font-mono);padding:8px 8px"
+                          )}
+                        />
+                      </div>
+                    ) : (
+                      <span
+                        style={s(
+                          "justify-self:end;font-size:13px;color:var(--muted);font-weight:600"
+                        )}
+                      >
+                        Fechado
+                      </span>
+                    )}
+                  </div>
+                )
+              )}
             </div>
           </Secao>
 
@@ -272,27 +336,153 @@ export default function ConfigAssistente() {
             />
           </Secao>
 
-          {/* --- rodapé: salvar --- */}
+    </>
+  );
+
+  // rodapé desktop: salvar
+  const rodape = (
+    <div
+      style={s(
+        "display:flex;align-items:center;justify-content:flex-end;gap:14px;padding-top:4px"
+      )}
+    >
+      {salvo && (
+        <span
+          className="m-pop"
+          style={s(
+            "display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--success)"
+          )}
+        >
+          <Icon name="check" size={16} sw={2.4} />
+          Alterações salvas
+        </span>
+      )}
+      <Btn icon={salvo ? "check" : "sparkle"} onClick={salvar}>
+        {salvo ? "Salvo" : "Salvar alterações"}
+      </Btn>
+    </div>
+  );
+
+  // ===================== MOBILE — repensado =====================
+  if (isMobile) {
+    return (
+      <Screen style={s("padding:16px 16px 24px")}>
+        <div style={s("display:flex;flex-direction:column;gap:20px")}>
+          {/* preview do WhatsApp — discreto e colapsável, no topo */}
+          <Card
+            pad={0}
+            radius={20}
+            className="m-reveal"
+            style={s("overflow:hidden")}
+          >
+            <button
+              onClick={() => setPreviewOpen((v) => !v)}
+              aria-expanded={previewOpen}
+              className="m-hov-bg m-press"
+              style={s(
+                "width:100%;display:flex;align-items:center;gap:13px;padding:15px 16px;min-height:58px;background:transparent;border:none;cursor:pointer;text-align:left"
+              )}
+            >
+              <span
+                style={s(
+                  "width:40px;height:40px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-dark)"
+                )}
+              >
+                <Icon name="whatsapp" size={20} />
+              </span>
+              <div style={s("min-width:0;flex:1")}>
+                <div
+                  style={s(
+                    "font-size:15px;font-weight:800;letter-spacing:-.01em;color:var(--ink)"
+                  )}
+                >
+                  {previewOpen ? "Ocultar preview" : "Ver preview"}
+                </div>
+                <div
+                  style={s("font-size:12.5px;color:var(--muted);margin-top:1px")}
+                >
+                  Como fica a conversa no WhatsApp
+                </div>
+              </div>
+              <Icon
+                name="chevron-down"
+                size={20}
+                sw={2.2}
+                style={{
+                  ...s(
+                    "color:var(--muted);flex-shrink:0;transition:transform .2s var(--ease-out)"
+                  ),
+                  transform: previewOpen ? "rotate(180deg)" : "rotate(0deg)",
+                }}
+              />
+            </button>
+
+            {/* accordion: grid-rows 0fr→1fr (respeita prefers-reduced-motion) */}
+            <div className={`m-acc${previewOpen ? " is-open" : ""}`}>
+              <div>
+                <div
+                  style={s(
+                    "padding:2px 16px 18px;display:flex;justify-content:center"
+                  )}
+                >
+                  {/* wrapper compacto: fixa a altura e a proporção 9/19 deriva a largura */}
+                  <div
+                    style={s(
+                      "width:100%;max-width:214px;height:424px;display:flex"
+                    )}
+                  >
+                    <Phone sec={secAtual} nome={nome} tom={tom} ativo={ativo} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {secoes}
+
+          {/* rodapé: ação primária larga, alcançável pelo polegar */}
           <div
             style={s(
-              "display:flex;align-items:center;justify-content:flex-end;gap:14px;padding-top:4px"
+              "display:flex;flex-direction:column;align-items:stretch;gap:10px;padding-top:2px"
             )}
           >
             {salvo && (
               <span
                 className="m-pop"
                 style={s(
-                  "display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--success)"
+                  "display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:13px;font-weight:700;color:var(--success)"
                 )}
               >
                 <Icon name="check" size={16} sw={2.4} />
                 Alterações salvas
               </span>
             )}
-            <Btn icon={salvo ? "check" : "sparkle"} onClick={salvar}>
+            <Btn
+              full
+              icon={salvo ? "check" : "sparkle"}
+              onClick={salvar}
+              style={s("padding:14px 18px;font-size:15px")}
+            >
               {salvo ? "Salvo" : "Salvar alterações"}
             </Btn>
           </div>
+        </div>
+      </Screen>
+    );
+  }
+
+  // ===================== DESKTOP — idêntico ao original =====================
+  return (
+    <Screen style={s("padding:20px 28px 28px")}>
+      <div
+        style={s(
+          "display:grid;grid-template-columns:var(--rail-config);gap:26px;align-items:start"
+        )}
+      >
+        {/* ============ COLUNA ESQUERDA — seções que rolam ============ */}
+        <div style={s("display:flex;flex-direction:column;gap:20px")}>
+          {secoes}
+          {rodape}
         </div>
 
         {/* ============ COLUNA DIREITA — celular estático (sticky, ancorado no topo da sidebar) ============ */}
