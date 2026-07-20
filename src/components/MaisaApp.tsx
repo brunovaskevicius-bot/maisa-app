@@ -118,9 +118,9 @@ export default function MaisaApp() {
     .filter((x) => x.itens.length > 0);
 
   return (
-    <div style={s("display:flex;flex-direction:column;height:100vh;padding:14px;gap:0;background:transparent")}>
-      {/* TOPBAR — conectada ao corpo (sem tira creme abaixo): cantos de baixo retos */}
-      <header style={s("display:flex;align-items:center;gap:18px;background:var(--nav);border:1px solid var(--nav-line);border-bottom:none;border-radius:20px 20px 0 0;padding:14px 22px;position:relative;z-index:2")}>
+    <div style={s("display:flex;flex-direction:column;height:100vh;padding:14px;gap:14px;background:transparent")}>
+      {/* TOPBAR — card flutuante, separada do corpo com respiro creme e sombra própria */}
+      <header style={s("display:flex;align-items:center;gap:18px;background:var(--nav);border:1px solid var(--nav-line);border-radius:20px;box-shadow:0 8px 28px oklch(0.30 0.05 250 / 0.22);padding:14px 22px;position:relative;z-index:2")}>
         <div style={s("display:flex;flex-direction:column;line-height:1")}>
           <span style={{ ...s("font-size:25px;font-weight:800;color:var(--warm);letter-spacing:-.01em"), textShadow: "0 1.5px 0 oklch(0.58 0.12 68), 0 3px 5px rgba(0,0,0,.22)" }}>maisa</span>
           <span style={s("font-size:10px;font-weight:700;color:var(--nav-muted);letter-spacing:.14em;margin-top:3px")}>ASSISTENTE</span>
@@ -134,8 +134,8 @@ export default function MaisaApp() {
 
       {/* BODY */}
       <div style={s("display:grid;grid-template-columns:250px 1fr;gap:14px;flex:1;min-height:0")}>
-        {/* SIDEBAR — topo reto p/ fundir com a topbar (navy contínuo) */}
-        <aside style={s("background:var(--nav);border:1px solid var(--nav-line);border-top:none;border-radius:0 0 24px 24px;box-shadow:0 12px 36px oklch(0.30 0.05 250 / 0.28);display:flex;flex-direction:column;padding:16px 14px;gap:6px;overflow-y:auto")}>
+        {/* SIDEBAR — card flutuante próprio, separado da topbar (todos os cantos arredondados) */}
+        <aside style={s("background:var(--nav);border:1px solid var(--nav-line);border-radius:24px;box-shadow:0 12px 36px oklch(0.30 0.05 250 / 0.28);display:flex;flex-direction:column;padding:16px 14px;gap:6px;overflow-y:auto")}>
           {gruposVisiveis.map(({ g, itens }, gi) => (
             <React.Fragment key={g}>
               {gi > 0 && <div style={s("height:1px;background:var(--nav-line);margin:14px 8px")} />}
