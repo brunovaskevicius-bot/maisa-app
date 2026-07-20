@@ -10,8 +10,7 @@ type St = AgFixo["status"];
 
 const DOW_G = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"]; // por getDay()
 const DOW_H = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"]; // cabeçalho mês
-const DOW_FULL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]; // rótulo dia (mobile)
-const MES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const MES =["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const HOURS = Array.from({ length: 12 }, (_, i) => ({ h: 9 + i, label: `${String(9 + i).padStart(2, "0")}:00` }));
 const ROW = 56; // px por hora
 const H0 = 9; // primeira hora
@@ -31,8 +30,6 @@ const STB: Record<St, { bg: string; ac: string; fg: string }> = {
   cancelado: { bg: "var(--danger-soft)", ac: "var(--danger)", fg: "var(--danger)" },
 };
 
-const ST_LABEL: Record<St, string> = { confirmado: "Confirmado", aguardando: "Aguardando", concluido: "Concluído", cancelado: "Cancelado" };
-
 const TODAY = new Date(2026, 6, 17); // sex, 17 de julho
 
 export default function Agenda() {
@@ -42,9 +39,9 @@ export default function Agenda() {
   const [view, setView] = useState<View>("semana");
   const [anchor, setAnchor] = useState<Date>(TODAY);
 
-  // No mobile a grade de múltiplas colunas espreme: o padrão vira VISÃO-DIA / lista-agenda.
-  // effView força "dia" no mobile e mantém o desktop idêntico (effView === view fora do mobile).
-  const effView: View = isMobile ? "dia" : view;
+  // effView = view nos dois. O mobile respeita o seletor de visão (igual ao Calendário):
+  // visão-dia = lista-agenda de 1 dia (com faixa de dias); visões maiores = seções por dia.
+  const effView: View = view;
 
   const nav = (dir: number) =>
     setAnchor((a) => (effView === "dia" ? addDays(a, dir) : effView === "semana" ? addDays(a, dir * 7) : effView === "duas" ? addDays(a, dir * 14) : addMonths(a, dir)));
@@ -88,55 +85,88 @@ export default function Agenda() {
         <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-card);overflow:hidden;display:flex;flex-direction:column;min-height:0")}>
           {isMobile ? (
             <>
-              {/* toolbar MOBILE — navegação por dia (a grade de múltiplas colunas espreme demais) */}
+              {/* toolbar MOBILE — igual ao Calendário: nav de período + seletor de visão + Hoje/Agendar + faixa de dias */}
               <div style={s("padding:14px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:12px")}>
                 <div style={s("display:flex;align-items:center;gap:10px")}>
-                  <button onClick={() => nav(-1)} className="m-hov-bg m-press" title="Dia anterior" aria-label="Dia anterior" style={s("width:44px;height:44px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink)")}>
-                    <Icon name="chevron-left" size={20} sw={2.2} />
+                  <button onClick={() => nav(-1)} className="m-hov-bg m-press" title="Anterior" aria-label="Anterior" style={s("width:44px;height:44px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink)")}>
+                    <Icon name="chevron-left" size={18} sw={2.2} />
                   </button>
-                  <div style={s("flex:1;min-width:0;text-align:center")}>
-                    <div style={s("font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase")}>{DOW_FULL[anchor.getDay()]}</div>
-                    <div className="m-pop" style={s(`font-size:18px;font-weight:800;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${sameDay(anchor, TODAY) ? "var(--primary)" : "var(--ink)"}`)}>{anchor.getDate()} de {MES[anchor.getMonth()]}</div>
-                  </div>
-                  <button onClick={() => nav(1)} className="m-hov-bg m-press" title="Próximo dia" aria-label="Próximo dia" style={s("width:44px;height:44px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink)")}>
-                    <Icon name="chevron-right" size={20} sw={2.2} />
+                  <div style={s("flex:1;min-width:0;text-align:center;font-size:15.5px;font-weight:800;text-transform:capitalize;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{cap(rangeLabel)}</div>
+                  <button onClick={() => nav(1)} className="m-hov-bg m-press" title="Próximo" aria-label="Próximo" style={s("width:44px;height:44px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink)")}>
+                    <Icon name="chevron-right" size={18} sw={2.2} />
                   </button>
                 </div>
+                <div style={s("display:flex;background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:3px;gap:2px;overflow-x:auto")}>
+                  {(["dia", "semana", "duas", "mes"] as const).map((k) => (
+                    <button key={k} onClick={() => setView(k)} className="m-press m-focus" style={s(`flex:1 0 auto;padding:9px 12px;border:none;border-radius:8px;cursor:pointer;font-size:12.5px;font-weight:700;white-space:nowrap;background:${view === k ? "var(--primary)" : "transparent"};color:${view === k ? "#fff" : "var(--muted)"}`)}>
+                      {k === "dia" ? "Dia" : k === "semana" ? "Semana" : k === "duas" ? "2 Semanas" : "Mês"}
+                    </button>
+                  ))}
+                </div>
                 <div style={s("display:flex;gap:10px")}>
-                  <button onClick={() => setAnchor(TODAY)} className="m-hov-bg m-press m-focus" style={s("height:44px;padding:0 18px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;font-size:14px;font-weight:700;color:var(--ink)")}>Hoje</button>
-                  <button onClick={() => toast("Novo agendamento em breve ✨")} className="m-hov-primary m-press m-focus" style={s("flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:44px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-weight:700;font-size:14px;cursor:pointer")}>
+                  <button onClick={() => setAnchor(TODAY)} className="m-hov-bg m-press m-focus" style={s("flex:0 0 auto;padding:0 18px;height:46px;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;font-size:14px;font-weight:700;color:var(--ink)")}>Hoje</button>
+                  <button onClick={() => toast("Novo agendamento em breve ✨")} className="m-hov-primary m-press m-focus" style={s("flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-weight:700;font-size:14px;cursor:pointer")}>
                     <Icon name="plus" size={17} sw={2.2} />Agendar
                   </button>
                 </div>
+                {view === "dia" && (
+                  <div style={s("display:flex;gap:6px")}>
+                    {Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i)).map((d) => {
+                      const sel = sameDay(d, anchor);
+                      const today = sameDay(d, TODAY);
+                      return (
+                        <button key={d.toISOString()} onClick={() => setAnchor(d)} className="m-press" aria-label={`${DOW_G[d.getDay()]} ${d.getDate()}`} style={s(`flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0;border:1px solid ${sel ? "var(--primary)" : "var(--border)"};border-radius:12px;background:${sel ? "var(--primary)" : "var(--surface)"};cursor:pointer`)}>
+                          <span style={s(`font-size:10px;font-weight:800;letter-spacing:.03em;color:${sel ? "rgba(255,255,255,.85)" : "var(--muted)"}`)}>{DOW_G[d.getDay()]}</span>
+                          <span style={s(`font-size:15px;font-weight:800;color:${sel ? "#fff" : today ? "var(--primary)" : "var(--ink)"}`)}>{d.getDate()}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              {/* lista-agenda do dia */}
-              <div style={s("padding:14px;display:flex;flex-direction:column;gap:10px")}>
+              {/* lista-agenda (visão-dia = 1 dia; visões maiores = seções por dia) */}
+              <div style={s("padding:16px 14px;display:flex;flex-direction:column;gap:8px")}>
                 {(() => {
-                  const items = apptsForDate(anchor);
-                  if (!items.length) return (
-                    <div style={s("display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;padding:44px 16px;color:var(--muted)")}>
-                      <span style={s("width:50px;height:50px;border-radius:15px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-dark)")}><Icon name="calendar" size={25} /></span>
-                      <span style={s("font-size:14.5px;font-weight:700;color:var(--ink)")}>Nenhum atendimento neste dia</span>
-                      <span style={s("font-size:12.5px;line-height:1.5")}>Use o botão Agendar para incluir um horário.</span>
-                    </div>
-                  );
-                  return items.map((ap, i) => (
-                    <div key={`m-${ap.id}`} onClick={() => toast(`${ap.cliente} · ${ap.hora}`)} className={"m-hov-bg m-press" + (i < REVEAL_CAP ? " m-reveal" : "")} style={{ ...s("display:flex;border:1px solid var(--border);border-radius:14px;overflow:hidden;cursor:pointer;background:var(--surface)"), ...(i < REVEAL_CAP ? s(`animation-delay:${i * REVEAL_STEP}ms`) : {}) }}>
-                      <div style={{ ...s("width:72px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:12px 6px"), background: ap.c.bg }}>
-                        <span style={{ ...s("font-size:15px;font-weight:800;font-family:var(--font-mono);font-variant-numeric:tabular-nums;line-height:1"), color: ap.c.fg }}>{ap.hora}</span>
-                        <span style={{ ...s("font-size:11px;font-weight:600;line-height:1"), color: ap.c.fg, opacity: 0.8 }}>{ap.dur}min</span>
-                      </div>
-                      <div style={{ ...s("flex:1;min-width:0;padding:11px 13px;display:flex;flex-direction:column;gap:5px"), borderLeft: `3px solid ${ap.c.ac}` }}>
-                        <span style={s("font-size:15px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{ap.cliente}</span>
-                        <span style={s("font-size:12.5px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{ap.servico}</span>
-                        <div style={s("display:flex;align-items:center;gap:8px;margin-top:2px;min-width:0")}>
-                          <Monogram name={nomeDoProfissional(ap.barbeiroId)} id={ap.barbeiroId} size={22} radius={7} />
-                          <span style={s("font-size:12px;color:var(--muted);font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{nomeDoProfissional(ap.barbeiroId)}</span>
-                          <span style={{ ...s("font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;flex-shrink:0"), background: ap.c.bg, color: ap.c.fg }}>{ST_LABEL[ap.status]}</span>
+                  let ri = 0;
+                  const row = (ap: ReturnType<typeof apptsForDate>[number]) => {
+                    const i = ri++;
+                    const rev = i < REVEAL_CAP;
+                    return (
+                      <div key={`m-${ap.id}-${i}`} onClick={() => toast(`${ap.cliente} · ${ap.hora}`)} className={"m-press" + (rev ? " m-reveal" : "")} style={{ ...s("display:flex;gap:12px;align-items:stretch;cursor:pointer"), ...(rev ? s(`animation-delay:${i * REVEAL_STEP}ms`) : {}) }}>
+                        <div style={s("width:46px;flex-shrink:0;text-align:right;font-size:12.5px;font-weight:700;color:var(--muted);font-family:var(--font-mono);font-variant-numeric:tabular-nums;padding-top:15px")}>{ap.hora}</div>
+                        <div className="m-hov-bright m-lift" style={{ ...s("flex:1;min-width:0;border-radius:12px;padding:11px 14px;min-height:54px;display:flex;flex-direction:column;justify-content:center;gap:3px"), background: ap.c.bg, borderLeft: `3px solid ${ap.c.ac}` }}>
+                          <div style={{ ...s("font-size:14px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"), color: ap.c.fg }}>{ap.cliente}</div>
+                          <div style={{ ...s("font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"), color: ap.c.fg, opacity: 0.8 }}>{ap.servico} · {nomeDoProfissional(ap.barbeiroId).split(" ")[0]}</div>
                         </div>
                       </div>
+                    );
+                  };
+                  const emptyBox = (msg: string, sub: string) => (
+                    <div style={s("display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:36px 16px;color:var(--muted)")}>
+                      <span style={s("width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-dark)")}><Icon name="calendar" size={22} /></span>
+                      <span style={s("font-size:14px;font-weight:700;color:var(--ink)")}>{msg}</span>
+                      <span style={s("font-size:12.5px")}>{sub}</span>
                     </div>
-                  ));
+                  );
+                  if (view === "dia") {
+                    const items = apptsForDate(anchor);
+                    return items.length ? items.map(row) : emptyBox("Nenhum atendimento neste dia", "Toque em Agendar para incluir um horário.");
+                  }
+                  const groups = visDays.map((d) => ({ d, items: apptsForDate(d) })).filter((g) => g.items.length > 0);
+                  if (!groups.length) return emptyBox("Nenhum atendimento neste período", "Navegue entre os períodos ou toque em Agendar.");
+                  return groups.map((g, gi) => {
+                    const today = sameDay(g.d, TODAY);
+                    return (
+                      <div key={g.d.toISOString()} style={s(`display:flex;flex-direction:column;gap:8px;${gi > 0 ? "margin-top:14px" : ""}`)}>
+                        <div style={s("display:flex;align-items:baseline;gap:8px;padding:0 2px 2px")}>
+                          <span style={s("font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--muted)")}>{DOW_G[g.d.getDay()]}</span>
+                          <span style={s(`font-size:15px;font-weight:800;color:${today ? "var(--primary)" : "var(--ink)"}`)}>{g.d.getDate()} de {MES[g.d.getMonth()]}</span>
+                          <span style={s("margin-left:auto;font-size:11.5px;font-weight:700;color:var(--muted)")}>{g.items.length} {g.items.length === 1 ? "atend." : "atends."}</span>
+                        </div>
+                        {g.items.map(row)}
+                      </div>
+                    );
+                  });
                 })()}
               </div>
             </>
