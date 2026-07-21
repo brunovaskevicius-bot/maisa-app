@@ -92,6 +92,22 @@ export async function consultarNfse(ref: string): Promise<FocusResult> {
   return { httpStatus: res.status, data };
 }
 
+/**
+ * Cancela a NFS-e. DELETE /nfse/{ref} — síncrono.
+ * justificativa: opcional, 15–255 caracteres. Retorna { status: "cancelado" }
+ * ou { status: "erro_cancelamento", erros: [...] }.
+ */
+export async function cancelarNfse(ref: string, justificativa?: string): Promise<FocusResult> {
+  const j = justificativa && justificativa.length >= 15 ? justificativa.slice(0, 255) : undefined;
+  const res = await fetch(`${baseUrl()}/nfse/${encodeURIComponent(ref)}`, {
+    method: "DELETE",
+    headers: { Authorization: authHeader(), "Content-Type": "application/json" },
+    body: j ? JSON.stringify({ justificativa: j }) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { httpStatus: res.status, data };
+}
+
 /** Normaliza o status bruto da Focus para o vocabulário da UI. */
 export function normalizarStatus(raw?: string): "processando" | "autorizado" | "erro" | "cancelado" {
   switch (raw) {

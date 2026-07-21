@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { Screen, s, fmt, initials, toast, ConfirmDialog } from "@/lib/ui";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { pacientes, resumoBy, notas, prestador, avatarClin, type NFInfo } from "@/lib/clinicoMock";
@@ -8,6 +8,18 @@ import { pacientes, resumoBy, notas, prestador, avatarClin, type NFInfo } from "
 /* ---------- helpers locais ---------- */
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 type WaStatus = "idle" | "enviando" | "enviado" | "erro";
+
+// "modo teste": em produção a NFS-e só autoriza de verdade, então para testar
+// emitimos a nota real, guardamos numero/PDF/XML e a CANCELAMOS ~30s depois
+// (lógica recomendada pelo suporte da Focus). Persistido em localStorage para,
+// se a página recarregar, retomar o cancelamento e nunca deixar uma nota válida.
+// aguardando_autorizacao = nota REAL emitida mas ainda "processando" na prefeitura;
+// fica sendo consultada até autorizar, aí arma a contagem dos 30s p/ cancelar.
+type TesteFase = "aguardando_autorizacao" | "aguardando" | "cancelando" | "cancelada" | "falhou";
+type Teste = { ref: string; numero?: string; pdf?: string; xml?: string; fase: TesteFase; cancelAfter?: number; simulado?: boolean; erro?: string };
+const LS_TESTES = "maisa_nf_testes";
+const LS_MODO = "maisa_nf_modo_teste";
+const TESTE_DELAY_MS = 30_000;
 
 export default function Faturamento() {
   const isMobile = useIsMobile();
@@ -35,6 +47,16 @@ export default function Faturamento() {
   const numRef = useRef(117); // próximo número de NF (as 116 primeiras já existem no mock)
 
   const nextNumero = () => "2026/" + String(numRef.current++).padStart(6, "0");
+
+  /* ---------- modo teste (emitir → cancelar em 30s) ---------- */
+  const [modoTeste, setModoTeste] = useState(false);
+  const [testes, setTestes] = useState<Record<string, Teste>>({});
+  const [now, setNow] = useState(() => Date.now());
+  const modoTesteRef = useRef(false);
+  modoTesteRef.current = modoTeste;
+  const firing = useRef<Set<string>>(new Set());
+  const checkingAuth = useRef<Set<string>>(new Set());
+  const persistTestes = (t: Record<string, Teste>) => { try { localStorage.setItem(LS_TESTES, JSON.stringify(t)); } catch { /* ignora */ } };
 
   /* ---------- derivados ---------- */
   const totalFaturar = useMemo(() => actives.reduce((a, p) => a + (resView[p.id]?.valor || 0), 0), [actives, resView]);
@@ -65,18 +87,172 @@ export default function Faturamento() {
     return { status: "processando" };
   };
 
+  // registra uma nota de teste. Se já autorizada → arma a contagem de 30s p/ cancelar.
+  // Se ainda "processando" → guarda o ref e fica esperando autorização (nunca deixa nota órfã).
+  const iniciarTeste = (pid: string, d: any) => {
+    if (!d?.ref) return;
+    const autorizada = d.status === "autorizado" || d.status === "simulado" || !!d.simulado || !!d.numero;
+    setTestes((prev) => {
+      const atual = prev[pid];
+      // não rebaixa um teste que já está esperando/cancelando por causa de uma chamada tardia
+      if (atual && atual.fase !== "aguardando_autorizacao" && !autorizada) return prev;
+      const t: Teste = autorizada
+        ? { ref: d.ref, numero: d.numero ?? atual?.numero, pdf: d.pdf ?? atual?.pdf, xml: d.xml ?? atual?.xml, fase: "aguardando", cancelAfter: Date.now() + TESTE_DELAY_MS, simulado: d.status === "simulado" || !!d.simulado }
+        : { ref: d.ref, fase: "aguardando_autorizacao" };
+      const n = { ...prev, [pid]: t };
+      persistTestes(n);
+      return n;
+    });
+  };
+
+  const removerTeste = (pid: string) => setTestes((prev) => { if (!prev[pid]) return prev; const n = { ...prev }; delete n[pid]; persistTestes(n); return n; });
+
+  // chama o servidor para cancelar a nota de teste
+  const executarCancelamento = async (pid: string, t: Teste) => {
+    try {
+      const res = await fetch("/api/nf/cancelar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: t.ref }) });
+      const d = await res.json();
+      if (d.status === "cancelado") {
+        setTestes((prev) => { const n = { ...prev, [pid]: { ...prev[pid], fase: "cancelada" as const } }; persistTestes(n); return n; });
+        toast(`NF de teste ${t.numero ?? ""} cancelada`.replace(/\s+/g, " ").trim());
+      } else {
+        setTestes((prev) => { const n = { ...prev, [pid]: { ...prev[pid], fase: "falhou" as const, erro: msgErro(d) } }; persistTestes(n); return n; });
+        toast(`⚠ Não foi possível cancelar a NF ${t.numero ?? t.ref} — cancele no painel da Focus`);
+      }
+    } catch {
+      setTestes((prev) => { const n = { ...prev, [pid]: { ...prev[pid], fase: "falhou" as const, erro: "Falha de conexão" } }; persistTestes(n); return n; });
+      toast(`⚠ Falha ao cancelar a NF ${t.numero ?? t.ref} — cancele no painel da Focus`);
+    } finally {
+      firing.current.delete(pid);
+    }
+  };
+
+  // retenta manualmente o cancelamento de um teste que falhou
+  const reintentar = (pid: string) => {
+    const t = testes[pid];
+    if (!t || firing.current.has(pid)) return;
+    firing.current.add(pid);
+    setTestes((prev) => ({ ...prev, [pid]: { ...prev[pid], fase: "cancelando" as const } }));
+    executarCancelamento(pid, t);
+  };
+
+  const toggleModoTeste = () => setModoTeste((v) => { const nv = !v; try { localStorage.setItem(LS_MODO, nv ? "1" : "0"); } catch { /* ignora */ } return nv; });
+
+  // 1) ao montar: restaura preferência + retoma cancelamentos pendentes salvos
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(LS_MODO) === "1") setModoTeste(true);
+      const raw = localStorage.getItem(LS_TESTES);
+      if (!raw) return;
+      const parsed: Record<string, Teste> = JSON.parse(raw);
+      const norm: Record<string, Teste> = {};
+      for (const [pid, t] of Object.entries(parsed)) {
+        if (t.fase === "cancelada") continue; // já resolvido
+        if (t.fase === "aguardando_autorizacao") { norm[pid] = t; continue; } // segue consultando autorização
+        // aguardando/cancelando/falhou → tenta cancelar o quanto antes (segurança)
+        norm[pid] = { ...t, fase: "aguardando", cancelAfter: Math.min(t.cancelAfter ?? Date.now(), Date.now()) };
+      }
+      if (!Object.keys(norm).length) return;
+      setTestes(norm);
+      setNf((st) => {
+        const n = { ...st };
+        for (const [pid, t] of Object.entries(norm)) {
+          n[pid] = t.fase === "aguardando_autorizacao"
+            ? { status: "processando", notaId: t.ref }
+            : { status: "emitida", numero: t.numero, notaId: t.ref, pdfUrl: t.pdf, xmlUrl: t.xml, dataEmissao: "2026-06-30" };
+        }
+        return n;
+      });
+    } catch { /* ignora localStorage corrompido */ }
+  }, []);
+
+  // 2) enquanto houver teste pendente, faz o "relógio" avançar (para o contador e o disparo)
+  const temPendente = Object.values(testes).some((t) => t.fase === "aguardando" || t.fase === "cancelando");
+  useEffect(() => {
+    if (!temPendente) return;
+    const iv = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(iv);
+  }, [temPendente]);
+
+  // 3) dispara o cancelamento assim que o tempo de cada teste vence
+  useEffect(() => {
+    for (const [pid, t] of Object.entries(testes)) {
+      if (t.fase === "aguardando" && t.cancelAfter != null && now >= t.cancelAfter && !firing.current.has(pid)) {
+        firing.current.add(pid);
+        setTestes((prev) => { const n = { ...prev, [pid]: { ...prev[pid], fase: "cancelando" as const } }; persistTestes(n); return n; });
+        executarCancelamento(pid, t);
+      }
+    }
+  }, [now, testes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 4) SEGURANÇA FISCAL: notas de teste ainda "processando" na prefeitura são consultadas
+  // até autorizarem; só então armamos os 30s p/ cancelar. Garante que uma nota REAL que
+  // autoriza tarde (após o timeout do polling) nunca fique sem cancelamento. Sobrevive a reload.
+  const temAguardandoAuth = Object.values(testes).some((t) => t.fase === "aguardando_autorizacao");
+  useEffect(() => {
+    if (!temAguardandoAuth) return;
+    let vivo = true;
+    const consultar = async () => {
+      for (const [pid, t] of Object.entries(testes)) {
+        if (t.fase !== "aguardando_autorizacao" || checkingAuth.current.has(pid)) continue;
+        checkingAuth.current.add(pid);
+        try {
+          const res = await fetch(`/api/nf/status?ref=${encodeURIComponent(t.ref)}`);
+          const d = await res.json();
+          if (!vivo) return;
+          if (d.status === "autorizado" || d.status === "simulado") {
+            iniciarTeste(pid, { ref: t.ref, numero: d.numero, pdf: d.pdf, xml: d.xml, status: "autorizado" }); // arma os 30s
+            setNf((st) => ({ ...st, [pid]: { status: "emitida", numero: d.numero ?? st[pid]?.numero ?? nextNumero(), notaId: t.ref, pdfUrl: d.pdf, xmlUrl: d.xml, dataEmissao: "2026-06-30" } }));
+          } else if (d.status === "erro" || d.status === "cancelado") {
+            removerTeste(pid); // não virou nota real
+            setNf((st) => ({ ...st, [pid]: { status: "pendente" } }));
+          }
+        } catch { /* rede: tenta de novo no próximo tick */ } finally {
+          checkingAuth.current.delete(pid);
+        }
+      }
+    };
+    consultar();
+    const iv = setInterval(consultar, 5000);
+    return () => { vivo = false; clearInterval(iv); };
+  }, [temAguardandoAuth, testes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // badge do teste ao lado do status da NF
+  const beaker = (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3h6M10 3v6l-5.4 9.4A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.7-2.6L14 9V3" /><path d="M7.5 15h9" /></svg>
+  );
+  const testeBadge = (pid: string) => {
+    const t = testes[pid];
+    if (!t) return null;
+    const base = "display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:20px";
+    if (t.fase === "aguardando_autorizacao") return <span style={s(base + ";background:var(--warn-soft);color:var(--warn)")}>{beaker} teste · aguardando autorização…</span>;
+    if (t.fase === "aguardando") {
+      const seg = Math.max(0, Math.ceil(((t.cancelAfter ?? now) - now) / 1000));
+      return <span style={s(base + ";background:var(--warn-soft);color:var(--warn)")}>{beaker} teste · cancela em {seg}s</span>;
+    }
+    if (t.fase === "cancelando") return <span style={s(base + ";background:var(--warn-soft);color:var(--warn)")}>{beaker} teste · cancelando…</span>;
+    if (t.fase === "cancelada") return <span className="m-pop" style={s(base + ";background:var(--success-soft);color:var(--success)")}>{beaker} teste · cancelada</span>;
+    return (
+      <span style={s(base + ";background:var(--danger-soft);color:var(--danger);flex-wrap:wrap")}>
+        {beaker} falha ao cancelar
+        <button onClick={() => reintentar(pid)} className="m-press m-focus" style={s("border:1px solid var(--danger);border-radius:8px;background:transparent;color:var(--danger);font-weight:700;font-size:11px;padding:2px 8px;cursor:pointer")}>Cancelar agora</button>
+      </span>
+    );
+  };
+
   // Emite a NF de um paciente PELO SERVIDOR. Real quando há token da Focus; simulado caso contrário.
   // Retorna true se a nota ficou emitida.
   const emitir = async (pid: string): Promise<boolean> => {
     const pac = actives.find((p) => p.id === pid);
     const r = resView[pid];
+    const testeMode = modoTesteRef.current; // trava a intenção no início: se emitiu em teste, será cancelada
     setNf((st) => ({ ...st, [pid]: { status: "gerando" } }));
 
-    const setEmitida = (d: any) =>
-      setNf((st) => ({
-        ...st,
-        [pid]: { status: "emitida", numero: d?.numero ?? nextNumero(), notaId: d?.ref ?? "nf-" + pid, pdfUrl: d?.pdf, xmlUrl: d?.xml, dataEmissao: "2026-06-30" },
-      }));
+    const setEmitida = (d: any) => {
+      const numero = d?.numero ?? nextNumero();
+      setNf((st) => ({ ...st, [pid]: { status: "emitida", numero, notaId: d?.ref ?? "nf-" + pid, pdfUrl: d?.pdf, xmlUrl: d?.xml, dataEmissao: "2026-06-30" } }));
+      if (testeMode) iniciarTeste(pid, { ...d, numero });
+    };
 
     try {
       const res = await fetch("/api/nf/emitir", {
@@ -95,9 +271,16 @@ export default function Faturamento() {
 
       if (data.status === "processando") {
         setNf((st) => ({ ...st, [pid]: { status: "processando", notaId: data.ref } }));
+        if (testeMode) iniciarTeste(pid, { ref: data.ref }); // registra JÁ p/ nunca deixar uma nota real órfã
         const final = await pollStatus(data.ref);
-        if (final.status === "autorizado") { setEmitida(final); return true; }
-        if (final.status === "processando") { toast("NF em processamento na prefeitura — acompanhe em instantes"); return false; }
+        if (final.status === "autorizado") { setEmitida({ ...final, ref: final.ref ?? data.ref }); return true; }
+        if (final.status === "processando") {
+          // timeout do polling: em modo teste a nota segue registrada (aguardando_autorizacao)
+          // e o efeito de autorização continua consultando até poder cancelar — nunca fica órfã.
+          toast(testeMode ? "NF de teste em processamento — o cancelamento dispara assim que autorizar" : "NF em processamento na prefeitura — acompanhe em instantes");
+          return false;
+        }
+        if (testeMode) removerTeste(pid); // erro/cancelado → não há nota real p/ cancelar
         setNf((st) => ({ ...st, [pid]: { status: "pendente" } }));
         toast(msgErro(final));
         return false;
@@ -188,6 +371,15 @@ export default function Faturamento() {
     toast(`${emit.length} nota${emit.length > 1 ? "s" : ""} enviada${emit.length > 1 ? "s" : ""} no WhatsApp`);
   };
 
+  const modoTesteBtn = (
+    <button onClick={toggleModoTeste} className="m-press m-focus" title="Emite a nota DE VERDADE e cancela sozinho após 30s — para validar a integração em produção sem deixar uma nota fiscal válida." style={s(`display:inline-flex;align-items:center;gap:9px;min-height:44px;padding:9px 14px;border:1px solid ${modoTeste ? "var(--warn)" : "var(--border)"};border-radius:10px;background:${modoTeste ? "var(--warn-soft)" : "var(--surface)"};color:${modoTeste ? "var(--warn)" : "var(--muted)"};font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap`)}>
+      {beaker} Modo teste
+      <span style={s(`width:32px;height:19px;border-radius:20px;background:${modoTeste ? "var(--warn)" : "var(--line)"};position:relative;flex-shrink:0`)}>
+        <span style={{ ...s("position:absolute;top:2px;width:15px;height:15px;border-radius:50%;background:#fff"), left: modoTeste ? "15px" : "2px", transition: "left .18s" }} />
+      </span>
+    </button>
+  );
+
   const GRID = "display:grid;grid-template-columns:2fr 1.4fr .8fr 1fr 1.3fr 1.1fr;gap:12px";
   const pdfP = pacientes.find((p) => p.id === pdfId);
 
@@ -208,6 +400,7 @@ export default function Faturamento() {
           <span style={s("font-size:13px;color:var(--muted);font-weight:600")}>NFs emitidas</span>
           <span style={s("font-size:20px;font-weight:800;color:var(--success)")}>{emitidas} / {ativosN}</span>
         </div>
+        {modoTesteBtn}
         <div style={s("margin-left:auto;display:flex;gap:10px")}>
           <button onClick={enviarTodas} className="m-hov-bg m-press m-focus" style={s("display:flex;align-items:center;gap:8px;padding:11px 18px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer")}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#25D366" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z" /></svg>Enviar todas
@@ -241,11 +434,12 @@ export default function Faturamento() {
               <span style={s("font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{r?.servicoNome || "—"}</span>
               <span style={s("font-size:13.5px;color:var(--ink)")}>{r?.sessoes || 0}</span>
               <span style={s("font-size:14px;font-weight:700")}>{fmt(r?.valor || 0)}</span>
-              <div>
+              <div style={s("display:flex;flex-direction:column;gap:6px;align-items:flex-start")}>
                 {st === "pendente" && <button onClick={() => gerarUma(p.id)} className="m-hov-prim-border m-press m-focus" style={s("display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-weight:700;font-size:12.5px;cursor:pointer")}>Gerar NF</button>}
                 {st === "gerando" && <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--muted)")}><span style={{ ...s("width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--primary);border-radius:50%"), animation: "mspin .7s linear infinite" }} />Gerando…</span>}
                 {st === "processando" && <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--warn)")}><span style={{ ...s("width:13px;height:13px;border:2px solid var(--warn-soft);border-top-color:var(--warn);border-radius:50%"), animation: "mspin .7s linear infinite" }} />Processando…</span>}
                 {emit && <button onClick={() => verNota(p.id)} className="m-pop m-press m-focus" style={s("display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:none;border-radius:8px;background:var(--success-soft);color:var(--success);font-weight:700;font-size:12.5px;cursor:pointer")}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round"><path d="M20 6 9 17l-5-5" /></svg>NF {info?.numero}</button>}
+                {testeBadge(p.id)}
               </div>
               <div>
                 {wa === "idle" && <button onClick={() => emit && enviarUm(p.id)} disabled={!emit} className="m-press m-focus" style={s(`display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-weight:700;font-size:12.5px;cursor:${emit ? "pointer" : "not-allowed"};opacity:${emit ? "1" : ".45"};color:var(--ink)`)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#25D366" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z" /></svg>Enviar</button>}
@@ -273,6 +467,7 @@ export default function Faturamento() {
               <span style={s("font-size:13px;color:var(--muted);font-weight:600")}>NFs emitidas</span>
               <span style={s("font-size:17px;font-weight:800;color:var(--success)")}>{emitidas} / {ativosN}</span>
             </div>
+            <div style={s("display:flex")}>{modoTesteBtn}</div>
             <div style={s("display:flex;flex-direction:column;gap:10px")}>
               <button onClick={gerarTodas} className="m-hov-primary m-press m-focus" style={s("display:flex;align-items:center;justify-content:center;gap:9px;min-height:50px;padding:0 20px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-weight:700;font-size:15px;cursor:pointer")}>
                 {generating && <span style={{ ...s("width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%"), animation: "mspin .7s linear infinite" }} />}
@@ -313,6 +508,8 @@ export default function Faturamento() {
                   {st === "processando" && <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:4px 11px;border-radius:20px;background:var(--warn-soft);color:var(--warn)")}><span style={{ ...s("width:12px;height:12px;border:2px solid var(--warn-soft);border-top-color:var(--warn);border-radius:50%"), animation: "mspin .7s linear infinite" }} />Processando…</span>}
                   {emit && <span className="m-pop" style={s("display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:4px 11px;border-radius:20px;background:var(--success-soft);color:var(--success)")}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M20 6 9 17l-5-5" /></svg>{info?.numero}</span>}
                 </div>
+
+                {testes[p.id] && <div style={s("margin-top:10px")}>{testeBadge(p.id)}</div>}
 
                 <div style={s("height:1px;background:var(--line);margin-top:14px")} />
 
@@ -389,14 +586,14 @@ export default function Faturamento() {
       {/* CONFIRMAÇÃO — emitir NF é irreversível (uma ou em lote) */}
       <ConfirmDialog
         open={!!confirm}
-        title={confirm?.tipo === "todas" ? "Emitir todas as NFs?" : "Emitir nota fiscal?"}
-        message={
-          confirm?.tipo === "todas"
+        title={confirm?.tipo === "todas" ? (modoTeste ? "Emitir todas (modo teste)?" : "Emitir todas as NFs?") : (modoTeste ? "Emitir nota (modo teste)?" : "Emitir nota fiscal?")}
+        message={(() => {
+          if (!confirm) return undefined;
+          const base = confirm.tipo === "todas"
             ? `Emitir ${pendentes.length} nota${pendentes.length > 1 ? "s" : ""} fiscal${pendentes.length > 1 ? "is" : ""} somando ${fmt(totalPendente)}? A emissão é irreversível.`
-            : confirm?.nome
-              ? `Emitir a NF de ${confirm.nome}? A emissão é irreversível.`
-              : undefined
-        }
+            : `Emitir a NF de ${confirm.nome ?? "paciente"}? A emissão é irreversível.`;
+          return modoTeste ? base + " Modo teste: a nota é emitida DE VERDADE e cancelada automaticamente ~30s depois." : base;
+        })()}
         confirmText="Emitir"
         cancelText="Cancelar"
         tone="primary"
