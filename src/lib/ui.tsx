@@ -291,7 +291,7 @@ export function Toaster() {
     };
   }, []);
   return (
-    <div role="status" aria-live="polite" style={s("position:fixed;left:0;right:0;bottom:26px;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:9999;pointer-events:none")}>
+    <div role="status" aria-live="polite" style={{ ...s("position:fixed;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:9999;pointer-events:none"), bottom: "max(26px, calc(env(safe-area-inset-bottom) + 14px))" }}>
       {items.map((i) => (
         <div key={i.id} className="m-pop" style={s("display:flex;align-items:center;gap:9px;background:var(--ink);color:var(--surface);font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:var(--shadow-pop)")}>
           <Icon name="check" size={16} sw={2.4} stroke="var(--surface)" />

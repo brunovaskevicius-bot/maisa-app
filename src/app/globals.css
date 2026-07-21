@@ -98,6 +98,10 @@ body {
 
 button, input, select, textarea { font-family: inherit; }
 
+/* anel de foco de teclado em TODOS os controles de formulário — cobre inputs inline
+   que só setam outline:none (o box-shadow não é afetado pelo outline:none inline) */
+input:focus-visible, select:focus-visible, textarea:focus-visible { box-shadow: 0 0 0 3px var(--ring); }
+
 /* conteúdo só p/ leitor de tela — visualmente oculto, mantém acessível */
 .sr-only {
   position: absolute;
@@ -122,7 +126,6 @@ button, input, select, textarea { font-family: inherit; }
 @keyframes mspin { to { transform: rotate(360deg); } }
 @keyframes mfade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mrise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes mfloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
 @keyframes mpop { 0% { transform: scale(.82); opacity: .3; } 60% { transform: scale(1.04); } 100% { transform: scale(1); opacity: 1; } }
 .m-pop { animation: mpop .32s var(--ease-out); }
 /* dots do card circular "TOTAL" — entrada escalonada (delay inline por índice) */

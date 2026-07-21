@@ -130,7 +130,7 @@ export default function MaisaApp() {
     .filter((x) => x.itens.length > 0);
 
   return (
-    <div style={s(`display:flex;flex-direction:column;height:100vh;padding:${isMobile ? "10px" : "14px"};gap:${isMobile ? "10px" : "14px"};background:transparent`)}>
+    <div style={{ ...s("display:flex;flex-direction:column;height:100vh;background:transparent"), padding: isMobile ? "max(10px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left))" : "14px", gap: isMobile ? "10px" : "14px" }}>
       {/* TOPBAR — barra navy flutuante (logo + título da tela DENTRO dela).
           Opaca e full-width: âncora sólida no topo → o conteúdo rola por baixo
           sem "derreter" no creme. No mobile ganha o hambúrguer que abre a gaveta. */}

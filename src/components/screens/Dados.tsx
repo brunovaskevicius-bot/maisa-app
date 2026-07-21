@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { s, Icon, Card, Badge, Monogram, SectionTitle, Screen, fmt, toast } from "@/lib/ui";
 import { MetricCard, RingTotalCard, formatCompact, type Pt } from "@/components/charts";
 import { useAdmin } from "@/lib/adminConfig";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 // séries determinísticas (sem random) p/ os gráficos — 30 dias até 17/07. drift = viés de alta/baixa.
 function mkSerie(n: number, base: number, amp: number, seed: number, drift = 0): Pt[] {
@@ -42,6 +43,7 @@ export default function Dados() {
     { id: "pendente", label: "Pendentes" },
   ];
   const lista = useMemo(() => pagamentos.filter((p) => (filtro === "todos" ? true : p.status === filtro)), [filtro, pagamentos]);
+  const isMobile = useIsMobile();
 
   const mes = kpis.faturamentoMes;
 
@@ -134,27 +136,50 @@ export default function Dados() {
             );
           })}
         </div>
+        {!isMobile && (
         <div style={s("display:grid;grid-template-columns:88px 1.5fr 1.4fr 120px 130px;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)")}>
           <span>Data</span><span>Cliente</span><span>Serviço</span><span>Método</span><span style={s("text-align:right")}>Valor</span>
         </div>
+        )}
         {lista.length === 0 ? (
           <div style={s("padding:40px;text-align:center;color:var(--muted);font-size:14px")}>Nenhum recebimento nesse filtro.</div>
         ) : (
-          lista.map((p, i) => (
-            <div key={p.id} className="m-hov-bg" style={s(`display:grid;grid-template-columns:88px 1.5fr 1.4fr 120px 130px;gap:12px;align-items:center;padding:13px 20px;${i < lista.length - 1 ? "border-bottom:1px solid var(--line);" : ""}`)}>
-              <span style={s("font-family:var(--font-mono);font-size:13px;color:var(--muted)")}>{p.data}</span>
-              <div style={s("display:flex;align-items:center;gap:10px;min-width:0")}>
-                <Monogram name={p.cliente} id={p.id} size={30} radius={10} />
-                <span style={s("font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{p.cliente}</span>
+          lista.map((p, i) => {
+            const border = i < lista.length - 1 ? "border-bottom:1px solid var(--line);" : "";
+            return isMobile ? (
+              // MOBILE: cada recebimento vira um card empilhado (a tabela de 5 col estoura em 375px)
+              <div key={p.id} className="m-hov-bg" style={s(`display:flex;flex-direction:column;gap:6px;padding:13px 16px;${border}`)}>
+                <div style={s("display:flex;align-items:center;gap:10px;min-width:0")}>
+                  <Monogram name={p.cliente} id={p.id} size={32} radius={10} />
+                  <span style={s("flex:1;min-width:0;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{p.cliente}</span>
+                  <span style={s("display:flex;align-items:center;gap:7px;flex-shrink:0")}>
+                    <span style={{ ...s("width:7px;height:7px;border-radius:50%"), background: p.status === "pago" ? "var(--success)" : "var(--warn)" }} />
+                    <span style={s("font-family:var(--font-mono);font-size:14px;font-weight:800")}>{fmt(p.valor)}</span>
+                  </span>
+                </div>
+                <div style={s("display:flex;align-items:center;gap:8px;padding-left:42px;font-size:12px;color:var(--muted);min-width:0")}>
+                  <span style={s("font-family:var(--font-mono);flex-shrink:0")}>{p.data}</span>
+                  <span style={s("flex-shrink:0")}>·</span>
+                  <span style={s("flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{p.servico}</span>
+                  <span style={s("flex-shrink:0")}><Badge tone="neutral">{p.metodo}</Badge></span>
+                </div>
               </div>
-              <span style={s("font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{p.servico}</span>
-              <span><Badge tone="neutral">{p.metodo}</Badge></span>
-              <span style={s("display:flex;align-items:center;justify-content:flex-end;gap:8px")}>
-                <span style={{ ...s("width:7px;height:7px;border-radius:50%;flex-shrink:0"), background: p.status === "pago" ? "var(--success)" : "var(--warn)" }} />
-                <span style={s("font-family:var(--font-mono);font-size:14px;font-weight:700")}>{fmt(p.valor)}</span>
-              </span>
-            </div>
-          ))
+            ) : (
+              <div key={p.id} className="m-hov-bg" style={s(`display:grid;grid-template-columns:88px 1.5fr 1.4fr 120px 130px;gap:12px;align-items:center;padding:13px 20px;${border}`)}>
+                <span style={s("font-family:var(--font-mono);font-size:13px;color:var(--muted)")}>{p.data}</span>
+                <div style={s("display:flex;align-items:center;gap:10px;min-width:0")}>
+                  <Monogram name={p.cliente} id={p.id} size={30} radius={10} />
+                  <span style={s("font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{p.cliente}</span>
+                </div>
+                <span style={s("font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{p.servico}</span>
+                <span><Badge tone="neutral">{p.metodo}</Badge></span>
+                <span style={s("display:flex;align-items:center;justify-content:flex-end;gap:8px")}>
+                  <span style={{ ...s("width:7px;height:7px;border-radius:50%;flex-shrink:0"), background: p.status === "pago" ? "var(--success)" : "var(--warn)" }} />
+                  <span style={s("font-family:var(--font-mono);font-size:14px;font-weight:700")}>{fmt(p.valor)}</span>
+                </span>
+              </div>
+            );
+          })
         )}
       </Card>
     </Screen>
