@@ -95,7 +95,7 @@ export const pacientes: Paciente[] = [
   { id: "p1",  nome: "Mariana Alves",     telefone: "11981234567", email: "mariana.alves@email.com",  cpf: "312.456.789-01", tipoAtendimento: "ONLINE",     status: "ATIVO",   diagnostico: "Ansiedade",          dataInicio: "2024-03-01" },
   { id: "p2",  nome: "Rafael Costa",      telefone: "11998761234", email: "rafael.costa@email.com",   cpf: "408.221.334-90", tipoAtendimento: "PRESENCIAL", status: "ATIVO",   diagnostico: "Depressão",          dataInicio: "2024-01-10" },
   { id: "p3",  nome: "Beatriz Lima",      telefone: "11976543210", email: "bia.lima@email.com",       cpf: "199.873.221-44", tipoAtendimento: "ONLINE",     status: "ATIVO",   diagnostico: "TOC",                dataInicio: "2024-09-05" },
-  { id: "p4",  nome: "João Pereira",      telefone: "11983457788", email: "joao.pereira@email.com",   cpf: "556.102.998-33", tipoAtendimento: "PRESENCIAL", status: "ATIVO",   diagnostico: "Estresse",           dataInicio: "2025-02-12" },
+  { id: "p4",  nome: "MACBV COMERCIO E SERVICOS LTDA", telefone: "11983457788", email: "joao.pereira@email.com",   cpf: "47.227.217/0001-00", tipoAtendimento: "PRESENCIAL", status: "ATIVO",   diagnostico: "Estresse",           dataInicio: "2025-02-12" }, // NF teste: tomador com CNPJ real/válido (o buildBody detecta 14 dígitos e trata como CNPJ)
   { id: "p5",  nome: "Camila e Rodrigo",  telefone: "11996540099", email: "camila.rodrigo@email.com", cpf: "221.667.880-12", tipoAtendimento: "PRESENCIAL", status: "ATIVO",   diagnostico: "Terapia de casal",   dataInicio: "2024-11-20" },
   { id: "p6",  nome: "Lucas Martins",     telefone: "11981129087", email: "lucas.martins@email.com",  cpf: "389.220.115-67", tipoAtendimento: "ONLINE",     status: "ATIVO",   diagnostico: "Autoconhecimento",   dataInicio: "2025-04-03" },
   { id: "p7",  nome: "Fernanda Rocha",    telefone: "11990032211", email: "fe.rocha@email.com",       cpf: "470.118.226-05", tipoAtendimento: "PRESENCIAL", status: "ATIVO",   diagnostico: "Ansiedade",          dataInicio: "2024-06-15" },
@@ -152,7 +152,7 @@ export const resumoBy: Record<string, ResumoP> = {
   p1:  { totalSessoes: 9,  valorTotal: 2250, servicos: ["Sessão online"] },
   p2:  { totalSessoes: 9,  valorTotal: 1800, servicos: ["Sessão individual"] },
   p3:  { totalSessoes: 10, valorTotal: 2800, servicos: ["Sessão online"] },
-  p4:  { totalSessoes: 9,  valorTotal: 2250, servicos: ["Sessão individual"] },
+  p4:  { totalSessoes: 9,  valorTotal: 1, servicos: ["Sessão individual"] }, // NF teste: R$ 1,00
   p5:  { totalSessoes: 5,  valorTotal: 1600, servicos: ["Terapia de casal"] },
   p6:  { totalSessoes: 9,  valorTotal: 2700, servicos: ["Sessão online"] },
   p7:  { totalSessoes: 9,  valorTotal: 2070, servicos: ["Sessão individual"] },
