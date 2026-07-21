@@ -2,9 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured } from "./config";
 
-// Rotas que NÃO exigem login: a própria tela de login, o callback de OAuth e as APIs
-// (as rotas /api fazem a própria checagem de sessão e devolvem 401 em JSON).
-const PUBLIC_PREFIXES = ["/login", "/auth", "/api"];
+// Rotas que NÃO exigem login: a própria tela de login, o callback de OAuth, as APIs
+// (as rotas /api fazem a própria checagem de sessão e devolvem 401 em JSON) e as
+// landing pages de marketing (públicas por natureza — topo/meio/base de funil).
+const PUBLIC_PREFIXES = ["/login", "/auth", "/api", "/barbeiros", "/terapeutas"];
 
 const isPublic = (path: string) =>
   PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));

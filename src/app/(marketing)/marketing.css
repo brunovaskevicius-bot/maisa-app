@@ -1,0 +1,311 @@
+/* ============================================================================
+ * MAISA · Landing Pages — fundação de estilo dos DOIS MUNDOS
+ * ----------------------------------------------------------------------------
+ * Escopo TOTAL sob `.mkt-scope` / `.mundo-barbeiros` / `.mundo-terapeutas`.
+ * Nada aqui vaza para o app (produto): todos os seletores são prefixados e os
+ * keyframes usam o prefixo `mk`. Preserva a identidade MAISA (navy #233E71 +
+ * dourado #EAAE3E) em dois climas distintos:
+ *   • BARBEIROS  — navy profundo drenado, dourado como corte de energia, urbano/noturno.
+ *   • TERAPEUTAS — base clara e arejada (off-white FRIO, nunca bege), navy como âncora.
+ * Tokens em OKLCH. Contraste de corpo mirando AA (>= 4.5:1).
+ * Importado só pelo layout do route group → carrega apenas nas rotas de marketing.
+ * ========================================================================== */
+
+/* ---- Base do container de marketing (sem mundo ainda) --------------------- */
+.mkt-scope {
+  isolation: isolate;
+  font-family: var(--mk-font-body, "Plus Jakarta Sans", system-ui, sans-serif);
+
+  /* ritmo de espaçamento fluido (comum aos dois mundos) */
+  --mk-maxw: 1180px;
+  --mk-maxw-wide: 1320px;
+  --mk-maxw-narrow: 720px;
+  --mk-gutter: clamp(1.25rem, 4.5vw, 2.75rem);
+  --mk-section-y: clamp(3.75rem, 8vw, 7.5rem);
+  --mk-gap: clamp(1rem, 2.5vw, 2rem);
+
+  /* WhatsApp — verde escurecido o bastante p/ texto branco passar AA (>= 4.5:1) */
+  --mk-whats: oklch(0.48 0.13 150);
+  --mk-whats-hover: oklch(0.44 0.13 150);
+  --mk-whats-ink: #ffffff;
+}
+
+/* Neutraliza o creme + textura de papel do body do app SÓ nas LPs (não altera
+   globals.css). `:has` tem suporte amplo nos navegadores atuais. Evita flash e
+   qualquer respiro do fundo do produto atrás do mundo. */
+body:has(.mundo-barbeiros) {
+  background-color: oklch(0.19 0.045 262);
+  background-image: none;
+}
+body:has(.mundo-terapeutas) {
+  background-color: oklch(0.985 0.005 240);
+  background-image: none;
+}
+
+/* ============================ MUNDO · BARBEIROS ============================ */
+.mundo-barbeiros {
+  --mk-font-display: var(--font-barber-display), "Arial Narrow", system-ui, sans-serif;
+  --mk-font-body: var(--font-barber-body), system-ui, -apple-system, sans-serif;
+
+  --mk-bg: oklch(0.19 0.045 262);
+  --mk-bg-deep: oklch(0.15 0.04 264);
+  --mk-panel: oklch(0.24 0.05 262);
+  --mk-panel-2: oklch(0.285 0.055 262);
+  --mk-surface: oklch(0.24 0.05 262);
+
+  --mk-ink: oklch(0.97 0.012 250);
+  --mk-ink-soft: oklch(0.88 0.02 250);
+  --mk-muted: oklch(0.79 0.028 250);     /* corpo secundário — AA sobre o navy (>= 4.5:1) */
+  --mk-border: oklch(0.37 0.05 260);
+  --mk-line: oklch(0.31 0.045 260);
+
+  --mk-brand: oklch(0.63 0.13 256);      /* azure claro p/ realces sobre o escuro */
+  --mk-accent: oklch(0.80 0.14 82);      /* dourado/mel MAISA */
+  --mk-accent-strong: oklch(0.72 0.15 74);
+  --mk-accent-ink: oklch(0.85 0.13 85);  /* dourado seguro p/ texto sobre escuro */
+
+  --mk-on-brand: oklch(0.98 0.01 250);
+
+  /* CTA primário = dourado com texto navy (pop máximo sobre o navy) */
+  --mk-cta: oklch(0.80 0.14 82);
+  --mk-cta-hover: oklch(0.75 0.145 78);
+  --mk-cta-ink: oklch(0.20 0.05 262);
+
+  --mk-ring: oklch(0.80 0.14 82 / 0.6);
+  --mk-shadow: 0 24px 60px oklch(0.10 0.04 264 / 0.6);
+  --mk-shadow-soft: 0 10px 30px oklch(0.10 0.04 264 / 0.45);
+
+  --mk-radius: 14px;
+  --mk-radius-lg: 18px;
+  --mk-btn-radius: 8px;      /* firme/urbano — cantos mais retos */
+
+  /* faixa de conversão = banda dourada, conteúdo navy */
+  --mk-band-bg: oklch(0.80 0.14 82);
+  --mk-band-ink: oklch(0.19 0.05 262);
+  --mk-band-muted: oklch(0.33 0.07 262);
+  --mk-band-btn: oklch(0.19 0.05 262);
+  --mk-band-btn-ink: oklch(0.95 0.06 85);
+  --mk-band-btn-hover: oklch(0.25 0.06 262);
+
+  /* rodapé — navy quase preto */
+  --mk-footer-bg: oklch(0.14 0.035 264);
+  --mk-footer-ink: oklch(0.95 0.012 250);
+  --mk-footer-muted: oklch(0.79 0.028 250);
+  --mk-footer-line: oklch(0.28 0.04 262);
+  --mk-footer-accent: oklch(0.83 0.13 84);
+
+  /* nav translúcida navy */
+  --mk-nav-bg: oklch(0.19 0.045 262 / 0.68);
+  --mk-nav-bg-scrolled: oklch(0.16 0.042 264 / 0.95);
+
+  /* motion — mais firme (saída rápida, sem cauda longa) */
+  --mk-ease: cubic-bezier(0.22, 0.85, 0.26, 1);
+  --mk-dur: 320ms;
+  --mk-dur-slow: 480ms;
+}
+
+/* ============================ MUNDO · TERAPEUTAS =========================== */
+.mundo-terapeutas {
+  --mk-font-display: var(--font-therapy-display), Georgia, "Times New Roman", serif;
+  --mk-font-body: var(--font-therapy-body), system-ui, -apple-system, sans-serif;
+
+  /* off-white FRIO (hue ~240, chroma mínimo) — proibido bege/cream AI-default */
+  --mk-bg: oklch(0.985 0.005 240);
+  --mk-bg-deep: oklch(0.963 0.008 235);
+  --mk-panel: oklch(0.973 0.006 238);
+  --mk-panel-2: oklch(0.952 0.011 235);
+  --mk-surface: oklch(0.997 0.002 240);
+
+  --mk-ink: oklch(0.33 0.05 260);        /* texto navy-tingido (âncora de confiança) */
+  --mk-ink-soft: oklch(0.44 0.045 260);
+  --mk-muted: oklch(0.47 0.035 258);
+  --mk-border: oklch(0.90 0.012 250);
+  --mk-line: oklch(0.93 0.008 250);
+
+  --mk-brand: oklch(0.40 0.10 262);      /* navy âncora */
+  --mk-accent: oklch(0.80 0.12 80);      /* dourado suave (fills) */
+  --mk-accent-strong: oklch(0.60 0.13 66);
+  --mk-accent-ink: oklch(0.57 0.12 62);  /* âmbar/dourado p/ texto pequeno (AA em fundo claro) */
+
+  --mk-on-brand: oklch(0.98 0.012 250);
+
+  /* CTA primário = navy com texto branco (calmo, confiável) */
+  --mk-cta: oklch(0.40 0.10 262);
+  --mk-cta-hover: oklch(0.34 0.10 262);
+  --mk-cta-ink: oklch(0.99 0.005 250);
+
+  --mk-ring: oklch(0.40 0.10 262 / 0.38);
+  --mk-shadow: 0 24px 55px oklch(0.45 0.06 260 / 0.14);
+  --mk-shadow-soft: 0 12px 32px oklch(0.45 0.06 260 / 0.10);
+
+  --mk-radius: 16px;
+  --mk-radius-lg: 22px;
+  --mk-btn-radius: 999px;   /* calmo/acolhedor — pílula suave */
+
+  /* faixa de conversão = banda navy, conteúdo branco, botão dourado */
+  --mk-band-bg: oklch(0.36 0.09 262);
+  --mk-band-ink: oklch(0.98 0.012 250);
+  --mk-band-muted: oklch(0.83 0.035 258);
+  --mk-band-btn: oklch(0.80 0.13 82);
+  --mk-band-btn-ink: oklch(0.24 0.06 262);
+  --mk-band-btn-hover: oklch(0.75 0.135 78);
+
+  /* rodapé — navy calmo (fecha a página como âncora de marca) */
+  --mk-footer-bg: oklch(0.30 0.085 262);
+  --mk-footer-ink: oklch(0.97 0.012 250);
+  --mk-footer-muted: oklch(0.80 0.04 258);
+  --mk-footer-line: oklch(0.44 0.07 262);
+  --mk-footer-accent: oklch(0.82 0.13 82);
+
+  /* nav translúcida clara */
+  --mk-nav-bg: oklch(0.985 0.005 240 / 0.72);
+  --mk-nav-bg-scrolled: oklch(0.99 0.004 240 / 0.95);
+
+  /* motion — mais suave (cauda longa, ease-out generoso) */
+  --mk-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --mk-dur: 460ms;
+  --mk-dur-slow: 660ms;
+}
+
+/* ---- Superfície do mundo (aplicada junto da classe do mundo) -------------- */
+.mkt-world {
+  min-height: 100dvh;
+  background: var(--mk-bg);
+  color: var(--mk-ink);
+  font-family: var(--mk-font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Reset leve + tipografia base ---------------------------------------- */
+.mkt-scope * { box-sizing: border-box; }
+.mkt-world h1, .mkt-world h2, .mkt-world h3,
+.mkt-world h4, .mkt-world h5, .mkt-world h6 {
+  font-family: var(--mk-font-display);
+  margin: 0;
+  color: var(--mk-ink);
+}
+.mkt-world p { margin: 0; }
+.mkt-world img { display: block; max-width: 100%; }
+.mkt-world a { color: inherit; text-decoration: none; }
+.mkt-world :where(h1, h2, h3) { text-wrap: balance; }
+.mk-balance { text-wrap: balance; }
+.mk-pretty { text-wrap: pretty; }
+
+/* headings — tratamento por mundo */
+.mundo-barbeiros :where(h1, h2, h3) { font-weight: 800; letter-spacing: -0.035em; line-height: 1.0; }
+.mundo-barbeiros :where(h4, h5, h6) { font-weight: 700; letter-spacing: -0.02em; }
+.mundo-terapeutas :where(h1, h2, h3) { font-weight: 600; letter-spacing: -0.012em; line-height: 1.08; }
+.mundo-terapeutas :where(h4, h5, h6) { font-weight: 600; letter-spacing: -0.006em; }
+
+/* offset de âncora sob a nav fixa */
+.mkt-world :where(section[id]) { scroll-margin-top: 88px; }
+
+/* ---- Foco visível (teclado) — outline respeita o formato do elemento ------ */
+.mk-focus:focus-visible,
+.mkt-world :where(a, button):focus-visible {
+  outline: 3px solid var(--mk-ring);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* dentro das bandas coloridas o anel de foco usa a cor do texto da banda */
+.mk-btn-band:focus-visible { outline-color: var(--mk-band-ink); }
+
+/* ---- Botões (hover/active/focus — inline não suporta :hover) -------------- */
+.mk-btn {
+  transition:
+    transform 200ms var(--mk-ease),
+    background-color 220ms var(--mk-ease),
+    box-shadow 240ms var(--mk-ease),
+    border-color 200ms var(--mk-ease),
+    color 180ms var(--mk-ease),
+    filter 180ms var(--mk-ease);
+}
+.mk-btn:hover { transform: translateY(-1px); }
+.mk-btn:active { transform: translateY(0) scale(0.98); }
+.mk-btn-primary:hover { background: var(--mk-cta-hover); box-shadow: 0 12px 28px var(--mk-ring); }
+.mk-btn-secondary:hover { border-color: var(--mk-ink); background: color-mix(in oklch, var(--mk-ink) 6%, transparent); }
+.mk-btn-ghost:hover { background: color-mix(in oklch, var(--mk-ink) 9%, transparent); }
+.mk-btn-whats:hover { background: var(--mk-whats-hover); box-shadow: 0 12px 28px oklch(0.48 0.13 150 / 0.35); }
+.mk-btn-band:hover { background: var(--mk-band-btn-hover); }
+.mk-btn-band-ghost:hover { background: color-mix(in oklch, var(--mk-band-ink) 12%, transparent); }
+
+/* ---- Links de navegação --------------------------------------------------- */
+.mk-navlink {
+  transition: color 180ms var(--mk-ease);
+  color: var(--mk-ink-soft);
+}
+.mk-navlink:hover { color: var(--mk-ink); }
+.mk-navlink[aria-current="page"] { color: var(--mk-ink); }
+.mk-underline {
+  background-image: linear-gradient(var(--mk-accent), var(--mk-accent));
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 2px;
+  transition: background-size 240ms var(--mk-ease);
+}
+.mk-underline:hover, .mk-underline[aria-current="page"] { background-size: 100% 2px; }
+
+/* ---- Nav ------------------------------------------------------------------ */
+.mk-nav {
+  background: var(--mk-nav-bg);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  border-bottom: 1px solid transparent;
+  transition: background-color var(--mk-dur) var(--mk-ease),
+              box-shadow var(--mk-dur) var(--mk-ease),
+              border-color var(--mk-dur) var(--mk-ease);
+}
+.mk-nav[data-scrolled="true"] {
+  background: var(--mk-nav-bg-scrolled);
+  border-bottom-color: var(--mk-line);
+  box-shadow: var(--mk-shadow-soft);
+}
+
+/* ---- Rodapé --------------------------------------------------------------- */
+.mk-footlink {
+  color: var(--mk-footer-muted);
+  transition: color 180ms var(--mk-ease);
+}
+.mk-footlink:hover { color: var(--mk-footer-ink); }
+.mk-footlink:focus-visible { outline-color: var(--mk-footer-accent); }
+
+/* ---- Motion (animações de load — terminam SEMPRE visíveis, `both`) -------- */
+@keyframes mkRise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes mkFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mkScaleIn { from { opacity: 0; transform: scale(1.05); } to { opacity: 1; transform: scale(1); } }
+
+.mk-reveal { animation: mkRise var(--mk-dur-slow) var(--mk-ease) both; }
+.mk-fade { animation: mkFade var(--mk-dur) var(--mk-ease) both; }
+.mk-image-in { animation: mkScaleIn var(--mk-dur-slow) var(--mk-ease) both; }
+
+/* ---- Responsividade da nav ------------------------------------------------ */
+.mk-nav-desktop { display: flex; }
+.mk-nav-burger { display: none; }
+@media (max-width: 860px) {
+  .mk-nav-desktop { display: none; }
+  .mk-nav-burger { display: inline-flex; }
+}
+
+/* utilitários de visibilidade */
+.mk-hide-sm { }
+@media (max-width: 560px) { .mk-hide-sm { display: none !important; } }
+
+/* menu mobile — painel que abre/fecha por grid-template-rows (sem medir altura) */
+.mk-mobile-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--mk-dur) var(--mk-ease);
+}
+.mk-mobile-panel.is-open { grid-template-rows: 1fr; }
+.mk-mobile-panel > div { overflow: hidden; min-height: 0; }
+
+/* ---- prefers-reduced-motion — alternativa instantânea (fica visível) ------ */
+@media (prefers-reduced-motion: reduce) {
+  .mkt-scope *, .mkt-scope *::before, .mkt-scope *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
