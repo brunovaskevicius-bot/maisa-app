@@ -42,11 +42,83 @@ export default function Faturamento() {
   const pendentes = useMemo(() => actives.filter((p) => (nf[p.id]?.status || "pendente") === "pendente"), [actives, nf]);
   const totalPendente = useMemo(() => pendentes.reduce((a, p) => a + (resView[p.id]?.valor || 0), 0), [pendentes, resView]);
 
-  /* ---------- ações (estado local + toast) ---------- */
-  const emitir = async (pid: string) => {
+  /* ---------- ações (emissão real via servidor) ---------- */
+
+  // mensagem amigável a partir da resposta de erro do servidor
+  const msgErro = (d: any): string => {
+    if (d?.status === "config_incompleta") return "Emissão real ainda não configurada (faltam dados fiscais no servidor)";
+    if (Array.isArray(d?.erros) && d.erros.length) return d.erros[0]?.mensagem || "Não foi possível emitir a NF";
+    if (d?.info) return d.info;
+    return "Não foi possível emitir a NF";
+  };
+
+  // acompanha a emissão assíncrona (processando → autorizado/erro) até resolver ou dar timeout
+  const pollStatus = async (ref: string): Promise<any> => {
+    for (let i = 0; i < 20; i++) {
+      await sleep(3000);
+      try {
+        const res = await fetch(`/api/nf/status?ref=${encodeURIComponent(ref)}`);
+        const d = await res.json();
+        if (d.status === "autorizado" || d.status === "erro" || d.status === "cancelado") return d;
+      } catch { /* mantém tentando */ }
+    }
+    return { status: "processando" };
+  };
+
+  // Emite a NF de um paciente PELO SERVIDOR. Real quando há token da Focus; simulado caso contrário.
+  // Retorna true se a nota ficou emitida.
+  const emitir = async (pid: string): Promise<boolean> => {
+    const pac = actives.find((p) => p.id === pid);
+    const r = resView[pid];
     setNf((st) => ({ ...st, [pid]: { status: "gerando" } }));
-    await sleep(750);
-    setNf((st) => ({ ...st, [pid]: { status: "emitida", numero: nextNumero(), notaId: "nf-" + pid, dataEmissao: "2026-06-30" } }));
+
+    const setEmitida = (d: any) =>
+      setNf((st) => ({
+        ...st,
+        [pid]: { status: "emitida", numero: d?.numero ?? nextNumero(), notaId: d?.ref ?? "nf-" + pid, pdfUrl: d?.pdf, xmlUrl: d?.xml, dataEmissao: "2026-06-30" },
+      }));
+
+    try {
+      const res = await fetch("/api/nf/emitir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pid,
+          valor: r?.valor ?? 0,
+          discriminacao: `${r?.servicoNome ?? "Serviço"} — competência 06/2026 (${r?.sessoes ?? 0} sessões)`,
+          tomador: { nome: pac?.nome, cpf: pac?.cpf, email: pac?.email, telefone: pac?.telefone },
+        }),
+      });
+      const data = await res.json();
+
+      if (data.status === "simulado" || data.status === "autorizado") { setEmitida(data); return true; }
+
+      if (data.status === "processando") {
+        setNf((st) => ({ ...st, [pid]: { status: "processando", notaId: data.ref } }));
+        const final = await pollStatus(data.ref);
+        if (final.status === "autorizado") { setEmitida(final); return true; }
+        if (final.status === "processando") { toast("NF em processamento na prefeitura — acompanhe em instantes"); return false; }
+        setNf((st) => ({ ...st, [pid]: { status: "pendente" } }));
+        toast(msgErro(final));
+        return false;
+      }
+
+      // payload_invalido | config_incompleta | erro
+      setNf((st) => ({ ...st, [pid]: { status: "pendente" } }));
+      toast(msgErro(data));
+      return false;
+    } catch {
+      setNf((st) => ({ ...st, [pid]: { status: "pendente" } }));
+      toast("Falha de conexão ao emitir a NF");
+      return false;
+    }
+  };
+
+  // abre a NF: PDF real (produção) em nova aba, ou a pré-visualização de homologação
+  const verNota = (pid: string) => {
+    const url = nf[pid]?.pdfUrl;
+    if (url) window.open(url, "_blank", "noopener");
+    else setPdfId(pid);
   };
 
   // abre a confirmação da NF de um paciente (emissão é irreversível)
@@ -64,8 +136,8 @@ export default function Faturamento() {
     if (st && st !== "pendente") return;
     busy.current.add(pid);
     const nome = actives.find((p) => p.id === pid)?.nome.split(" ")[0] || "paciente";
-    await emitir(pid);
-    toast(`NF de ${nome} emitida`);
+    const ok = await emitir(pid);
+    if (ok) toast(`NF de ${nome} emitida`);
     busy.current.delete(pid);
   };
 
@@ -82,8 +154,9 @@ export default function Faturamento() {
     if (!pend.length) { toast("Todas as NFs já foram emitidas"); return; }
     setGenerating(true);
     setGen({ done: 0, total: pend.length });
-    for (let i = 0; i < pend.length; i++) { await emitir(pend[i].id); setGen({ done: i + 1, total: pend.length }); }
-    toast(`${pend.length} nota${pend.length > 1 ? "s" : ""} fiscal${pend.length > 1 ? "is" : ""} emitida${pend.length > 1 ? "s" : ""}`);
+    let okCount = 0;
+    for (let i = 0; i < pend.length; i++) { if (await emitir(pend[i].id)) okCount++; setGen({ done: i + 1, total: pend.length }); }
+    if (okCount) toast(`${okCount} nota${okCount > 1 ? "s" : ""} fiscal${okCount > 1 ? "is" : ""} emitida${okCount > 1 ? "s" : ""}`);
     setTimeout(() => setGenerating(false), 400);
   };
 
@@ -172,7 +245,7 @@ export default function Faturamento() {
                 {st === "pendente" && <button onClick={() => gerarUma(p.id)} className="m-hov-prim-border m-press m-focus" style={s("display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-weight:700;font-size:12.5px;cursor:pointer")}>Gerar NF</button>}
                 {st === "gerando" && <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--muted)")}><span style={{ ...s("width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--primary);border-radius:50%"), animation: "mspin .7s linear infinite" }} />Gerando…</span>}
                 {st === "processando" && <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--warn)")}><span style={{ ...s("width:13px;height:13px;border:2px solid var(--warn-soft);border-top-color:var(--warn);border-radius:50%"), animation: "mspin .7s linear infinite" }} />Processando…</span>}
-                {emit && <button onClick={() => setPdfId(p.id)} className="m-pop m-press m-focus" style={s("display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:none;border-radius:8px;background:var(--success-soft);color:var(--success);font-weight:700;font-size:12.5px;cursor:pointer")}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round"><path d="M20 6 9 17l-5-5" /></svg>NF {info?.numero}</button>}
+                {emit && <button onClick={() => verNota(p.id)} className="m-pop m-press m-focus" style={s("display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:none;border-radius:8px;background:var(--success-soft);color:var(--success);font-weight:700;font-size:12.5px;cursor:pointer")}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round"><path d="M20 6 9 17l-5-5" /></svg>NF {info?.numero}</button>}
               </div>
               <div>
                 {wa === "idle" && <button onClick={() => emit && enviarUm(p.id)} disabled={!emit} className="m-press m-focus" style={s(`display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-weight:700;font-size:12.5px;cursor:${emit ? "pointer" : "not-allowed"};opacity:${emit ? "1" : ".45"};color:var(--ink)`)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#25D366" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z" /></svg>Enviar</button>}
@@ -246,7 +319,7 @@ export default function Faturamento() {
                 {/* ações: Gerar/Ver NF + Enviar WhatsApp (alvos de toque grandes) */}
                 <div style={s("display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px")}>
                   {emit ? (
-                    <button onClick={() => setPdfId(p.id)} className="m-hov-bg m-press m-focus" style={s("display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer")}>
+                    <button onClick={() => verNota(p.id)} className="m-hov-bg m-press m-focus" style={s("display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer")}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 20.5V5.2A1.7 1.7 0 0 1 6.7 3.5h10.6A1.7 1.7 0 0 1 19 5.2V20.5l-2.33-1.6-2.34 1.6-2.33-1.6-2.34 1.6-2.33-1.6-2.33 1.6Z" /><path d="M8.5 8.4h7M8.5 11.8h4.5" /></svg>Ver NF
                     </button>
                   ) : (
