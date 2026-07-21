@@ -19,6 +19,7 @@ import ClinicoServicos from "./screens/ClinicoServicos";
 import Calendario from "./screens/Calendario";
 import Faturamento from "./screens/Faturamento";
 import SuperAdm from "./screens/SuperAdm";
+import UserMenu from "./UserMenu";
 
 type Key = FeatureId;
 
@@ -178,6 +179,7 @@ export default function MaisaApp() {
               <div style={s("font-size:11.5px;color:var(--nav-soft)")}>Plano {data.shop.plano}</div>
             </div>
           </div>
+          <UserMenu />
         </aside>
 
         {/* MAIN */}
