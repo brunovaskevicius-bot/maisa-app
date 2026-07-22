@@ -25,6 +25,21 @@ export type FocusResult = { httpStatus: number; data: any };
 
 const onlyDigits = (s?: string | null) => (s ?? "").replace(/\D/g, "");
 
+// Data/hora ATUAL no fuso de São Paulo (UTC-3, sem horário de verão desde 2019),
+// no formato ISO com offset. `new Date().toISOString()` seria UTC e, à noite (após 21h
+// em SP), já estaria no dia seguinte → a prefeitura rejeita "emissão superior à data de hoje".
+function nowSaoPauloISO(): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hourCycle: "h23",
+  });
+  const p: Record<string, string> = {};
+  for (const part of fmt.formatToParts(new Date())) p[part.type] = part.value;
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}-03:00`;
+}
+
 function baseUrl(): string {
   return NF_CONFIG.ambiente === "producao"
     ? "https://api.focusnfe.com.br/v2"
@@ -43,7 +58,7 @@ function buildBody(input: EmitirInput) {
   const codMun = NF_CONFIG.prestador.codigoMunicipio;
 
   return {
-    data_emissao: input.dataEmissao ?? new Date().toISOString(),
+    data_emissao: input.dataEmissao ?? nowSaoPauloISO(),
     natureza_operacao: NF_CONFIG.naturezaOperacao,
     optante_simples_nacional: NF_CONFIG.optanteSimplesNacional,
     prestador: {
