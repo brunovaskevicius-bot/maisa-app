@@ -54,6 +54,17 @@ export async function POST(request: Request) {
   }
 
   // 5) Emissão real (ambiente conforme FOCUS_NFE_AMBIENTE).
+  // Log da config EFETIVA (sem segredos) — aparece nos logs da Vercel p/ conferência
+  // rápida de que ambiente/item/cnpj estão exatamente como esperado (sem aspas/espaços).
+  console.log("[nf/emitir] config efetiva", {
+    ref,
+    ambiente: NF_CONFIG.ambiente,
+    prestador_cnpj: NF_CONFIG.prestador.cnpj,
+    prestador_im: NF_CONFIG.prestador.inscricaoMunicipal,
+    codigo_municipio: NF_CONFIG.prestador.codigoMunicipio,
+    item_lista_servico: NF_CONFIG.servico.itemListaServico,
+    tomador_doc: (tomador.cnpj || tomador.cpf || "").replace(/\D/g, ""),
+  });
   try {
     const { httpStatus, data } = await emitirNfse({
       ref,
@@ -79,11 +90,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, status: "processando", ref, ambiente: NF_CONFIG.ambiente });
     }
     // Erro de validação/autorização (ex.: 422) → devolve os erros da Focus.
+    console.error("[nf/emitir] Focus rejeitou (síncrono)", { ref, httpStatus, status: data?.status, erros: data?.erros ?? data?.mensagem });
     return NextResponse.json({
       ok: false, status: "erro", ref, httpStatus,
       erros: data?.erros ?? [{ mensagem: data?.mensagem ?? "Falha ao emitir a NFS-e." }],
     });
   } catch (e) {
+    console.error("[nf/emitir] erro de conexão com a Focus", { ref, erro: String(e) });
     return NextResponse.json(
       { ok: false, status: "erro", ref, erros: [{ mensagem: "Erro de conexão com a Focus NFe." }] },
       { status: 502 },

@@ -29,6 +29,11 @@ export async function GET(request: Request) {
   try {
     const { data } = await consultarNfse(ref);
     const status = normalizarStatus(data?.status);
+    // A rejeição fiscal da prefeitura (ex.: "Código de Serviço inexistente") chega AQUI,
+    // no status assíncrono. Loga p/ aparecer nos logs da Vercel.
+    if (status === "erro") {
+      console.error("[nf/status] erro_autorizacao da prefeitura", { ref, focusStatus: data?.status, erros: data?.erros });
+    }
     return NextResponse.json({
       ok: status !== "erro",
       status,

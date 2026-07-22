@@ -7,31 +7,38 @@
 
 const env = process.env;
 
+// A Vercel guarda o valor CRU da variável. É comum colar entre aspas (ex.: "producao",
+// "03115") ou com espaço — o que quebra comparações e é enviado à Focus como texto inválido.
+// clean() remove aspas/apóstrofos ao redor e espaços das pontas, tornando a config robusta.
+const clean = (v?: string): string => (v ?? "").trim().replace(/^['"]+|['"]+$/g, "").trim();
+
+const ambienteRaw = clean(env.FOCUS_NFE_AMBIENTE).toLowerCase();
+
 export const NF_CONFIG = {
   /** Token da Focus NFe (secret). Sem ele, a emissão roda em modo "simulado". */
-  token: env.FOCUS_NFE_TOKEN,
+  token: clean(env.FOCUS_NFE_TOKEN) || undefined,
 
   /** Ambiente da Focus. Default = homologação (nada real é emitido). */
-  ambiente: (env.FOCUS_NFE_AMBIENTE === "producao" ? "producao" : "homologacao") as
+  ambiente: (ambienteRaw === "producao" ? "producao" : "homologacao") as
     | "producao"
     | "homologacao",
 
   /** Dados do prestador (identificam a empresa que emite a nota). */
   prestador: {
-    cnpj: env.NF_PRESTADOR_CNPJ ?? "",
-    inscricaoMunicipal: env.NF_PRESTADOR_IM ?? "",
-    codigoMunicipio: env.NF_CODIGO_MUNICIPIO ?? "", // IBGE, 7 dígitos (São Paulo = 3550308)
+    cnpj: clean(env.NF_PRESTADOR_CNPJ),
+    inscricaoMunicipal: clean(env.NF_PRESTADOR_IM),
+    codigoMunicipio: clean(env.NF_CODIGO_MUNICIPIO), // IBGE, 7 dígitos (São Paulo = 3550308)
   },
 
   /** Parâmetros fiscais do serviço. */
   servico: {
-    itemListaServico: env.NF_ITEM_LISTA_SERVICO ?? "", // ex.: psicologia
-    aliquota: env.NF_ALIQUOTA_ISS ? Number(env.NF_ALIQUOTA_ISS) : undefined, // % de ISS
-    codigoTributarioMunicipio: env.NF_CODIGO_TRIBUTARIO_MUNICIPIO || undefined,
+    itemListaServico: clean(env.NF_ITEM_LISTA_SERVICO), // código de serviço municipal (SP: ex. 03115)
+    aliquota: clean(env.NF_ALIQUOTA_ISS) ? Number(clean(env.NF_ALIQUOTA_ISS)) : undefined, // % de ISS
+    codigoTributarioMunicipio: clean(env.NF_CODIGO_TRIBUTARIO_MUNICIPIO) || undefined,
   },
 
-  optanteSimplesNacional: env.NF_OPTANTE_SIMPLES !== "false", // default true
-  naturezaOperacao: env.NF_NATUREZA_OPERACAO ?? "1", // 1 = tributação no município
+  optanteSimplesNacional: clean(env.NF_OPTANTE_SIMPLES) !== "false", // default true
+  naturezaOperacao: clean(env.NF_NATUREZA_OPERACAO) || "1", // 1 = tributação no município
 };
 
 /** Campos fiscais obrigatórios para emitir de verdade. */
