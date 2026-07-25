@@ -1,5 +1,5 @@
 import { Section, Heading, Lead, Text, Button } from "../primitives";
-import { ICPS, type Nivel } from "../icp";
+import { whatsappUrl, type Nivel } from "../icp";
 import { TIcon, Pill, linkKind, type Tone } from "./_shared";
 
 /* ----------------------------------------------------------------------------
@@ -11,7 +11,11 @@ import { TIcon, Pill, linkKind, type Tone } from "./_shared";
  * >>> VALORES DE PLACEHOLDER — troque `preco` pelos preços reais antes de publicar. <<<
  * -------------------------------------------------------------------------- */
 
-const cfg = ICPS.terapeutas;
+/** Mensagem de WhatsApp pré-preenchida com o NOME do plano escolhido, para a
+ *  MAISA já saber por onde a terapeuta quer começar. Ponto único do CTA por plano. */
+function mensagemPlano(nome: string): string {
+  return `Olá! Sou terapeuta e quero começar na MAISA com o plano ${nome}. Pode me explicar os próximos passos?`;
+}
 
 export interface Plano {
   nome: string;
@@ -103,7 +107,8 @@ export function Planos({
         }}
       >
         {lista.map((p) => {
-          const k = linkKind(p.ctaHref ?? cfg.ctaUrl);
+          const href = p.ctaHref ?? whatsappUrl(mensagemPlano(p.nome));
+          const k = linkKind(href);
           return (
             <div
               key={p.nome}
@@ -198,7 +203,7 @@ export function Planos({
 
                 <div style={{ marginTop: "auto", paddingTop: "1.9rem" }}>
                   <Button
-                    href={p.ctaHref ?? cfg.ctaUrl}
+                    href={href}
                     external={k.external}
                     variant={p.destaque ? "primary" : "secondary"}
                     size="lg"

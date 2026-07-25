@@ -34,7 +34,7 @@ const CONTEUDO: Record<Nivel, HeroDefault> = {
         Suas notas fiscais em <em>um clique</em>. O dia que sumia todo mês volta pra você.
       </>
     ),
-    lead: "A MAISA emite a nota de cada paciente, cuida da agenda e guarda o histórico — numa conversa calma no WhatsApp. Você cuida de quem atende; ela cuida do resto.",
+    lead: "A MAISA é uma assistente de IA no WhatsApp, com um painel de gestão organizado: ela emite a nota de cada paciente, cuida da agenda e guarda o histórico. Você cuida de quem atende; ela cuida do resto.",
     primaryLabel: "Ver como funciona",
     primaryHref: cfg.rotas.meio,
     secondaryLabel: "Falar no WhatsApp",
@@ -49,7 +49,7 @@ const CONTEUDO: Record<Nivel, HeroDefault> = {
         Veja a MAISA tirar o operacional <em>das suas costas</em>.
       </>
     ),
-    lead: "Do primeiro acesso ao fechamento do mês: notas, agenda, lembretes e o histórico de cada paciente, organizados por uma assistente que fala a sua língua.",
+    lead: "Do primeiro acesso ao fechamento do mês: notas, agenda, lembretes e o histórico de cada paciente, organizados por uma assistente de IA que fala a sua língua — no WhatsApp e num painel de gestão simples.",
     primaryLabel: cfg.ctaLabel,
     primaryHref: cfg.ctaUrl,
     secondaryLabel: "Ver planos e preços",
@@ -62,7 +62,7 @@ const CONTEUDO: Record<Nivel, HeroDefault> = {
         Comece hoje. No primeiro mês, a MAISA <em>já se paga</em>.
       </>
     ),
-    lead: "Ative a MAISA, traga seus pacientes e deixe o operacional com ela. Notas em um clique, agenda em ordem — e a casa volta a ser casa.",
+    lead: "Ative a MAISA — sua assistente de IA no WhatsApp, com painel de gestão — traga seus pacientes e deixe o operacional com ela. Notas em um clique, agenda em ordem, e a casa volta a ser casa.",
     primaryLabel: cfg.ctaLabel,
     primaryHref: cfg.ctaUrl,
     secondaryLabel: "Ver planos",

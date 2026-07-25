@@ -12,7 +12,7 @@ export { Problema, type ProblemaProps, type DorItem } from "./Problema";
 export { ComoFunciona, type ComoFuncionaProps, type Passo } from "./ComoFunciona";
 export { Recursos, type RecursosProps, type Beneficio } from "./Recursos";
 export { AntesDepois, type AntesDepoisProps } from "./AntesDepois";
-export { Depoimentos, type DepoimentosProps, type Depoimento } from "./Depoimentos";
+export { Depoimentos, type DepoimentosProps, type Sinal } from "./Depoimentos";
 export { Planos, type PlanosProps, type Plano } from "./Planos";
 export { FAQ, type FAQProps, type QA } from "./FAQ";
 

@@ -4,7 +4,6 @@ import {
   MarketingNav,
   Footer,
   CTASection,
-  ICPS,
 } from "@/app/(marketing)/_lib";
 import { Hero, Problema, AntesDepois } from "@/app/(marketing)/_lib/terapeutas";
 
@@ -41,7 +40,7 @@ export default function TerapeutasTopoPage() {
     <World icp="terapeutas">
       <MarketingNav icp="terapeutas" current="topo" />
 
-      <main>
+      <main id="conteudo" tabIndex={-1}>
         {/* Herói — a dor vital (o dia que some) e o mundo depois (um clique).
             CTA primário leve leva ao MEIO; WhatsApp fica como opção secundária. */}
         <Hero nivel="topo" />
@@ -52,13 +51,14 @@ export default function TerapeutasTopoPage() {
         {/* A transformação (Diagrama T): do dia que some ao dia que volta. */}
         <AntesDepois nivel="topo" tone="default" />
 
-        {/* Fecho do TOPO: nudge educacional para o MEIO (sem falar de preço). */}
+        {/* Fecho do TOPO: nudge educacional para o MEIO (sem falar de preço).
+            nivel="topo" deriva o CTA leve ("Ver como funciona" → MEIO) da fonte
+            única (ctaDoNivel), sem repetir rótulo/href aqui. */}
         <CTASection
           icp="terapeutas"
+          nivel="topo"
           title="Menos operacional. Mais presença com quem você atende."
           description="Veja, passo a passo, como a MAISA assume as notas, a agenda e o histórico dos seus pacientes — para o tempo do seu mês voltar a ser seu."
-          primaryLabel="Ver como funciona"
-          primaryHref={ICPS.terapeutas.rotas.meio}
           secondary={false}
         />
       </main>

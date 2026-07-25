@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ICPS, type ICP } from "./icp";
+import { ICPS, ctaDoNivel, type ICP, type Nivel } from "./icp";
 import { Button } from "./primitives";
 import { imagensBarbeiros, imagensTerapeutas, type MktImagem } from "./imagens";
 
@@ -32,6 +32,7 @@ const DEFAULTS: Record<ICP, { title: string; description: string }> = {
 export function CTASection({
   icp,
   id,
+  nivel,
   title,
   description,
   primaryLabel,
@@ -43,6 +44,10 @@ export function CTASection({
 }: {
   icp: ICP;
   id?: string;
+  /** nível do funil: quando informado, o CTA primário assume o padrão do nível
+   *  (ctaDoNivel) sem precisar repetir label/href na página. Props explícitas de
+   *  primaryLabel/primaryHref sempre vencem. */
+  nivel?: Nivel;
   title?: ReactNode;
   description?: ReactNode;
   primaryLabel?: string;
@@ -57,8 +62,10 @@ export function CTASection({
   const cfg = ICPS[icp];
   const d = DEFAULTS[icp];
 
-  const pHref = primaryHref ?? cfg.ctaUrl;
-  const pLabel = primaryLabel ?? cfg.ctaLabel;
+  // ponto único: se `nivel` vier, deriva o CTA dele; senão cai no CTA forte padrão.
+  const levelCta = nivel ? ctaDoNivel(icp, nivel) : null;
+  const pHref = primaryHref ?? levelCta?.href ?? cfg.ctaUrl;
+  const pLabel = primaryLabel ?? levelCta?.label ?? cfg.ctaLabel;
   const pExternal = pHref.startsWith("http");
 
   const sHref = secondaryHref ?? cfg.rotas.base;

@@ -11,6 +11,10 @@ export type Nivel = "topo" | "meio" | "base";
  * (ex.: 5511999999999). >>> TROCAR pelo número real antes de publicar <<< */
 export const WHATSAPP_NUMERO = "5500000000000";
 
+/* E-mail de contato secundário (canal alternativo ao WhatsApp). Ponto único —
+ * >>> TROCAR pelo endereço real antes de publicar <<< */
+export const CONTATO_EMAIL = "contato@maisa.app";
+
 /** Monta o link wa.me com mensagem pré-preenchida (já codificada). */
 export function whatsappUrl(mensagem: string): string {
   return `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(mensagem)}`;
@@ -92,3 +96,55 @@ export const ICPS: Record<ICP, IcpConfig> = {
     ctaSecundarioLabel: "Ver como funciona",
   },
 };
+
+/* ----------------------------------------------------------------------------
+ * Nível de funil derivado do pathname — PONTO ÚNICO DE VERDADE.
+ * A nav, a barra fixa do mobile e (opcionalmente) a faixa de CTA leem daqui, para
+ * que o mesmo CTA forte de fundo-de-funil NÃO apareça no topo. Sem estado, sem
+ * hooks: funções puras que recebem o pathname (via usePathname no cliente).
+ * -------------------------------------------------------------------------- */
+
+/** Primeiro segmento do path → ICP. Cai em "barbeiros" fora das rotas de marca. */
+export function icpDoPath(pathname: string | null | undefined): ICP {
+  const seg = (pathname ?? "").split("/").filter(Boolean)[0];
+  return seg === "terapeutas" ? "terapeutas" : "barbeiros";
+}
+
+/** Segundo segmento do path → nível de funil (topo/meio/base). */
+export function nivelDoPath(pathname: string | null | undefined): Nivel {
+  const sub = (pathname ?? "").split("/").filter(Boolean)[1];
+  if (sub === "comecar") return "base";
+  if (sub === "como-funciona") return "meio";
+  return "topo";
+}
+
+/** Peso visual do CTA por nível: leve (topo) < média (meio) < forte (base). */
+export type CtaPeso = "leve" | "media" | "forte";
+
+export interface NivelCta {
+  label: string;
+  href: string;
+  /** abre em nova aba (só o CTA de base, que aponta pro WhatsApp) */
+  external: boolean;
+  icon: "whatsapp" | "arrow";
+  peso: CtaPeso;
+}
+
+/**
+ * CTA apropriado ao nível do funil:
+ *   • topo → leve: "Ver como funciona" (→ MEIO), sem preço, baixa fricção.
+ *   • meio → média: "Começar agora" (→ BASE).
+ *   • base → forte: WhatsApp ("Ativar minha agenda" / "Falar com a MAISA").
+ */
+export function ctaDoNivel(icp: ICP, nivel: Nivel): NivelCta {
+  const cfg = ICPS[icp];
+  switch (nivel) {
+    case "base":
+      return { label: cfg.ctaLabel, href: cfg.ctaUrl, external: true, icon: "whatsapp", peso: "forte" };
+    case "meio":
+      return { label: "Começar agora", href: cfg.rotas.base, external: false, icon: "arrow", peso: "media" };
+    case "topo":
+    default:
+      return { label: cfg.ctaSecundarioLabel, href: cfg.rotas.meio, external: false, icon: "arrow", peso: "leve" };
+  }
+}

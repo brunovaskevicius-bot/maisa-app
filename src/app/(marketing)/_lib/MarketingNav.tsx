@@ -1,17 +1,26 @@
 "use client";
 import React from "react";
-import { ICPS, type ICP, type Nivel } from "./icp";
+import { usePathname } from "next/navigation";
+import { ICPS, ctaDoNivel, nivelDoPath, type ICP, type Nivel } from "./icp";
 import { Button } from "./primitives";
 import { Wordmark } from "./Wordmark";
 
 /* ----------------------------------------------------------------------------
  * MarketingNav — cabeçalho fixo, uma variação por ICP (o clima vem dos tokens
- * do mundo; o conteúdo e as rotas vêm de ICPS). Navegação topo → meio → base +
- * CTA de WhatsApp. Vira solidez ao rolar. Menu mobile acessível (aria-expanded,
- * Esc para fechar, fecha ao navegar). Alvos de toque >= 44px.
+ * do mundo; o conteúdo e as rotas vêm de ICPS). Navegação topo → meio → base.
+ * O CTA é DERIVADO DO NÍVEL do funil (pathname → ctaDoNivel): leve no topo
+ * ("Ver como funciona"), médio no meio ("Começar agora"), forte na base
+ * (WhatsApp). Assim o CTA de fundo-de-funil não aparece no topo. Vira solidez ao
+ * rolar. Menu mobile acessível (aria-expanded, Esc para fechar, fecha ao
+ * navegar). Alvos de toque >= 44px.
  * -------------------------------------------------------------------------- */
 export function MarketingNav({ icp, current }: { icp: ICP; current?: Nivel }) {
   const cfg = ICPS[icp];
+  const pathname = usePathname();
+  // pathname é a fonte de verdade do nível; `current` fica como fallback opcional.
+  const nivel: Nivel = pathname ? nivelDoPath(pathname) : current ?? "topo";
+  const cta = ctaDoNivel(icp, nivel);
+  const navVariant = cta.peso === "leve" ? "secondary" : "primary";
   const [scrolled, setScrolled] = React.useState(false);
   const [open, setOpen] = React.useState(false);
 
@@ -39,7 +48,7 @@ export function MarketingNav({ icp, current }: { icp: ICP; current?: Nivel }) {
   }, [open]);
 
   const solid = scrolled || open;
-  const isActive = (item: { nivel?: Nivel }) => (item.nivel && item.nivel === current ? "page" : undefined);
+  const isActive = (item: { nivel?: Nivel }) => (item.nivel && item.nivel === nivel ? "page" : undefined);
 
   return (
     <header
@@ -76,8 +85,8 @@ export function MarketingNav({ icp, current }: { icp: ICP; current?: Nivel }) {
               </li>
             ))}
           </ul>
-          <Button href={cfg.ctaUrl} external variant="primary" size="sm" icon="whatsapp">
-            {cfg.ctaLabel}
+          <Button href={cta.href} external={cta.external} variant={navVariant} size="sm" icon={cta.icon}>
+            {cta.label}
           </Button>
         </nav>
 
@@ -140,8 +149,8 @@ export function MarketingNav({ icp, current }: { icp: ICP; current?: Nivel }) {
                 </a>
               ))}
               <div style={{ marginTop: "1.15rem" }}>
-                <Button href={cfg.ctaUrl} external variant="primary" size="md" icon="whatsapp" full onClick={() => setOpen(false)}>
-                  {cfg.ctaLabel}
+                <Button href={cta.href} external={cta.external} variant={navVariant} size="md" icon={cta.icon} full onClick={() => setOpen(false)}>
+                  {cta.label}
                 </Button>
               </div>
             </div>

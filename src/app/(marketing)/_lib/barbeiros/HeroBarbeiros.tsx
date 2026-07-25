@@ -95,7 +95,26 @@ export function HeroBarbeiros({
       <div className="bb-hero-grid">
         {/* Coluna de texto */}
         <div>
-          <Display size="2xl" className="mk-reveal" style={{ maxWidth: "16ch" }}>
+          {/* Micro-descritor: em 5s o barbeiro entende que é software — uma
+              assistente de IA que vive no WhatsApp dele (não um app novo). */}
+          <span
+            className="mk-reveal"
+            style={s(
+              "display:inline-flex;align-items:center;gap:0.55rem;margin-bottom:1.2rem;padding:0.38rem 0.95rem 0.38rem 0.45rem;border-radius:999px;background:var(--mk-panel);border:1px solid var(--mk-line);font-family:var(--mk-font-body);font-size:0.86rem;font-weight:600;color:var(--mk-ink-soft)",
+            )}
+          >
+            <span
+              aria-hidden="true"
+              style={s(
+                "width:26px;height:26px;border-radius:999px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;background:var(--mk-accent);color:var(--mk-cta-ink)",
+              )}
+            >
+              <Icon name="sparkle" size={15} sw={2} />
+            </span>
+            Assistente de IA no seu WhatsApp
+          </span>
+
+          <Display size="2xl" className="mk-reveal" style={{ maxWidth: "16ch", animationDelay: "60ms" }}>
             {title ?? d.title}
           </Display>
 

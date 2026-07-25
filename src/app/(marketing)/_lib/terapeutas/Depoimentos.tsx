@@ -1,90 +1,64 @@
-import { Section, Heading, Text } from "../primitives";
+import type { ReactNode } from "react";
+import { Section, Heading, Lead, Text } from "../primitives";
 import { imagensTerapeutas, type MktImagem } from "../imagens";
 import { type Nivel } from "../icp";
-import { type Tone } from "./_shared";
+import { TIcon, IconBadge, type Tone } from "./_shared";
 
 /* ----------------------------------------------------------------------------
- * Depoimentos / Prova (TERAPEUTAS) — voz humana. Um depoimento em destaque
- * (aspas em serifa itálica, quente) com foto real + dois de apoio. meio = prova
- * na consideração; base = reforço calmo antes do preço. Server Component.
- * NOTA: depoimentos ilustrativos — substituir por reais antes de publicar.
+ * "O que você vai sentir" (TERAPEUTAS) — reforço honesto no lugar de depoimento.
+ * A MAISA está começando, então NÃO inventamos nomes, fotos de rosto ou métricas
+ * apresentadas como prova. Em vez disso, descrevemos com franqueza o que ela foi
+ * feita para te devolver: uma promessa em destaque (serifa itálica, quente) ao
+ * lado de uma cena real, e três sinais concretos do dia a dia. Server Component.
  * -------------------------------------------------------------------------- */
 
-export interface Depoimento {
-  quote: string;
-  nome: string;
-  papel: string;
+/** Um "sinal" concreto do que a rotina passa a ser — expectativa honesta, não
+ *  depoimento fabricado. (Mantém o nome exportado do slot de prova social.) */
+export interface Sinal {
+  icon: string;
+  titulo: string;
+  texto: string;
 }
 
-const DESTAQUE: Depoimento = {
-  quote: "O fechamento do mês era o meu pesadelo. Agora eu clico uma vez e volto a ter meus domingos.",
-  nome: "Marina Alves",
-  papel: "Psicóloga clínica · São Paulo",
-};
+const DESTAQUE_PADRAO: ReactNode = (
+  <>
+    Chegar ao fim do mês e emitir a nota de cada paciente em um só clique — e ter o
+    domingo de volta, sem o trabalho invadindo a sua casa.
+  </>
+);
 
-const APOIO: Depoimento[] = [
+const SINAIS: Sinal[] = [
   {
-    quote: "Nunca fui de tecnologia. Conversei no WhatsApp e, numa tarde, estava tudo organizado.",
-    nome: "Renata Prado",
-    papel: "Psicanalista",
+    icon: "receipt",
+    titulo: "O fim do mês sem pavor",
+    texto:
+      "As notas de todos os pacientes saem juntas, em um clique — no lugar do dia inteiro que elas costumavam levar.",
   },
   {
-    quote: "Meus pacientes recebem o lembrete e quase não tenho mais falta. O histórico de cada um fica à mão.",
-    nome: "Camila Ferreira",
-    papel: "Terapeuta",
+    icon: "chat",
+    titulo: "Nada de tecnologia complicada",
+    texto:
+      "Você conversa no WhatsApp, do seu jeito, e a MAISA organiza a agenda e o histórico por trás.",
+  },
+  {
+    icon: "calendar",
+    titulo: "Mais presença, menos falta",
+    texto:
+      "Os lembretes chegam sozinhos aos seus pacientes, e o contexto de cada um fica à mão quando você senta para atender.",
   },
 ];
-
-function iniciais(nome: string): string {
-  const p = nome.split(/\s+/).filter(Boolean);
-  return (((p[0] || "")[0] || "") + ((p[p.length - 1] || "")[0] || "")).toUpperCase();
-}
-
-function Avatar({ nome, size = 48 }: { nome: string; size?: number }) {
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        width: size,
-        height: size,
-        flexShrink: 0,
-        borderRadius: "50%",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: "var(--mk-font-body)",
-        fontWeight: 700,
-        fontSize: `${Math.round(size * 0.34)}px`,
-        letterSpacing: "0.01em",
-        color: "var(--mk-on-brand)",
-        background: "var(--mk-brand)",
-      }}
-    >
-      {iniciais(nome)}
-    </span>
-  );
-}
-
-function Assinatura({ nome, papel, size }: { nome: string; papel: string; size?: number }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", minWidth: 0 }}>
-      <Avatar nome={nome} size={size} />
-      <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <span style={{ fontFamily: "var(--mk-font-body)", fontWeight: 700, color: "var(--mk-ink)" }}>{nome}</span>
-        <span style={{ fontFamily: "var(--mk-font-body)", fontSize: "0.9rem", color: "var(--mk-muted)" }}>{papel}</span>
-      </span>
-    </div>
-  );
-}
 
 export interface DepoimentosProps {
   nivel?: Nivel;
   tone?: Tone;
   id?: string;
   title?: string;
-  destaque?: Depoimento;
-  apoio?: Depoimento[];
-  /** foto ao lado do depoimento em destaque. null esconde. */
+  lead?: string;
+  /** promessa em destaque (serifa itálica). */
+  destaque?: ReactNode;
+  /** sinais concretos do dia a dia. */
+  sinais?: Sinal[];
+  /** foto real ao lado da promessa. null esconde. */
   image?: MktImagem | null;
 }
 
@@ -93,25 +67,32 @@ export function Depoimentos({
   tone = "default",
   id,
   title,
+  lead,
   destaque,
-  apoio,
+  sinais,
   image,
 }: DepoimentosProps) {
   const enxuto = nivel === "base";
-  const d = destaque ?? DESTAQUE;
-  const listaApoio = apoio ?? APOIO;
+  const d = destaque ?? DESTAQUE_PADRAO;
+  const listaSinais = sinais ?? SINAIS;
   const img = image === null ? null : image ?? imagensTerapeutas.conversa;
 
-  const heading = title ?? "Quem já respira melhor com a MAISA";
+  const heading = title ?? "O que você vai sentir com a MAISA";
+  const leadText =
+    lead ??
+    "A MAISA foi desenhada para tirar o operacional das suas costas — para você chegar ao fim do mês sem o peso das notas. É isto que a sua rotina deve passar a ser.";
 
   return (
     <Section id={id} tone={tone}>
-      <Heading style={{ maxWidth: "20ch" }}>{heading}</Heading>
+      <div style={{ maxWidth: "42ch", marginBottom: "clamp(2rem, 4vw, 3rem)" }}>
+        <Heading>{heading}</Heading>
+        <Lead style={{ marginTop: "1rem" }}>{leadText}</Lead>
+      </div>
 
-      {/* Depoimento em destaque */}
+      {/* Promessa em destaque + cena real (sem rosto/nome inventado) */}
       <figure
         style={{
-          margin: "clamp(2rem, 4vw, 3rem) 0 0",
+          margin: 0,
           display: "flex",
           flexWrap: "wrap",
           gap: "clamp(1.75rem, 4vw, 3rem)",
@@ -132,10 +113,24 @@ export function Depoimentos({
               margin: 0,
             }}
           >
-            “{d.quote}”
+            {d}
           </p>
-          <figcaption style={{ marginTop: "1.6rem" }}>
-            <Assinatura nome={d.nome} papel={d.papel} size={52} />
+          <figcaption
+            style={{
+              marginTop: "1.5rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.6rem",
+              fontFamily: "var(--mk-font-body)",
+              fontSize: "0.95rem",
+              fontWeight: 600,
+              color: "var(--mk-ink-soft)",
+            }}
+          >
+            <span style={{ color: "var(--mk-brand)", display: "inline-flex", flexShrink: 0 }}>
+              <TIcon name="heart" size={19} sw={1.9} />
+            </span>
+            A rotina que a MAISA foi feita para te devolver
           </figcaption>
         </blockquote>
 
@@ -161,59 +156,49 @@ export function Depoimentos({
         ) : null}
       </figure>
 
-      {/* Depoimentos de apoio */}
-      {!enxuto && listaApoio.length ? (
-        <div
+      {/* Sinais concretos — lista editorial (não cartões idênticos): filete no topo,
+          selo de ícone, título e texto. Some no nível base para um fecho mais calmo. */}
+      {!enxuto && listaSinais.length ? (
+        <ul
           style={{
-            marginTop: "clamp(2rem, 4vw, 3rem)",
+            listStyle: "none",
+            margin: "clamp(2.25rem, 4.5vw, 3.25rem) 0 0",
+            padding: 0,
             display: "grid",
             gap: "clamp(1.25rem, 3vw, 2rem)",
-            gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))",
           }}
         >
-          {listaApoio.map((t) => (
-            <figure
-              key={t.nome}
+          {listaSinais.map((sig) => (
+            <li
+              key={sig.titulo}
               style={{
-                margin: 0,
-                padding: "clamp(1.4rem, 3vw, 1.9rem)",
-                background: "var(--mk-surface)",
-                border: "1px solid var(--mk-border)",
-                borderRadius: "var(--mk-radius)",
+                minWidth: 0,
+                paddingTop: "1.25rem",
+                borderTop: "1px solid var(--mk-line)",
                 display: "flex",
                 flexDirection: "column",
-                gap: "1.2rem",
+                gap: "0.85rem",
               }}
             >
-              <blockquote style={{ margin: 0 }}>
-                <Text style={{ fontSize: "1.08rem", color: "var(--mk-ink)", lineHeight: 1.6 }}>“{t.quote}”</Text>
-              </blockquote>
-              <figcaption>
-                <Assinatura nome={t.nome} papel={t.papel} size={44} />
-              </figcaption>
-            </figure>
+              <IconBadge>
+                <TIcon name={sig.icon} size={22} />
+              </IconBadge>
+              <h3
+                style={{
+                  fontFamily: "var(--mk-font-display)",
+                  fontSize: "1.2rem",
+                  fontWeight: 600,
+                  color: "var(--mk-ink)",
+                  margin: 0,
+                }}
+              >
+                {sig.titulo}
+              </h3>
+              <Text style={{ color: "var(--mk-ink-soft)", lineHeight: 1.55 }}>{sig.texto}</Text>
+            </li>
           ))}
-        </div>
-      ) : enxuto && listaApoio.length ? (
-        <div
-          style={{
-            marginTop: "clamp(2rem, 4vw, 2.75rem)",
-            display: "grid",
-            gap: "clamp(1.25rem, 3vw, 2rem)",
-            gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))",
-          }}
-        >
-          {listaApoio.map((t) => (
-            <figure key={t.nome} style={{ margin: 0, display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <blockquote style={{ margin: 0 }}>
-                <Text style={{ fontSize: "1.05rem", color: "var(--mk-ink)", lineHeight: 1.6 }}>“{t.quote}”</Text>
-              </blockquote>
-              <figcaption>
-                <Assinatura nome={t.nome} papel={t.papel} size={42} />
-              </figcaption>
-            </figure>
-          ))}
-        </div>
+        </ul>
       ) : null}
     </Section>
   );

@@ -38,8 +38,11 @@ export function AntesDepoisBarbeiros({ variant = "aspiracional", id }: AntesDepo
 
   return (
     <Section id={id} width="wide">
-      <div style={{ maxWidth: "58ch", marginBottom: "clamp(2rem, 4.5vw, 3.25rem)" }}>
+      {/* Cabeçalho centralizado — quebra o ritmo dos cabeçalhos à esquerda das
+          seções vizinhas (Problema / Como funciona), evitando monotonia. */}
+      <div style={{ marginBottom: "clamp(2rem, 4.5vw, 3.25rem)" }}>
         <SectionHead
+          align="center"
           title={aspiracional ? "O mesmo dia, com o dobro de corte." : "O que muda na sua rotina, na prática."}
           lead={
             aspiracional

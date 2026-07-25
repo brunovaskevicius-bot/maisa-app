@@ -48,7 +48,7 @@ export default function TerapeutasComecarPage() {
     <World icp="terapeutas">
       <MarketingNav icp="terapeutas" current="base" />
 
-      <main>
+      <main id="conteudo" tabIndex={-1}>
         {/* Herói de decisão: promessa datada ("comece hoje") + garantia na nota,
             selo de prova reforçando a baixa fricção da ativação. */}
         <Hero

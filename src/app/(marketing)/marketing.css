@@ -71,7 +71,8 @@ body:has(.mundo-terapeutas) {
   --mk-cta-hover: oklch(0.75 0.145 78);
   --mk-cta-ink: oklch(0.20 0.05 262);
 
-  --mk-ring: oklch(0.80 0.14 82 / 0.6);
+  --mk-ring: oklch(0.80 0.14 82);        /* anel de foco dourado SÓLIDO — forte sobre o navy */
+  --mk-cta-glow: oklch(0.80 0.14 82 / 0.45); /* brilho suave do hover (desacoplado do foco) */
   --mk-shadow: 0 24px 60px oklch(0.10 0.04 264 / 0.6);
   --mk-shadow-soft: 0 10px 30px oklch(0.10 0.04 264 / 0.45);
 
@@ -134,7 +135,8 @@ body:has(.mundo-terapeutas) {
   --mk-cta-hover: oklch(0.34 0.10 262);
   --mk-cta-ink: oklch(0.99 0.005 250);
 
-  --mk-ring: oklch(0.40 0.10 262 / 0.38);
+  --mk-ring: oklch(0.40 0.10 262);       /* anel de foco navy SÓLIDO — contraste forte no claro (~7:1) */
+  --mk-cta-glow: oklch(0.40 0.10 262 / 0.30); /* brilho suave do hover (desacoplado do foco) */
   --mk-shadow: 0 24px 55px oklch(0.45 0.06 260 / 0.14);
   --mk-shadow-soft: 0 12px 32px oklch(0.45 0.06 260 / 0.10);
 
@@ -209,7 +211,8 @@ body:has(.mundo-terapeutas) {
   border-radius: 6px;
 }
 /* dentro das bandas coloridas o anel de foco usa a cor do texto da banda */
-.mk-btn-band:focus-visible { outline-color: var(--mk-band-ink); }
+.mk-btn-band:focus-visible,
+.mk-btn-band-ghost:focus-visible { outline-color: var(--mk-band-ink); }
 
 /* ---- Botões (hover/active/focus — inline não suporta :hover) -------------- */
 .mk-btn {
@@ -223,7 +226,7 @@ body:has(.mundo-terapeutas) {
 }
 .mk-btn:hover { transform: translateY(-1px); }
 .mk-btn:active { transform: translateY(0) scale(0.98); }
-.mk-btn-primary:hover { background: var(--mk-cta-hover); box-shadow: 0 12px 28px var(--mk-ring); }
+.mk-btn-primary:hover { background: var(--mk-cta-hover); box-shadow: 0 12px 28px var(--mk-cta-glow); }
 .mk-btn-secondary:hover { border-color: var(--mk-ink); background: color-mix(in oklch, var(--mk-ink) 6%, transparent); }
 .mk-btn-ghost:hover { background: color-mix(in oklch, var(--mk-ink) 9%, transparent); }
 .mk-btn-whats:hover { background: var(--mk-whats-hover); box-shadow: 0 12px 28px oklch(0.48 0.13 150 / 0.35); }
@@ -232,8 +235,19 @@ body:has(.mundo-terapeutas) {
 
 /* ---- Links de navegação --------------------------------------------------- */
 .mk-navlink {
+  position: relative;
   transition: color 180ms var(--mk-ease);
   color: var(--mk-ink-soft);
+}
+/* alvo de toque >= 44px sem mover a sublinha nem esticar a barra: um véu
+   invisível centrado verticalmente amplia só a área clicável. */
+.mk-navlink::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: max(44px, 100%);
 }
 .mk-navlink:hover { color: var(--mk-ink); }
 .mk-navlink[aria-current="page"] { color: var(--mk-ink); }
@@ -263,12 +277,22 @@ body:has(.mundo-terapeutas) {
 }
 
 /* ---- Rodapé --------------------------------------------------------------- */
+/* o navy do rodapé engole o anel de foco navy: aqui o foco vira dourado (>= 4.5:1) */
+.mk-footer { --mk-ring: var(--mk-footer-accent); }
 .mk-footlink {
   color: var(--mk-footer-muted);
   transition: color 180ms var(--mk-ease);
 }
 .mk-footlink:hover { color: var(--mk-footer-ink); }
 .mk-footlink:focus-visible { outline-color: var(--mk-footer-accent); }
+
+/* alvo de toque >= 44px para links "de bloco" (mapa do funil, ponte de mundo).
+   NÃO aplicar a links dentro de frases (o e-mail secundário fica inline). */
+.mk-tap {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
 
 /* ---- Motion (animações de load — terminam SEMPRE visíveis, `both`) -------- */
 @keyframes mkRise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
@@ -299,6 +323,49 @@ body:has(.mundo-terapeutas) {
 }
 .mk-mobile-panel.is-open { grid-template-rows: 1fr; }
 .mk-mobile-panel > div { overflow: hidden; min-height: 0; }
+
+/* ---- Skip link ("Pular para o conteúdo") — visível só ao foco de teclado --- */
+.mk-skip {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  background: var(--mk-cta);
+  color: var(--mk-cta-ink);
+  font-family: var(--mk-font-body);
+  font-weight: 700;
+  font-size: 0.95rem;
+  border-radius: var(--mk-btn-radius);
+  box-shadow: var(--mk-shadow-soft);
+  transform: translateY(calc(-100% - 16px));
+  transition: transform 200ms var(--mk-ease);
+}
+.mk-skip:focus { transform: translateY(0); }
+
+/* ---- CTA persistente no mobile (ao alcance do polegar) -------------------- */
+.mk-sticky-cta { display: none; }
+@media (max-width: 560px) {
+  .mk-sticky-cta {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    padding: 10px var(--mk-gutter);
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    background: var(--mk-nav-bg-scrolled);
+    -webkit-backdrop-filter: blur(12px) saturate(1.3);
+    backdrop-filter: blur(12px) saturate(1.3);
+    border-top: 1px solid var(--mk-line);
+  }
+  /* reserva espaço p/ o conteúdo (footer incluso) não ficar sob a barra fixa */
+  .mkt-world { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+}
 
 /* ---- prefers-reduced-motion — alternativa instantânea (fica visível) ------ */
 @media (prefers-reduced-motion: reduce) {

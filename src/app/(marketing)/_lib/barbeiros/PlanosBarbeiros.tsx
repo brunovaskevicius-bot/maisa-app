@@ -2,7 +2,7 @@
 import React from "react";
 import { s, Icon } from "@/lib/ui";
 import { Section, Button } from "../primitives";
-import { ICPS } from "../icp";
+import { ICPS, whatsappUrl } from "../icp";
 import { SectionHead } from "./_internals";
 import "./barbeiros.css";
 
@@ -14,6 +14,13 @@ import "./barbeiros.css";
  * -------------------------------------------------------------------------- */
 
 const cfg = ICPS.barbeiros;
+
+/* Mensagem de WhatsApp por plano — leva o NOME do plano pré-preenchido, pra
+ * conversa já começar no contexto certo (não a mesma mensagem genérica em todos
+ * os cards). Usa o helper único whatsappUrl (número/encode em ponto único). */
+function mensagemPlano(nome: string): string {
+  return `Oi! Tenho uma barbearia e quero ativar a MAISA no plano ${nome}. Como começo?`;
+}
 
 interface Plano {
   nome: string;
@@ -35,7 +42,7 @@ const PLANOS: Plano[] = [
     resumo: "Pra encher a agenda e matar o no-show.",
     itens: ["Agenda pelo WhatsApp", "Confirmação automática", "Lembrete anti no-show", "Painel de horários"],
     ctaLabel: "Começar com o Essencial",
-    ctaHref: cfg.ctaUrl,
+    ctaHref: whatsappUrl(mensagemPlano("Essencial")),
     ctaWhats: true,
   },
   {
@@ -52,7 +59,7 @@ const PLANOS: Plano[] = [
     ],
     destaque: true,
     ctaLabel: cfg.ctaLabel,
-    ctaHref: cfg.ctaUrl,
+    ctaHref: whatsappUrl(mensagemPlano("Profissional")),
     ctaWhats: true,
   },
   {
@@ -62,7 +69,7 @@ const PLANOS: Plano[] = [
     resumo: "Pra barbearia com equipe e nota fiscal.",
     itens: ["Tudo do Profissional", "Nota fiscal para PJ", "Agenda por profissional", "Prioridade no suporte"],
     ctaLabel: "Falar sobre o Completo",
-    ctaHref: cfg.ctaUrl,
+    ctaHref: whatsappUrl(mensagemPlano("Completo")),
     ctaWhats: true,
   },
 ];

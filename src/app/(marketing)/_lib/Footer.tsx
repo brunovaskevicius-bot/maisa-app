@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { ICPS, type ICP } from "./icp";
+import { ICPS, CONTATO_EMAIL, type ICP } from "./icp";
 import { Wordmark } from "./Wordmark";
 import { Button } from "./primitives";
 
@@ -51,7 +51,7 @@ export function Footer({ icp }: { icp: ICP }) {
 
   return (
     <footer
-      className={cfg.mundoClass}
+      className={`${cfg.mundoClass} mk-footer`}
       style={{ background: "var(--mk-footer-bg)", color: "var(--mk-footer-ink)" }}
     >
       <div
@@ -83,6 +83,12 @@ export function Footer({ icp }: { icp: ICP }) {
                 {cfg.ctaLabel}
               </Button>
             </div>
+            <p style={{ marginTop: "0.95rem", fontFamily: "var(--mk-font-body)", fontSize: "0.9rem", lineHeight: 1.6, color: "var(--mk-footer-muted)" }}>
+              Prefere e-mail?{" "}
+              <a href={`mailto:${CONTATO_EMAIL}`} className="mk-footlink mk-focus" style={{ color: "var(--mk-footer-ink)", fontWeight: 600 }}>
+                {CONTATO_EMAIL}
+              </a>
+            </p>
           </div>
 
           {/* mapa do funil */}
@@ -91,7 +97,7 @@ export function Footer({ icp }: { icp: ICP }) {
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
               {mapa.map((m) => (
                 <li key={m.href}>
-                  <a href={m.href} className="mk-footlink mk-focus" style={link}>
+                  <a href={m.href} className="mk-footlink mk-tap mk-focus" style={link}>
                     {m.label}
                   </a>
                 </li>
@@ -105,7 +111,7 @@ export function Footer({ icp }: { icp: ICP }) {
             <p style={{ fontFamily: "var(--mk-font-body)", fontSize: "0.98rem", lineHeight: 1.6, color: "var(--mk-footer-muted)", marginBottom: "0.5rem" }}>
               {cross.chamada}
             </p>
-            <a href={outro.home} className="mk-footlink mk-focus" style={{ ...link, fontWeight: 600, color: "var(--mk-footer-ink)" }}>
+            <a href={outro.home} className="mk-footlink mk-tap mk-focus" style={{ ...link, fontWeight: 600, color: "var(--mk-footer-ink)" }}>
               {cross.texto}
             </a>
           </div>

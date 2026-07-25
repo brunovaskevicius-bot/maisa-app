@@ -163,7 +163,9 @@ export function Pill({
   const styles: Record<string, CSSProperties> = {
     soft: {
       background: "color-mix(in oklch, var(--mk-accent) 16%, var(--mk-surface))",
-      color: "var(--mk-accent-ink)",
+      // âmbar escurecido p/ o texto do pill (ex.: "Agora, com a MAISA") atingir
+      // >=4.5:1 sobre o próprio tint claro — ~4.98:1 (o accent-ink global fica ~4.20:1).
+      color: "oklch(0.53 0.12 62)",
       border: "1px solid color-mix(in oklch, var(--mk-accent) 30%, transparent)",
     },
     accent: {

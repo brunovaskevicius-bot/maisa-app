@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { World, MarketingNav, Footer, CTASection } from "@/app/(marketing)/_lib";
+import { World, MarketingNav, Footer, CTASection, imagensBarbeiros } from "@/app/(marketing)/_lib";
 import {
   HeroBarbeiros,
   ProblemaBarbeiros,
@@ -34,7 +34,7 @@ export default function BarbeirosComoFuncionaPage() {
     <World icp="barbeiros">
       <MarketingNav icp="barbeiros" current="meio" />
 
-      <main>
+      <main id="conteudo" tabIndex={-1}>
         {/* Abertura de consideração: a agenda enchendo enquanto o corte acontece */}
         <HeroBarbeiros nivel="meio" />
 
@@ -44,8 +44,9 @@ export default function BarbeirosComoFuncionaPage() {
         {/* Seção principal do MEIO: os passos reais, do QR Code à agenda cheia */}
         <ComoFuncionaBarbeiros variant="completo" />
 
-        {/* Recursos / benefícios (confirmação e lembrete em destaque). id="recursos" — a nav ancora aqui */}
-        <RecursosBarbeiros variant="completo" />
+        {/* Recursos / benefícios (confirmação e lembrete em destaque). id="recursos" — a nav ancora aqui.
+            Imagem distinta da do herói (interior, não o mesmo "corte") pra não repetir a foto na página. */}
+        <RecursosBarbeiros variant="completo" image={imagensBarbeiros.interior} />
 
         {/* Prova da transformação: o que muda na rotina do dia, lado a lado */}
         <AntesDepoisBarbeiros variant="pragmatico" />

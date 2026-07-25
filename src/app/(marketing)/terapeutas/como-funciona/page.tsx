@@ -32,7 +32,7 @@ export default function TerapeutasComoFuncionaPage() {
     <World icp="terapeutas">
       <MarketingNav icp="terapeutas" current="meio" />
 
-      <main>
+      <main id="conteudo" tabIndex={-1}>
         {/* Abertura de consideração: o que a MAISA faz por você, em movimento */}
         <Hero nivel="meio" />
 

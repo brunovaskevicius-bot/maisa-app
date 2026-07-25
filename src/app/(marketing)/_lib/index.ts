@@ -10,5 +10,6 @@ export * from "./primitives";
 export { World } from "./World";
 export { Wordmark } from "./Wordmark";
 export { MarketingNav } from "./MarketingNav";
+export { StickyMobileCta } from "./StickyMobileCta";
 export { Footer } from "./Footer";
 export { CTASection } from "./CTASection";

@@ -4,7 +4,6 @@ import {
   MarketingNav,
   Footer,
   CTASection,
-  ICPS,
   imagensBarbeiros,
 } from "@/app/(marketing)/_lib";
 import {
@@ -41,7 +40,7 @@ export default function BarbeirosTopoPage() {
     <World icp="barbeiros">
       <MarketingNav icp="barbeiros" current="topo" />
 
-      <main>
+      <main id="conteudo" tabIndex={-1}>
         {/* Fisgada de consciência: a promessa central (agenda cheia sem largar a
             tesoura) com CTA leve para o MEIO e WhatsApp como saída secundária. */}
         <HeroBarbeiros nivel="topo" />
@@ -63,10 +62,9 @@ export default function BarbeirosTopoPage() {
             reforça o mundo real. */}
         <CTASection
           icp="barbeiros"
+          nivel="topo"
           title="Dá pra ver isso rodando antes de decidir qualquer coisa."
           description="Nada pra instalar agora, sem contrato. Veja o passo a passo de como a MAISA confirma, lembra e recupera cliente pelo WhatsApp — e decida com calma depois."
-          primaryLabel="Ver como funciona"
-          primaryHref={ICPS.barbeiros.rotas.meio}
           secondary={false}
           image={imagensBarbeiros.fachada}
         />

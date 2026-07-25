@@ -33,7 +33,7 @@ export default function BarbeirosComecarPage() {
     <World icp="barbeiros">
       <MarketingNav icp="barbeiros" current="base" />
 
-      <main>
+      <main id="conteudo" tabIndex={-1}>
         {/* Abertura de decisão: ativar hoje, se paga em menos de um mês.
             O CTA secundário do herói ancora direto nos planos (#planos). */}
         <HeroBarbeiros nivel="base" />
