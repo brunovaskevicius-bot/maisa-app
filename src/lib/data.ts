@@ -109,6 +109,14 @@ export type Cliente = {
   atendimentos: number;
   /** Valor fechado na competência — base da nota fiscal. */
   valor: number;
+  /**
+   * Cliente que existe só para validar a integração fiscal em produção.
+   * A NFS-e só autoriza de verdade em produção, então testar exige emitir uma
+   * nota real — e uma nota real de teste não pode ficar de pé. Marcar `teste`
+   * faz o store cancelar automaticamente logo após a autorização
+   * (ver TESTE_CANCELA_APOS_MS), de forma que nunca sobra nota órfã.
+   */
+  teste?: boolean;
 };
 
 export const CLIENTES: Cliente[] = [
@@ -128,7 +136,18 @@ export const CLIENTES: Cliente[] = [
   { id: "cl14", nome: "Sofia Ribeiro", telefone: "(11) 97334-9988", email: "sofia.r@email.com", cpf: "811.225.443-50", canal: "Online", ativo: false, desde: "mar/2023", servicoId: "sv1", atendimentos: 0, valor: 0 },
   { id: "cl15", nome: "Marcelo Tavares", telefone: "(11) 99110-2200", email: "marcelo.t@email.com", cpf: "723.889.110-42", canal: "Presencial", ativo: false, desde: "jul/2023", servicoId: "sv2", atendimentos: 0, valor: 0 },
   { id: "cl16", nome: "Patrícia Mendes", telefone: "(11) 98556-7711", email: "patricia.m@email.com", cpf: "455.667.889-23", canal: "Online", ativo: false, desde: "fev/2023", servicoId: "sv1", atendimentos: 0, valor: 0 },
+  // Tomador de teste da integração fiscal. CPF real e existente de propósito: a
+  // prefeitura valida a existência do documento, e CPF inventado é rejeitado
+  // antes de a integração ser exercitada. R$ 1,00 para o valor não importar.
+  { id: "cl-teste", nome: "Bruno Vaskevicius", telefone: "(11) 99999-0000", email: "bruno.vaskevicius@polijunior.com.br", cpf: "545.739.088-89", canal: "Online", ativo: true, desde: "jul/2026", servicoId: "sv2", atendimentos: 1, valor: 1, teste: true },
 ];
+
+/**
+ * Quanto o store espera entre a autorização e o cancelamento automático da nota
+ * de teste. Precisa ser curto (a nota real não deve viver) e longo o suficiente
+ * para dar tempo de ver o número na tela e conferir na prefeitura.
+ */
+export const TESTE_CANCELA_APOS_MS = 25_000;
 
 /* ───────────────────────────── nota fiscal ─────────────────────────────
  * Estados espelham a Focus NFe (ver src/lib/nf/focus.ts → normalizarStatus):

@@ -85,6 +85,9 @@ export function Faturamento() {
   const emitidas = por(["emitida"]);
   const processando = por(["processando"]);
   const pendentes = por(["pendente", "erro", "cancelada"]);
+  // O lote não inclui o tomador de teste (ver store.emitirPendentes), então o
+  // rótulo do botão conta o que ele realmente vai emitir.
+  const noLote = pendentes.filter((c) => !c.teste);
   const total = base.reduce((a, c) => a + c.valor, 0);
 
   return (
@@ -98,9 +101,9 @@ export function Faturamento() {
           { n: processando.length, label: "processando", tom: "primary" },
           { n: pendentes.length, label: "a emitir", tom: "warn" },
         ]}
-        acao={pendentes.length > 0
+        acao={noLote.length > 0
           ? {
-            label: `Emitir as ${pendentes.length} pendentes`,
+            label: noLote.length === 1 ? "Emitir a nota pendente" : `Emitir as ${noLote.length} pendentes`,
             icon: "receipt",
             onClick: st.emitirPendentes,
           }
@@ -130,8 +133,8 @@ export function Faturamento() {
                 meta={fmt(c.valor)}
                 tag={tag}
                 onClick={() => st.abrir(`nf-${c.id}`)}
-                resumo={resumo}
-                chips={[`CPF ${c.cpf}`, c.canal]}
+                resumo={c.teste ? `Tomador de teste — a nota se cancela sozinha depois de emitir. ${resumo}` : resumo}
+                chips={[...(c.teste ? ["teste fiscal"] : []), `CPF ${c.cpf}`, c.canal]}
               />
             );
           })}

@@ -161,7 +161,12 @@ export function useDetalhe(id: string | null): Detalhe | null {
         recibo,
         nota.status === "erro" && nota.erro
           ? { tipo: "aviso", key: "er", texto: nota.erro, tone: "danger" }
-          : { tipo: "aviso", key: "av", texto: "Emitir é irreversível: a nota vai para a prefeitura na hora. Para corrigir depois, só cancelando." },
+          : c.teste
+            ? {
+              tipo: "aviso", key: "av",
+              texto: `Tomador de teste da integração fiscal. A nota é emitida de verdade na prefeitura e cancelada automaticamente ${Math.round(D.TESTE_CANCELA_APOS_MS / 1000)}s depois — nunca fica documento em pé.`,
+            }
+            : { tipo: "aviso", key: "av", texto: "Emitir é irreversível: a nota vai para a prefeitura na hora. Para corrigir depois, só cancelando." },
       ],
       acoes: [
         { label: nota.status === "erro" ? "Tentar de novo" : "Emitir nota", primaria: true, onClick: () => { st.emitirNota(c.id); st.fechar(); } },

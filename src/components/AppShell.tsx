@@ -156,7 +156,8 @@ function AcaoPrimaria() {
   const dourado = "height:40px;padding:0 18px;border:none;border-radius:12px;background:var(--warm);color:oklch(0.29 0.06 72);font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;text-decoration:none";
 
   if (st.tela === "faturamento") {
-    const aEmitir = st.fechamento.filter((c) => ["pendente", "erro", "cancelada"].includes(st.notaDe(c.id).status)).length;
+    // Mesma regra do hero: o tomador de teste não entra no lote.
+    const aEmitir = st.fechamento.filter((c) => !c.teste && ["pendente", "erro", "cancelada"].includes(st.notaDe(c.id).status)).length;
     if (!aEmitir) return null;
     return (
       <button onClick={st.emitirPendentes} className="m-hov-bright m-press m-focus" style={s(dourado)}>

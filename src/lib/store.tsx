@@ -408,6 +408,37 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     timers.current.push(setTimeout(f, ms));
   }, []);
 
+  const cancelarNota = useCallback(async (clienteId: string) => {
+    const n = notaDe(clienteId);
+    // Notas históricas (as que já vinham emitidas) não têm ref na Focus — cancela só aqui.
+    if (!n.ref) { setNota(clienteId, { ...n, status: "cancelada" }); toast("Nota cancelada"); return; }
+    try {
+      const r = await fetch("/api/nf/cancelar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: n.ref }),
+      }).then((x) => x.json());
+      if (r.status === "cancelado") { setNota(clienteId, { ...n, status: "cancelada" }); toast("Nota cancelada"); return; }
+      setNota(clienteId, { ...n, erro: r.erros?.[0]?.mensagem ?? "Não foi possível cancelar." });
+    } catch {
+      setNota(clienteId, { ...n, erro: "Sem conexão para cancelar a nota." });
+    }
+  }, [notaDe, setNota]);
+
+  /**
+   * Nota de cliente de teste se cancela sozinha.
+   *
+   * A NFS-e só autoriza de verdade em produção, então validar a integração exige
+   * emitir uma nota real. Deixá-la de pé seria um documento fiscal indevido — o
+   * cancelamento automático é o que torna o teste seguro de repetir.
+   */
+  const agendarCancelamentoDeTeste = useCallback((clienteId: string) => {
+    if (!D.cliente(clienteId)?.teste) return;
+    const seg = Math.round(D.TESTE_CANCELA_APOS_MS / 1000);
+    toast(`Nota de teste emitida — cancelando em ${seg}s`);
+    agendar(() => { void cancelarNota(clienteId); }, D.TESTE_CANCELA_APOS_MS);
+  }, [agendar, cancelarNota]);
+
   /** Acompanha a emissão assíncrona até sair número (ou erro). */
   const acompanhar = useCallback((clienteId: string, ref: string, tentativa = 0) => {
     if (tentativa > 20) {
@@ -419,10 +450,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const r = await fetch(`/api/nf/status?ref=${encodeURIComponent(ref)}`).then((x) => x.json());
         if (r.status === "autorizado") {
           setNota(clienteId, { status: "emitida", numero: r.numero, data: D.HOJE.data, ref, pdf: r.pdf });
+          agendarCancelamentoDeTeste(clienteId);
           return;
         }
         if (r.status === "cancelado") { setNota(clienteId, { status: "cancelada", ref }); return; }
-        if (r.status === "simulado") { numeroLocal(clienteId, ref); return; }
+        if (r.status === "simulado") { numeroLocal(clienteId, ref); agendarCancelamentoDeTeste(clienteId); return; }
         if (r.status === "erro") {
           setNota(clienteId, { status: "erro", ref, erro: r.erros?.[0]?.mensagem ?? "A prefeitura rejeitou a nota." });
           return;
@@ -432,7 +464,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         acompanhar(clienteId, ref, tentativa + 1);
       }
     }, tentativa === 0 ? 1400 : 3000);
-  }, [agendar, setNota, numeroLocal]);
+  }, [agendar, setNota, numeroLocal, agendarCancelamentoDeTeste]);
 
   const emitirNota = useCallback(async (clienteId: string) => {
     const c = D.cliente(clienteId);
@@ -457,9 +489,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }),
       }).then((x) => x.json());
 
-      if (r.status === "simulado") { numeroLocal(clienteId, r.ref); return; }
+      if (r.status === "simulado") { numeroLocal(clienteId, r.ref); agendarCancelamentoDeTeste(clienteId); return; }
       if (r.status === "autorizado") {
         setNota(clienteId, { status: "emitida", numero: r.numero, data: D.HOJE.data, ref: r.ref, pdf: r.pdf });
+        agendarCancelamentoDeTeste(clienteId);
         return;
       }
       if (r.status === "processando") { setNota(clienteId, { status: "processando", ref: r.ref }); acompanhar(clienteId, r.ref); return; }
@@ -475,7 +508,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setNota(clienteId, { status: "erro", erro: "Sem conexão com o servidor de notas." });
     }
-  }, [notaDe, setNota, numeroLocal, acompanhar]);
+  }, [notaDe, setNota, numeroLocal, acompanhar, agendarCancelamentoDeTeste]);
 
   const fechamento = useMemo(
     () => D.CLIENTES.filter((c) => cliAtivo(c.id) && c.valor > 0),
@@ -484,6 +517,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const emitirPendentes = useCallback(() => {
     const pend = fechamento.filter((c) => {
+      // Tomador de teste fica FORA do lote de propósito: em produção ele emite
+      // uma nota real, e um botão de fechar o mês não deveria disparar isso sem
+      // que alguém pedisse. Ele emite só pela própria gaveta, um a um.
+      if (c.teste) return false;
       const st = notaDe(c.id).status;
       return st === "pendente" || st === "erro";
     });
@@ -492,23 +529,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Escalonado: emissão em lote não deve disparar N requisições no mesmo tick.
     pend.forEach((c, i) => agendar(() => { void emitirNota(c.id); }, i * 300));
   }, [fechamento, notaDe, emitirNota, agendar]);
-
-  const cancelarNota = useCallback(async (clienteId: string) => {
-    const n = notaDe(clienteId);
-    // Notas históricas (as que já vinham emitidas) não têm ref na Focus — cancela só aqui.
-    if (!n.ref) { setNota(clienteId, { ...n, status: "cancelada" }); toast("Nota cancelada"); return; }
-    try {
-      const r = await fetch("/api/nf/cancelar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ref: n.ref }),
-      }).then((x) => x.json());
-      if (r.status === "cancelado") { setNota(clienteId, { ...n, status: "cancelada" }); toast("Nota cancelada"); return; }
-      setNota(clienteId, { ...n, erro: r.erros?.[0]?.mensagem ?? "Não foi possível cancelar." });
-    } catch {
-      setNota(clienteId, { ...n, erro: "Sem conexão para cancelar a nota." });
-    }
-  }, [notaDe, setNota]);
 
   /* ── ajustes da MAISA ── */
   const abrirSecao = useCallback((id: string) => {
