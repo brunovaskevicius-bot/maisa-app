@@ -5,6 +5,10 @@ import "./globals.css";
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700", "800"],
+  // Exposta também como variável, não só className: o wordmark "maisa" (Jakarta
+  // 800 dourada) aparece dentro das landing pages, cujo escopo usa outra fonte
+  // de corpo. Sem a variável não há como referenciar a família do next/font lá.
+  variable: "--font-jakarta",
   display: "swap",
 });
 
@@ -42,7 +46,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="pt-BR" className={geistMono.variable}>
+    <html lang="pt-BR" className={`${geistMono.variable} ${jakarta.variable}`}>
       <body className={jakarta.className}>{children}</body>
     </html>
   );
