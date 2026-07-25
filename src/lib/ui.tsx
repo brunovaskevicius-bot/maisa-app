@@ -94,6 +94,12 @@ const ICONS: Record<string, React.ReactNode> = {
   play: (<path d="M7 5l12 7-12 7Z" />),
   moon: (<path d="M20 13.5A8 8 0 1 1 10.5 4a6.5 6.5 0 0 0 9.5 9.5Z" />),
   target: (<><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r=".6" /></>),
+  // nav da repaginada
+  flow: (<><rect x="3" y="4.5" width="5.5" height="15" rx="2" /><rect x="10.5" y="4.5" width="5.5" height="9" rx="2" /><rect x="18" y="4.5" width="3" height="12" rx="1.5" /></>),
+  clientes: (<><rect x="3.2" y="4.5" width="17.6" height="15" rx="3" /><circle cx="9" cy="10.4" r="2.1" /><path d="M5.8 16.2c0-1.8 1.5-2.8 3.2-2.8s3.2 1 3.2 2.8" /><path d="M15 9.8h3.4M15 12.6h3.4" /></>),
+  alert: (<><path d="M12 8.4v4.4" /><circle cx="12" cy="16.4" r="1" /><path d="M10.3 4.2 3.4 17.4a1.8 1.8 0 0 0 1.6 2.6h14a1.8 1.8 0 0 0 1.6-2.6L13.7 4.2a1.9 1.9 0 0 0-3.4 0Z" /></>),
+  undo: (<><path d="M4 9h11a5 5 0 0 1 0 10h-3" /><path d="m8 5-4 4 4 4" /></>),
+  logout: (<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></>),
   // profissões (ícone de "serviços" por área)
   heart: (<path d="M12 20.3s-6.8-4.1-6.8-9.1A3.7 3.7 0 0 1 12 8.3a3.7 3.7 0 0 1 6.8 2.9c0 5-6.8 9.1-6.8 9.1Z" />),
   tooth: (<path d="M8 3.5c-2 0-3.3 1.5-3.3 3.7 0 1.3.4 2.3.8 3.8.5 2 .5 6 1.9 6 1.2 0 1.1-3.4 2.3-3.4s1.1 3.4 2.3 3.4c1.4 0 1.4-4 1.9-6 .4-1.5.8-2.5.8-3.8C16.3 5 15 3.5 13 3.5c-1 0-1.5.6-2.5.6S9 3.5 8 3.5Z" />),
@@ -164,8 +170,43 @@ export function Badge({ tone = "neutral", children, dot }: { tone?: Tone; childr
   );
 }
 
+/* Chip informativo — leitura, não ação. Usado no resumo dos cartões e na Gaveta.
+   `tone` primary marca o que está ligado/selecionado. */
+export function Chip({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "primary" }) {
+  const cor = tone === "primary"
+    ? "background:var(--primary-soft);color:var(--primary-dark);border-color:oklch(0.92 0.020 262)"
+    : "background:var(--bg);color:var(--muted);border-color:var(--line)";
+  return (
+    <span style={s(`display:inline-flex;align-items:center;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;border:1px solid;${cor}`)}>
+      {children}
+    </span>
+  );
+}
+
+/* Barra de filtro por chip — um estado só, sempre visível (nada de dropdown escondendo o filtro ativo). */
+export function Filtros({ opcoes, ativo, onChange }: { opcoes: string[]; ativo: string; onChange: (v: string) => void }) {
+  return (
+    <div style={s("display:flex;gap:8px;flex-wrap:wrap")} role="group" aria-label="Filtrar">
+      {opcoes.map((o) => {
+        const on = o === ativo;
+        return (
+          <button
+            key={o}
+            onClick={() => onChange(o)}
+            aria-pressed={on}
+            className="m-press m-focus m-hov-prim-border"
+            style={s(`font-size:13px;font-weight:700;padding:8px 16px;border-radius:999px;cursor:pointer;white-space:nowrap;border:1px solid ${on ? "var(--primary)" : "var(--border)"};background:${on ? "var(--primary)" : "var(--surface)"};color:${on ? "#fff" : "var(--muted)"}`)}
+          >
+            {o}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // outline:none + classe .m-focus => mesmo anel de foco (:focus-visible) dos botões
-const INPUT = "width:100%;border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:14px;background:var(--surface);color:var(--ink);outline:none";
+const INPUT ="width:100%;border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:14px;background:var(--surface);color:var(--ink);outline:none";
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   const { style, className, ...rest } = props;
   return <input {...rest} className={["m-focus", className].filter(Boolean).join(" ")} style={{ ...s(INPUT), ...(style || {}) }} />;
@@ -202,8 +243,10 @@ export function Monogram({ name, id, size = 44, radius = 13 }: { name: string; i
   const weave =
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) 3px)," +
     "repeating-linear-gradient(-45deg, rgba(0,0,0,0.045) 0px, rgba(0,0,0,0.045) 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) 3px)";
+  // <span>, não <div>: o monograma aparece dentro de <button> (cartões da grade,
+  // linhas da gaveta) e <div> ali é HTML inválido. display:flex mantém o desenho.
   return (
-    <div
+    <span
       style={{
         width: size,
         height: size,
@@ -221,7 +264,7 @@ export function Monogram({ name, id, size = 44, radius = 13 }: { name: string; i
       }}
     >
       {initials(name)}
-    </div>
+    </span>
   );
 }
 

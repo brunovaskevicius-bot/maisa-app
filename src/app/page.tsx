@@ -1,10 +1,10 @@
-import MaisaApp from "@/components/MaisaApp";
-import { AdminConfigProvider } from "@/lib/adminConfig";
+import AppShell from "@/components/AppShell";
+import { StoreProvider } from "@/lib/store";
 
 export default function Page() {
   return (
-    <AdminConfigProvider>
-      <MaisaApp />
-    </AdminConfigProvider>
+    <StoreProvider>
+      <AppShell />
+    </StoreProvider>
   );
 }

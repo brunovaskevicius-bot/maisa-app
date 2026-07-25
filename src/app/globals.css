@@ -174,6 +174,51 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { box-shadow: 
 .m-acc.is-open { grid-template-rows: 1fr; }
 .m-acc > * { overflow: hidden; min-height: 0; }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   REPAGINADA — shell de rail + cartão-curto + gaveta
+   O design original resolvia rail e hover-expand com estado React (onMouseEnter
+   → setState). Aqui é CSS: não re-renderiza a árvore a cada passada de mouse,
+   e a animação não engasga durante um arrasto.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* (a) RAIL — 76px colapsado, 244px no hover. Sobrepõe o conteúdo (é absolute
+   sobre um espaçador de 76px), então expandir não empurra a tela.
+   :has(:focus-visible) e não :focus-within — clicar num item de nav dá foco ao
+   botão, e com :focus-within o rail ficava preso aberto depois do clique. Assim
+   ele abre no hover e na navegação por teclado, mas fecha ao sair do mouse. */
+.m-rail { width: 76px; transition: width var(--dur-slow) var(--ease-out); }
+.m-rail:hover, .m-rail:has(:focus-visible) { width: 244px; }
+.m-rail-label { opacity: 0; white-space: nowrap; transition: opacity var(--dur-base) ease; }
+.m-rail:hover .m-rail-label, .m-rail:has(:focus-visible) .m-rail-label { opacity: 1; }
+
+/* (b) CARTÃO EXPANSÍVEL — o resumo aparece no hover/foco; o detalhe editável
+   fica na gaveta. grid-template-rows 0fr→1fr é o mesmo truque do .m-acc. */
+.m-exp { transition: transform var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out), border-color var(--dur-slow) var(--ease-out); }
+.m-exp:hover, .m-exp:focus-visible { transform: translateY(-5px); box-shadow: 0 18px 40px oklch(0.30 0.03 60 / 0.16); border-color: oklch(0.84 0.03 262) !important; }
+.m-exp-body { display: grid; width: 100%; grid-template-rows: 0fr; opacity: 0; margin-top: 0; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur-base) ease, margin-top var(--dur-slow) var(--ease-out); }
+.m-exp-body > * { overflow: hidden; min-height: 0; }
+.m-exp:hover .m-exp-body, .m-exp:focus-visible .m-exp-body { grid-template-rows: 1fr; opacity: 1; margin-top: 14px; }
+/* Sem hover (toque) o resumo nunca abriria e o cartão pareceria truncado —
+   nesse caso ele simplesmente não existe: o toque vai direto pra gaveta. */
+@media (hover: none) { .m-exp-body { display: none; } }
+
+/* (c) ARRASTO — kanban e agenda. O cursor é a única affordance de "isto move". */
+.m-drag { cursor: grab; }
+.m-drag:active { cursor: grabbing; }
+
+/* (d) GAVETA — modal centrado no desktop, folha de baixo no mobile. */
+@keyframes mmodal { from { transform: translate(-50%, -46%) scale(0.965); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+@keyframes msheet { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.m-modal { animation: mmodal var(--dur-slow) var(--ease-out) both; }
+.m-sheet { animation: msheet var(--dur-slow) var(--ease-out) both; }
+
+/* (e) "MAISA no ar" — pulso lento do ponto de status. */
+@keyframes mpulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.m-pulse { animation: mpulse 2.4s ease-in-out infinite; }
+
+/* (f) bolha de mensagem entrando na conversa */
+.m-bubble { animation: msheet var(--dur-slow) var(--ease-out) both; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
