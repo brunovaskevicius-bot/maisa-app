@@ -7,6 +7,9 @@
 /.next/
 /out/
 
+# espelho da LP estática (fonte é lp/, gerado por scripts/espelha-lp.mjs)
+/public/lp/
+
 # production
 /build
 

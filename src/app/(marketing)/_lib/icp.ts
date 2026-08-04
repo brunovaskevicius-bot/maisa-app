@@ -7,9 +7,10 @@
 export type ICP = "barbeiros" | "terapeutas";
 export type Nivel = "topo" | "meio" | "base";
 
-/* Número placeholder da MAISA no WhatsApp. Formato E.164 sem o "+"
- * (ex.: 5511999999999). >>> TROCAR pelo número real antes de publicar <<< */
-export const WHATSAPP_NUMERO = "5500000000000";
+/* Número da MAISA no WhatsApp, em E.164 sem o "+". É o mesmo número da LP
+ * oficial em lp/terapeutas/index.html — se trocar aqui, troque lá também: a LP
+ * é HTML estático e não importa este módulo. */
+export const WHATSAPP_NUMERO = "5511994294906";
 
 /* E-mail de contato secundário (canal alternativo ao WhatsApp). Ponto único —
  * >>> TROCAR pelo endereço real antes de publicar <<< */
@@ -115,6 +116,11 @@ export function nivelDoPath(pathname: string | null | undefined): Nivel {
   const sub = (pathname ?? "").split("/").filter(Boolean)[1];
   if (sub === "comecar") return "base";
   if (sub === "como-funciona") return "meio";
+  // Uma one-pager percorre o funil INTEIRO numa rolagem, então ela não é "topo": quem está nela já
+  // pode ter lido tudo. Classificada como topo, a barra fixa do mobile (StickyMobileCta) servia o
+  // CTA mais fraco — "Ver como funciona" — apontando para FORA da one-pager, para uma página cujo
+  // conteúdo ela contém inteiro. Era o único CTA permanentemente visível no celular.
+  if (sub === "completa") return "base";
   return "topo";
 }
 
