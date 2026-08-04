@@ -30,6 +30,8 @@ export type Assistente = { nome: string; tom: D.Tom; saudacao: string; ativa: bo
 /** Agendamento com tudo já resolvido — o que as telas consomem. */
 export type AgendamentoVivo = {
   id: string;
+  /** Dia do mês em D.MES_AGENDA. */
+  dia: number;
   inicio: number;
   fim: number;
   duracao: number;
@@ -44,9 +46,17 @@ export type AgendamentoVivo = {
 /** O que sobrevive a um F5. */
 type Persistido = {
   etapas: Record<string, D.Etapa>;
-  posicoes: Record<string, { profissionalId: string; inicio: number }>;
+  /** Resultado de arrastar na Agenda. `dia` é opcional: posição gravada antes da visão de Semana
+   *  não tem o campo, e o fallback é o dia de origem do agendamento. */
+  posicoes: Record<string, { profissionalId: string; inicio: number; dia?: number }>;
   profAtivo: Record<string, boolean>;
   svcAtivo: Record<string, boolean>;
+  /** Edições de serviço por id (nome/preço/duração/categoria). D.SERVICOS é catálogo de partida. */
+  svcEdit: Record<string, Partial<D.Servico>>;
+  /** Serviços criados pelo usuário — não existem em D.SERVICOS. */
+  svcNovos: D.Servico[];
+  /** Atendimentos marcados pelo usuário na Agenda — D.AGENDAMENTOS é o dia de partida. */
+  novosAgendamentos: D.Agendamento[];
   cliAtivo: Record<string, boolean>;
   assumidas: Record<string, boolean>;
   resolvidos: Record<string, boolean>;
@@ -60,11 +70,18 @@ type Persistido = {
 
 const CHAVE = "maisa.app.v2";
 
+/** Um único array vazio compartilhado para os dias sem nada marcado — devolver `[]` novo a cada
+ *  chamada faria toda dependência de memo mudar de identidade sem nada ter mudado de verdade. */
+const SEM_ATENDIMENTO: AgendamentoVivo[] = [];
+
 const INICIAL: Persistido = {
   etapas: {},
   posicoes: {},
   profAtivo: {},
   svcAtivo: {},
+  svcEdit: {},
+  svcNovos: [],
+  novosAgendamentos: [],
   cliAtivo: {},
   assumidas: {},
   resolvidos: {},
@@ -92,12 +109,13 @@ export type StoreValue = {
   abrir: (id: string) => void;
   fechar: () => void;
 
-  /* fluxo de hoje + agenda (mesma lista) */
+  /* fluxo de hoje + agenda (mesma lista) — `agendamentos` é o MÊS inteiro */
   agendamentos: AgendamentoVivo[];
+  agendamentosDoDia: (dia: number) => AgendamentoVivo[];
   agendamentoPorId: (id: string) => AgendamentoVivo | undefined;
   moverEtapa: (id: string, etapa: D.Etapa) => void;
   avancarEtapa: (id: string) => void;
-  reposicionar: (id: string, profissionalId: string, inicio: number) => void;
+  reposicionar: (id: string, profissionalId: string, inicio: number, dia?: number) => void;
   /** Itens da fila "Precisa de você" que ainda não foram resolvidos. */
   fila: D.ItemFila[];
   resolverFila: (alvo: string) => void;
@@ -125,6 +143,12 @@ export type StoreValue = {
   alternarProf: (id: string) => void;
   svcAtivo: (id: string) => boolean;
   alternarSvc: (id: string) => void;
+  /** Catálogo vivo: D.SERVICOS + edições + criados. As telas leem daqui, não de D.SERVICOS. */
+  servicos: D.Servico[];
+  servicoDe: (id: string) => D.Servico | undefined;
+  editarServico: (id: string, patch: Partial<D.Servico>) => void;
+  criarServico: () => void;
+  excluirServico: (id: string) => void;
   cliAtivo: (id: string) => boolean;
   alternarCli: (id: string) => void;
   filtroSvc: string;
@@ -139,6 +163,12 @@ export type StoreValue = {
   cancelarNota: (clienteId: string) => void;
   /** Clientes com valor fechado no mês — a base do Faturamento. */
   fechamento: D.Cliente[];
+  /** O que o lote REALMENTE vai emitir. Hero, topbar e lote leem daqui — fonte única. */
+  emitiveis: D.Cliente[];
+  loteAberto: boolean;
+  pedirLote: () => void;
+  fecharLote: () => void;
+  confirmarLote: () => void;
 
   /* ajustes da MAISA */
   secAtiva: string | null;
@@ -152,6 +182,17 @@ export type StoreValue = {
   alternarCfg: (chave: D.ChaveCfg) => void;
   salvo: boolean;
   salvar: () => void;
+
+  /* agenda — dia visível e criação de atendimento */
+  /** Número do dia que a Agenda está mostrando. Começa em hoje. */
+  diaSel: number;
+  verDia: (num: number) => void;
+  /** Atendimento sendo marcado (clique num horário vago), antes de virar agendamento. */
+  rascunho: D.RascunhoAgendamento | null;
+  novoAgendamento: (profissionalId: string, inicio: number, dia: number) => void;
+  editarRascunho: (patch: Partial<D.RascunhoAgendamento>) => void;
+  confirmarRascunho: () => void;
+  descartarRascunho: () => void;
 
   /* rail */
   railAberto: boolean;
@@ -215,6 +256,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [secAtiva, setSecAtiva] = useState<string | null>("personalidade");
   const [salvo, setSalvo] = useState(false);
   const [railAberto, setRailAberto] = useState(false);
+  // Dia visível na Agenda. Volátil de propósito: recarregar cai em hoje, como o resto da
+  // navegação. Antes os seis botões de dia não tinham onClick nenhum — eram decoração.
+  const [diaSel, setDiaSel] = useState(D.HOJE.num);
 
   /* ── navegação ── */
   const irPara = useCallback((t: TelaId) => { setTela(t); setSel(null); }, []);
@@ -229,15 +273,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [sel]);
 
-  /* ── agendamentos do dia ── */
+  /* ── agendamentos do mês ── */
   const agendamentos = useMemo<AgendamentoVivo[]>(() => {
-    return D.AGENDAMENTOS.map((a) => {
+    // D.AGENDAMENTOS é o dia de partida, D.AGENDA_MES é o resto do mês (gerado — ver data.ts),
+    // e `novosAgendamentos` são os que o usuário marcou na Agenda.
+    return [...D.AGENDAMENTOS, ...D.AGENDA_MES, ...db.novosAgendamentos].map((a) => {
       const pos = db.posicoes[a.id];
       const profissionalId = pos?.profissionalId ?? a.profissionalId;
       const inicio = pos?.inicio ?? a.inicio;
-      const sv = D.servico(a.servicoId)!;
+      const sv = D.servico(a.servicoId) ?? db.svcNovos.find((s) => s.id === a.servicoId)!;
       return {
         id: a.id,
+        dia: pos?.dia ?? a.dia ?? D.HOJE.num,
         inicio,
         duracao: sv.duracao,
         fim: inicio + sv.duracao / 60,
@@ -248,37 +295,107 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         confirmado: a.confirmado,
         etapa: db.etapas[a.id] ?? a.etapaInicial,
       };
-    }).sort((x, y) => x.inicio - y.inicio);
-  }, [db.posicoes, db.etapas]);
+    }).sort((x, y) => x.dia - y.dia || x.inicio - y.inicio);
+    // novosAgendamentos e svcNovos entram nas deps: sem elas o memo ficava preso na lista antiga e
+    // um atendimento recém-marcado era gravado no localStorage sem NUNCA aparecer na grade.
+  }, [db.posicoes, db.etapas, db.novosAgendamentos, db.svcNovos]);
+
+  /** Índice por dia. A grade de mês pergunta 35 vezes por render (uma por célula, e o hover
+   *  re-renderiza a cada célula que o mouse cruza); com `.filter()` cada pergunta varria o mês
+   *  inteiro. Além do custo, `filter` devolvia um array NOVO a cada chamada, então qualquer memo
+   *  com essa lista na dependência nunca acertava o cache. */
+  const porDia = useMemo(() => {
+    const m = new Map<number, AgendamentoVivo[]>();
+    for (const a of agendamentos) {
+      const lista = m.get(a.dia);
+      if (lista) lista.push(a);
+      else m.set(a.dia, [a]);
+    }
+    return m;
+  }, [agendamentos]);
+
+  /** Os atendimentos de UM dia. `agendamentos` agora é o mês inteiro, então quem fala de "hoje"
+   *  (o Fluxo, o kanban) precisa dizer qual dia quer — antes isso era implícito e virou uma
+   *  armadilha no dia em que a lista passou a ter trinta dias. */
+  const agendamentosDoDia = useCallback((dia: number) => porDia.get(dia) ?? SEM_ATENDIMENTO, [porDia]);
 
   const agendamentoPorId = useCallback(
     (id: string) => agendamentos.find((a) => a.id === id),
     [agendamentos],
   );
 
+  /** Etapa atual de um agendamento, com o default do dado de origem. */
+  const etapaDe = useCallback(
+    (id: string): D.Etapa => db.etapas[id] ?? D.agendamento(id)?.etapaInicial ?? "chegando",
+    [db.etapas],
+  );
+
+  /* As três ações abaixo eram IRREVERSÍVEIS E SILENCIOSAS: arrastar um cartão para "Feito hoje"
+   * marcava um atendimento como concluído sem toast, sem anúncio para leitor de tela e sem volta.
+   * Agora todas confirmam e todas oferecem "Desfazer" — inclusive porque remarcar dispara WhatsApp
+   * de verdade para o cliente. O rótulo nomeia quem mudou, não "item atualizado". */
+  const ROTULO_ETAPA: Record<D.Etapa, string> = {
+    chegando: "Chegando", atendendo: "Em atendimento", feito: "Feito hoje",
+  };
+
+  /** O registro CRU de um agendamento — o do dado de partida, o do mês gerado, ou o que o usuário
+   *  criou. D.agendamento() sozinho não conhece o terceiro, e por isso os toasts caíam no genérico
+   *  "Atendimento →" justo para os atendimentos que o próprio usuário tinha marcado. */
+  const registroDe = useCallback(
+    (id: string) => D.agendamento(id) ?? db.novosAgendamentos.find((a) => a.id === id),
+    [db.novosAgendamentos],
+  );
+
   const moverEtapa = useCallback((id: string, etapa: D.Etapa) => {
+    const antes = etapaDe(id);
     patch((d) => ({ etapas: { ...d.etapas, [id]: etapa } }));
     setArrastando(null);
     setAlvoSolta(null);
-  }, [patch]);
+    if (antes === etapa) return;
+    const a = registroDe(id);
+    toast(
+      `${a ? D.nomeCliente(a.clienteId) : "Atendimento"} → ${ROTULO_ETAPA[etapa]}`,
+      { label: "Desfazer", onClick: () => patch((d) => ({ etapas: { ...d.etapas, [id]: antes } })) },
+    );
+  }, [patch, etapaDe, registroDe]);
 
   const avancarEtapa = useCallback((id: string) => {
-    setDb((d) => {
-      const atual = d.etapas[id] ?? D.agendamento(id)?.etapaInicial ?? "chegando";
-      const i = D.ETAPAS.indexOf(atual);
-      const prox = D.ETAPAS[Math.min(i + 1, D.ETAPAS.length - 1)];
-      if (prox === atual) return d;
-      return { ...d, etapas: { ...d.etapas, [id]: prox } };
-    });
-  }, []);
+    const antes = etapaDe(id);
+    const i = D.ETAPAS.indexOf(antes);
+    const prox = D.ETAPAS[Math.min(i + 1, D.ETAPAS.length - 1)];
+    if (prox === antes) return;
+    patch((d) => ({ etapas: { ...d.etapas, [id]: prox } }));
+    const a = registroDe(id);
+    toast(
+      `${a ? D.nomeCliente(a.clienteId) : "Atendimento"} → ${ROTULO_ETAPA[prox]}`,
+      { label: "Desfazer", onClick: () => patch((d) => ({ etapas: { ...d.etapas, [id]: antes } })) },
+    );
+  }, [patch, etapaDe, registroDe]);
 
-  const reposicionar = useCallback((id: string, profissionalId: string, inicio: number) => {
-    patch((d) => ({ posicoes: { ...d.posicoes, [id]: { profissionalId, inicio } } }));
+  /** Remarca: muda hora, profissional e — desde a visão de Semana — o DIA.
+   *  `dia` é opcional e o fallback é o dia atual do agendamento, então uma posição gravada antes
+   *  desta mudança (localStorage de uma sessão anterior) continua válida em vez de cair no dia 1. */
+  const reposicionar = useCallback((id: string, profissionalId: string, inicio: number, dia?: number) => {
+    // registroDe e não D.agendamento(): sem os atendimentos que o USUÁRIO marcou, arrastar um
+    // recém-criado saía pelo `if (!orig) return` lá embaixo — ele mudava de lugar sem toast e,
+    // pior, sem "Desfazer".
+    const orig = registroDe(id);
+    const diaAtual = db.posicoes[id]?.dia ?? orig?.dia ?? D.HOJE.num;
+    const destino = dia ?? diaAtual;
+    // guarda a posição anterior REAL (a de origem, se nunca foi movido) para poder voltar
+    const antes = db.posicoes[id] ?? (orig ? { profissionalId: orig.profissionalId, inicio: orig.inicio, dia: diaAtual } : null);
+    patch((d) => ({ posicoes: { ...d.posicoes, [id]: { profissionalId, inicio, dia: destino } } }));
     setArrastando(null);
     setAlvoSolta(null);
-    const a = D.agendamento(id);
-    if (a) toast(`${D.nomeCliente(a.clienteId)} → ${D.hhmm(inicio)} com ${D.primeiroNome(D.nomeProfissional(profissionalId))}`);
-  }, [patch]);
+    if (!orig) return;
+    const quando = destino === D.HOJE.num ? D.hhmm(inicio) : `${destino} de ${D.MES_AGENDA.nome}, ${D.hhmm(inicio)}`;
+    toast(
+      `${D.nomeCliente(orig.clienteId)} → ${quando} com ${D.primeiroNome(D.nomeProfissional(profissionalId))}`,
+      antes
+        ? { label: "Desfazer", onClick: () => patch((d) => ({ posicoes: { ...d.posicoes, [id]: antes } })) }
+        : undefined,
+    );
+  }, [patch, db.posicoes, registroDe]);
 
   /* ── fila "precisa de você" ──
    * A fila esvazia sozinha conforme você age em qualquer lugar do app: assumir a
@@ -294,6 +411,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }), [db.resolvidos, db.assumidas, db.etapas]);
   const resolverFila = useCallback((alvo: string) => {
     patch((d) => ({ resolvidos: { ...d.resolvidos, [alvo]: true } }));
+    // "Já resolvi" gravava em localStorage para sempre e não existia função inversa: era a única
+    // ação irreversível da tela e a estilizada como a MENOS importante.
+    toast("Item resolvido", {
+      label: "Desfazer",
+      onClick: () => patch((d) => {
+        const r = { ...d.resolvidos };
+        delete r[alvo];
+        return { resolvidos: r };
+      }),
+    });
   }, [patch]);
 
   /* ── arrasto ── */
@@ -351,16 +478,112 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  /* CATÁLOGO VIVO. D.SERVICOS é o ponto de partida; o que o usuário edita ou cria vem por cima.
+   * Antes o catálogo era imutável e a gaveta do serviço só mostrava — com um chip prometendo
+   * "abrir e editar". Preço e duração são a razão de existir de uma tela de catálogo. */
+  const servicos = useMemo<D.Servico[]>(
+    () => [
+      ...D.SERVICOS.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
+      ...db.svcNovos.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
+    ],
+    [db.svcEdit, db.svcNovos],
+  );
+  const servicoDe = useCallback(
+    (id: string) => servicos.find((sv) => sv.id === id),
+    [servicos],
+  );
+
   const svcAtivo = useCallback(
-    (id: string) => db.svcAtivo[id] ?? D.servico(id)?.ativo ?? false,
-    [db.svcAtivo],
+    (id: string) => db.svcAtivo[id] ?? servicoDe(id)?.ativo ?? false,
+    [db.svcAtivo, servicoDe],
   );
   const alternarSvc = useCallback((id: string) => {
     setDb((d) => {
-      const atual = d.svcAtivo[id] ?? D.servico(id)?.ativo ?? false;
+      const base = D.servico(id)?.ativo ?? d.svcNovos.find((s) => s.id === id)?.ativo ?? false;
+      const atual = d.svcAtivo[id] ?? base;
       return { ...d, svcAtivo: { ...d.svcAtivo, [id]: !atual } };
     });
   }, []);
+
+  /** Grava uma edição de serviço. Persiste na hora — o app não tem botão "Salvar" de mentira. */
+  const editarServico = useCallback((id: string, p: Partial<D.Servico>) => {
+    patch((d) => ({ svcEdit: { ...d.svcEdit, [id]: { ...(d.svcEdit[id] ?? {}), ...p } } }));
+  }, [patch]);
+
+  /** Cria um serviço em branco, já fora do catálogo, e abre a gaveta para preencher. */
+  const criarServico = useCallback(() => {
+    const id = `sv-novo-${Date.now().toString(36)}`;
+    const novo: D.Servico = {
+      id, nome: "Novo serviço", categoria: "Extra",
+      preco: 0, duracao: 30, profissionalIds: [],
+      // nasce FORA do catálogo: um serviço sem preço não deveria poder ser agendado.
+      ativo: false,
+    };
+    patch((d) => ({ svcNovos: [...d.svcNovos, novo] }));
+    setSel(id);
+    toast("Serviço criado — preencha preço e duração");
+  }, [patch]);
+
+  const verDia = useCallback((num: number) => {
+    setDiaSel(num);
+    setSel(null); // trocar de dia fecha a gaveta: o que estava aberto é de outro dia
+  }, []);
+
+  /* CRIAR ATENDIMENTO. A Agenda tinha 40 zonas de soltura que só aceitavam `onDrop`: não existia
+   * caminho nenhum para MARCAR um horário — a ação nº1 de qualquer agenda. Clicar num vago agora
+   * abre a gaveta num rascunho com o horário e o profissional já preenchidos (é o que o clique
+   * disse), faltando só cliente e serviço. */
+  const [rascunho, setRascunho] = useState<D.RascunhoAgendamento | null>(null);
+
+  const novoAgendamento = useCallback((profissionalId: string, inicio: number, dia: number) => {
+    // O dia entra no id junto com profissional e hora: com Semana e Mês na tela, "pr1 às 14h" já
+    // não identifica um vago — existe um por dia do mês.
+    const id = `novo-${dia}-${profissionalId}-${inicio}`;
+    setRascunho({ id, dia, profissionalId, inicio, clienteId: "", servicoId: "" });
+    setSel(id);
+  }, []);
+
+  const editarRascunho = useCallback((p: Partial<D.RascunhoAgendamento>) => {
+    setRascunho((r) => (r ? { ...r, ...p } : r));
+  }, []);
+
+  const confirmarRascunho = useCallback(() => {
+    // Lê `rascunho` direto, NÃO de dentro de um `setRascunho(r => …)`: gravar e emitir toast são
+    // efeitos, e um updater de estado precisa ser puro — em desenvolvimento o React o invoca duas
+    // vezes, e o atendimento entrava duplicado no localStorage. Pego no teste, não na leitura.
+    const r = rascunho;
+    if (!r || !r.clienteId || !r.servicoId) return;
+    const novo: D.Agendamento = {
+      id: `ag-novo-${r.dia}-${r.profissionalId}-${r.inicio}`,
+      dia: r.dia,
+      clienteId: r.clienteId,
+      servicoId: r.servicoId,
+      profissionalId: r.profissionalId,
+      inicio: r.inicio,
+      // marcado por você, na sua frente: já nasce confirmado
+      confirmado: true,
+      etapaInicial: "chegando",
+    };
+    // id derivado de profissional+hora, e não de Date.now(): idempotente, então mesmo se este
+    // caminho rodar duas vezes o resultado é UM agendamento.
+    patch((d) => ({
+      novosAgendamentos: [...d.novosAgendamentos.filter((a) => a.id !== novo.id), novo],
+    }));
+    setRascunho(null);
+    setSel(null);
+    const quando = r.dia === D.HOJE.num ? "hoje" : `dia ${r.dia}`;
+    toast(`${D.nomeCliente(r.clienteId)} marcado para ${quando} às ${D.hhmm(r.inicio)}`);
+  }, [patch, rascunho]);
+
+  const descartarRascunho = useCallback(() => { setRascunho(null); setSel(null); }, []);
+
+  const excluirServico = useCallback((id: string) => {
+    // Só apaga o que o usuário criou. Serviço do catálogo de partida se despublica pelo toggle,
+    // porque pode haver agendamento histórico apontando para ele.
+    patch((d) => ({ svcNovos: d.svcNovos.filter((s) => s.id !== id) }));
+    setSel(null);
+    toast("Serviço excluído");
+  }, [patch]);
 
   const cliAtivo = useCallback(
     (id: string) => db.cliAtivo[id] ?? D.cliente(id)?.ativo ?? false,
@@ -515,20 +738,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [cliAtivo],
   );
 
-  const emitirPendentes = useCallback(() => {
-    const pend = fechamento.filter((c) => {
+  /* FONTE DA VERDADE ÚNICA de "o que o lote vai emitir".
+   * Antes havia três regras divergentes: o hero contava pendente|erro|cancelada, a topbar repetia
+   * essa conta, e o lote emitia só pendente|erro. Resultado: o botão prometia N e o sistema
+   * emitia M, sem explicar a diferença — e se só houvesse canceladas o botão aparecia e não
+   * fazia nada. Agora hero, topbar e lote leem DAQUI. */
+  const emitiveis = useMemo(
+    () => fechamento.filter((c) => {
       // Tomador de teste fica FORA do lote de propósito: em produção ele emite
       // uma nota real, e um botão de fechar o mês não deveria disparar isso sem
       // que alguém pedisse. Ele emite só pela própria gaveta, um a um.
       if (c.teste) return false;
-      const st = notaDe(c.id).status;
-      return st === "pendente" || st === "erro";
-    });
-    if (!pend.length) return;
-    toast(`Enviando ${pend.length} ${pend.length === 1 ? "nota" : "notas"} à prefeitura`);
+      const s = notaDe(c.id).status;
+      return s === "pendente" || s === "erro";
+    }),
+    [fechamento, notaDe],
+  );
+
+  const emitirPendentes = useCallback(() => {
+    if (!emitiveis.length) return;
+    toast(`Enviando ${emitiveis.length} ${emitiveis.length === 1 ? "nota" : "notas"} à prefeitura`);
     // Escalonado: emissão em lote não deve disparar N requisições no mesmo tick.
-    pend.forEach((c, i) => agendar(() => { void emitirNota(c.id); }, i * 300));
-  }, [fechamento, notaDe, emitirNota, agendar]);
+    emitiveis.forEach((c, i) => agendar(() => { void emitirNota(c.id); }, i * 300));
+    // Toast de conclusão: emitir em lote é irreversível e caro; terminar em silêncio deixava o
+    // usuário sem saber se acabou. O atraso acompanha o escalonamento acima.
+    agendar(() => toast(`${emitiveis.length === 1 ? "Nota enviada" : "Notas enviadas"} — acompanhe o status em cada cliente`), emitiveis.length * 300 + 400);
+  }, [emitiveis, emitirNota, agendar]);
+
+  /* Confirmação do lote fiscal. Vive no store porque a MESMA ação é disparada de dois lugares
+   * (hero do Faturamento e topbar), e o diálogo precisa ser um só. */
+  const [loteAberto, setLoteAberto] = useState(false);
+  const pedirLote = useCallback(() => setLoteAberto(true), []);
+  const fecharLote = useCallback(() => setLoteAberto(false), []);
+  const confirmarLote = useCallback(() => { setLoteAberto(false); emitirPendentes(); }, [emitirPendentes]);
 
   /* ── ajustes da MAISA ── */
   const abrirSecao = useCallback((id: string) => {
@@ -568,33 +810,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* ── valor ── */
   const value = useMemo<StoreValue>(() => ({
     tela, irPara, sel, abrir, fechar,
-    agendamentos, agendamentoPorId, moverEtapa, avancarEtapa, reposicionar,
+    agendamentos, agendamentosDoDia, agendamentoPorId, moverEtapa, avancarEtapa, reposicionar,
     fila, resolverFila,
     arrastando, alvoSolta, iniciarArrasto, encerrarArrasto, marcarAlvo,
     convSel, selecionarConversa, abaConv, setAbaConv, estadoConversa, threadDe, assumir, devolver, enviar,
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
+    servicos, servicoDe, editarServico, criarServico, excluirServico,
     filtroSvc, setFiltroSvc, filtroCli, setFiltroCli,
-    notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento,
+    notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
+    loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
     assistente: db.assistente, setAssistente,
     dias: db.dias, alternarDia, setHorario,
     cfg: db.cfg, alternarCfg,
     salvo, salvar,
+    diaSel, verDia,
+    rascunho, novoAgendamento, editarRascunho, confirmarRascunho, descartarRascunho,
     railAberto, setRailAberto,
   }), [
     tela, irPara, sel, abrir, fechar,
-    agendamentos, agendamentoPorId, moverEtapa, avancarEtapa, reposicionar,
+    agendamentos, agendamentosDoDia, agendamentoPorId, moverEtapa, avancarEtapa, reposicionar,
     fila, resolverFila,
     arrastando, alvoSolta, iniciarArrasto, encerrarArrasto, marcarAlvo,
     convSel, selecionarConversa, abaConv, estadoConversa, threadDe, assumir, devolver, enviar,
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
+    servicos, servicoDe, editarServico, criarServico, excluirServico,
     filtroSvc, filtroCli,
-    notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento,
+    notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
+    loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
     db.assistente, setAssistente,
     db.dias, alternarDia, setHorario,
     db.cfg, alternarCfg,
     salvo, salvar,
+    diaSel, rascunho,
     railAberto,
   ]);
 

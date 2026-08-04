@@ -107,10 +107,16 @@ export function AntesDepois() {
           ))}
         </div>
 
-        <div style={{ marginTop: 32, display: "flex", justifyContent: "center" }}>
-          <Button href={ICPS.barbeiros.rotas.base} variant="primary" size="lg" icon="arrow" iconRight>
-            Ativar grátis
+        {/* MEIO DO FUNIL: aqui a pessoa acabou de ver o antes/depois, ou seja já entendeu o
+            mecanismo. O rótulo pode assumir isso e falar de posse — "na minha barbearia" — em vez
+            de repetir o mesmo verbo do topo. */}
+        <div style={{ marginTop: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <Button href={ICPS.barbeiros.rotas.base} variant="primary" size="lg">
+            Quero isso na minha barbearia
           </Button>
+          <span style={{ font: "600 0.9rem/1.4 var(--mk-font-body)", color: "var(--mk-muted)" }}>
+            Garantia de 1 mês — se não se pagar, devolvemos.
+          </span>
         </div>
       </div>
     </section>

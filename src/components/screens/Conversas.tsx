@@ -21,10 +21,14 @@ const ABAS: [AbaConversa, string][] = [
   ["todas", "Todas"], ["espera", "Esperando"], ["maisa", "MAISA"], ["ok", "Resolvidas"],
 ];
 
+/* Estado nunca é âmbar. O ouro sobre fundo claro dá 1.6:1 — o ponto de 6px simplesmente
+   não existia — e pior: `espera` e `voce` usavam a MESMA cor para significados opostos
+   ("ela espera você" vs. "você está respondendo"). Agora cada estado tem cor própria:
+   pendência = --warn · você no comando = --primary · MAISA no comando = --primary-dark. */
 const PONTO: Record<D.EstadoConversa, string> = {
-  espera: "var(--warm)",
-  voce: "var(--warm)",
-  maisa: "var(--primary)",
+  espera: "var(--warn)",
+  voce: "var(--primary)",
+  maisa: "var(--primary-dark)",
   ok: "var(--success)",
 };
 
@@ -60,7 +64,7 @@ function Lista({ onEscolher }: { onEscolher: (id: string) => void }) {
                 aria-selected={on}
                 onClick={() => st.setAbaConv(id)}
                 className="m-press m-focus"
-                style={s(`flex:1;border:none;cursor:pointer;height:34px;border-radius:9px;font-size:12.5px;font-weight:700;background:${on ? "var(--surface)" : "transparent"};color:${on ? "var(--primary)" : "var(--muted)"};box-shadow:${on ? "0 1px 3px oklch(0.30 0.03 60 / 0.10)" : "none"};transition:var(--tr-ui)`)}
+                style={s(`flex:1;border:none;cursor:pointer;height:34px;border-radius:9px;font-size:var(--t-label);font-weight:var(--w-title);background:${on ? "var(--surface)" : "transparent"};color:${on ? "var(--primary)" : "var(--muted)"};box-shadow:${on ? "0 1px 3px oklch(0.30 0.03 262 / 0.10)" : "none"};transition:var(--tr-ui)`)}
               >
                 {label}
               </button>
@@ -71,7 +75,7 @@ function Lista({ onEscolher }: { onEscolher: (id: string) => void }) {
 
       <div style={s("flex:1;overflow-y:auto;padding:0 10px 12px;display:flex;flex-direction:column;gap:3px")}>
         {visiveis.length === 0 && (
-          <div style={s("padding:36px 14px;text-align:center;font-size:13px;color:var(--muted);line-height:1.5")}>
+          <div style={s("padding:36px 14px;text-align:center;font-size:var(--t-sm);color:var(--muted);line-height:var(--lh-prose)")}>
             Nenhuma conversa neste filtro.
           </div>
         )}
@@ -90,12 +94,14 @@ function Lista({ onEscolher }: { onEscolher: (id: string) => void }) {
               <Monogram name={c.nome} id={c.id} size={44} radius={14} />
               <span style={s("flex:1;min-width:0;display:flex;flex-direction:column;gap:3px")}>
                 <span style={s("display:flex;align-items:center;gap:8px")}>
-                  <span style={s("flex:1;min-width:0;font-weight:700;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{c.nome}</span>
-                  <span style={s("flex-shrink:0;font-family:var(--font-mono);font-size:11px;color:var(--muted)")}>{c.hora}</span>
+                  <span style={s("flex:1;min-width:0;font-weight:var(--w-title);font-size:var(--t-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{c.nome}</span>
+                  {/* hora é DADO, não string de máquina: sai o mono (a altura-x menor fazia 11px
+                      parecer menor ainda, e não há coluna para alinhar) e entra .n tabular. */}
+                  <span className="n" style={s("flex-shrink:0;font-size:var(--t-micro);font-weight:var(--w-data);color:var(--muted)")}>{c.hora}</span>
                 </span>
                 <span style={s("display:flex;align-items:center;gap:7px")}>
                   <span style={s(`width:6px;height:6px;flex-shrink:0;border-radius:50%;background:${PONTO[e]}`)} />
-                  <span style={s("flex:1;min-width:0;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>
+                  <span style={s("flex:1;min-width:0;font-size:var(--t-label);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>
                     {ultima ? (ultima.de === "cliente" ? ultima.txt : `Você/MAISA: ${ultima.txt}`) : "—"}
                   </span>
                 </span>
@@ -152,10 +158,11 @@ function Thread({ onVoltar }: { onVoltar?: () => void }) {
         )}
         <Monogram name={cv.nome} id={cv.id} size={44} radius={14} />
         <div style={s("flex:1;min-width:0")}>
-          <div style={s("font-weight:700;font-size:16px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{cv.nome}</div>
+          {/* tracking negativo só a partir de 18px — a 16px era ruído, saiu */}
+          <div style={s("font-weight:var(--w-title);font-size:var(--t-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{cv.nome}</div>
           <div style={s("display:flex;align-items:center;gap:7px;margin-top:2px")}>
             <span style={s(`width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${PONTO[estado]}`)} />
-            <span style={s("font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{SITUACAO[estado]} · {cv.telefone}</span>
+            <span style={s("font-size:var(--t-label);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{SITUACAO[estado]} · {cv.telefone}</span>
           </div>
         </div>
         <a
@@ -165,6 +172,8 @@ function Thread({ onVoltar }: { onVoltar?: () => void }) {
           title="Abrir no WhatsApp"
           aria-label="Abrir no WhatsApp"
           className="m-hov-bg m-press-icon m-focus"
+          /* --whatsapp (verde escurecido) e não o verde da marca: glifo de traço sobre fundo
+             claro; com #25D366 este ícone dava 1.9:1 e era ilegível. */
           style={s("width:40px;height:40px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--whatsapp);cursor:pointer;display:flex;align-items:center;justify-content:center")}
         >
           <Icon name="whatsapp" size={18} sw={1.9} />
@@ -172,30 +181,56 @@ function Thread({ onVoltar }: { onVoltar?: () => void }) {
         <button
           onClick={() => (minha ? st.devolver(cv.id) : st.assumir(cv.id))}
           className={`${daMaisa ? "m-hov-primary" : "m-hov-bg"} m-press m-focus`}
-          style={s(`height:40px;padding:0 16px;flex-shrink:0;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;${daMaisa ? "border:1px solid var(--primary);background:var(--primary);color:#fff" : "border:1px solid var(--border);background:var(--surface);color:var(--muted)"}`)}
+          style={s(`height:40px;padding:0 16px;flex-shrink:0;border-radius:12px;font-size:var(--t-sm);font-weight:var(--w-title);cursor:pointer;white-space:nowrap;${daMaisa ? "border:1px solid var(--primary);background:var(--primary);color:var(--on-primary)" : "border:1px solid var(--border);background:var(--surface);color:var(--muted)"}`)}
         >
           {daMaisa ? "Assumir" : minha ? "Devolver à MAISA" : "Reabrir"}
         </button>
       </div>
 
-      {/* mensagens */}
-      <div style={s("flex:1;min-height:0;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px;background:var(--bg)")}>
-        <div style={s("align-self:center;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);background:var(--surface);border:1px solid var(--line);padding:5px 14px;border-radius:999px")}>
+      {/* mensagens
+          Canvas em --surface-2 (e não --bg): sobre --bg uma bolha branca dava 1.06:1 e não
+          existia como objeto — flutuava. Com o fundo tintado, o branco volta a ser papel. */}
+      <div style={s("flex:1;min-height:0;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px;background:var(--surface-2)")}>
+        <div style={s("align-self:center;font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted);background:var(--surface);border:1px solid var(--line);padding:5px 14px;border-radius:999px")}>
           Hoje
         </div>
         {msgs.map((m, i) => {
           const meu = m.de !== "cliente";
           const bot = m.de === "bot";
+          /* Hierarquia invertida. Antes a bolha mais colorida da tela era a do ROBÔ, e cliente e
+             "você" eram pixel-idênticas — só o lado e um rótulo em caixa-alta as separavam. Num
+             inbox se escaneia por lado e por cor, não por rótulo, e o objeto mais chamativo tem de
+             ser o pedido do cliente ou a sua resposta, não a infraestrutura. Agora:
+             cliente = branco sólido à esquerda (é o conteúdo) · você = fill --primary à direita (a
+             voz de mais peso é a sua) · MAISA = branco com CONTORNO --primary-soft, do seu lado,
+             porque ela fala por você — contorno e não fill: ela é infraestrutura, não protagonista. */
+          const pele = bot
+            ? "background:var(--surface);border:1px solid var(--primary-soft);color:var(--ink)"
+            : meu
+              ? "background:var(--primary);border:1px solid var(--primary);color:var(--on-primary)"
+              : "background:var(--surface);border:1px solid var(--line);color:var(--ink)";
           return (
-            <div key={i} className="m-bubble" style={s(`max-width:72%;align-self:${meu ? "flex-end" : "flex-start"};display:flex;flex-direction:column;align-items:${meu ? "flex-end" : "flex-start"};gap:5px`)}>
-              {meu && (
-                <span style={s(`display:flex;align-items:center;gap:5px;color:${bot ? "var(--primary)" : "var(--muted)"}`)}>
-                  {bot && <Icon name="bot" size={13} sw={1.9} />}
-                  <span style={s("font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase")}>{bot ? "MAISA" : "Você"}</span>
-                </span>
-              )}
-              <div style={s(`padding:11px 15px;border-radius:20px;font-size:14.5px;line-height:1.5;border:1px solid ${bot ? "oklch(0.92 0.020 262)" : "var(--line)"};background:${bot ? "var(--primary-soft)" : "var(--surface)"};color:${bot ? "var(--primary-dark)" : "var(--ink)"};border-bottom-${meu ? "right" : "left"}-radius:7px`)}>
-                {m.txt}
+            /* 62ch é o teto de legibilidade: 72% da coluna dava ~88ch, acima dos 75ch. */
+            <div key={i} className="m-bubble" style={s(`max-width:min(72%, 62ch);align-self:${meu ? "flex-end" : "flex-start"}`)}>
+              {/* A fala é o conteúdo da tela: --t-body (16px). Antes estava em 14,5px, MENOR que o
+                  nome do contato e igual ao campo de digitação — o texto mais importante da região
+                  era o mais miúdo. O raio de 20px fica: é forma de bolha, não de cartão. */}
+              {/* Os quatro cantos são declarados um por um, e não `border-radius:20px` seguido de um
+                  `border-bottom-…-radius:7px`. Aquela forma misturava shorthand com longhand da MESMA
+                  propriedade, e o React reclama disso em todo rerender ("don't mix shorthand and
+                  non-shorthand"): na ordem em que ele aplica, o shorthand pode voltar depois e zerar
+                  o canto de 7px. Era o único erro de console que sobrava nesta tela. */}
+              <div style={s(`padding:11px 15px;border-top-left-radius:20px;border-top-right-radius:20px;border-bottom-right-radius:${meu ? "7px" : "20px"};border-bottom-left-radius:${meu ? "20px" : "7px"};font-size:var(--t-body);line-height:var(--lh-prose);${pele};display:flex;gap:8px;align-items:flex-start`)}>
+                {bot && (
+                  /* O eyebrow "MAISA"/"VOCÊ" repetido em toda bolha caiu: existia só porque a cor
+                     não separava as vozes, e eyebrow por item é cadência de sistema. Fica o glifo
+                     dentro da bolha, alinhado à primeira linha — "quem falou" é a tese do produto,
+                     mas cabe num sinal de 15px, não num rótulo. */
+                  <span role="img" aria-label="Enviada pela MAISA" style={s("display:flex;flex-shrink:0;margin-top:5px")}>
+                    <Icon name="bot" size={15} sw={1.9} stroke="var(--primary)" />
+                  </span>
+                )}
+                <span>{m.txt}</span>
               </div>
             </div>
           );
@@ -206,8 +241,10 @@ function Thread({ onVoltar }: { onVoltar?: () => void }) {
       {/* sugestões + composer */}
       <div style={s("flex-shrink:0;padding:12px 18px 16px;border-top:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;gap:11px")}>
         <div style={s("display:flex;align-items:center;gap:9px;flex-wrap:wrap")}>
-          <span style={s("display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)")}>
-            <Icon name="sparkle" size={14} sw={1.9} stroke="var(--warm)" />
+          <span style={s("display:inline-flex;align-items:center;gap:6px;font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>
+            {/* --warm-line: é o token do glifo dourado em fundo claro (3.5:1). O --warm cheio
+                sobre --surface dá 1.6:1 — a fagulha da marca desaparecia. */}
+            <Icon name="sparkle" size={14} sw={1.9} stroke="var(--warm-line)" />
             Sugestões
           </span>
           {(D.SUGESTOES[cv.id] ?? []).map((sg) => (
@@ -215,7 +252,7 @@ function Thread({ onVoltar }: { onVoltar?: () => void }) {
               key={sg}
               onClick={() => usarSugestao(sg)}
               className="m-hov-prim-border m-press m-focus"
-              style={s("border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap")}
+              style={s("border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:7px 14px;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink);cursor:pointer;white-space:nowrap")}
             >
               {sg}
             </button>
@@ -231,14 +268,16 @@ function Thread({ onVoltar }: { onVoltar?: () => void }) {
             placeholder={minha ? "Escreva uma mensagem…" : "Assuma a conversa para escrever você mesmo"}
             aria-label="Mensagem"
             className="m-focus"
-            style={s(`flex:1;min-width:0;height:46px;padding:0 16px;border-radius:14px;background:${minha ? "var(--surface)" : "var(--bg)"};border:1px solid var(--border);font-size:14.5px;color:var(--ink);outline:none;cursor:${minha ? "text" : "not-allowed"}`)}
+            /* --border-field, não --border: esta borda é o único meio de identificar o campo
+               (WCAG 1.4.11 pede 3:1 e --border dava 1.3:1). */
+            style={s(`flex:1;min-width:0;height:46px;padding:0 16px;border-radius:14px;background:${minha ? "var(--surface)" : "var(--bg)"};border:1px solid var(--border-field);font-size:var(--t-sm);color:var(--ink);outline:none;cursor:${minha ? "text" : "not-allowed"}`)}
           />
           <button
             onClick={enviar}
             disabled={!minha || !texto.trim()}
             aria-label="Enviar"
             className="m-hov-primary m-press m-focus"
-            style={s(`width:46px;height:46px;flex-shrink:0;border:none;border-radius:14px;background:var(--primary);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:${!minha || !texto.trim() ? "0.4" : "1"}`)}
+            style={s(`width:46px;height:46px;flex-shrink:0;border:none;border-radius:14px;background:var(--primary);color:var(--on-primary);cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:${!minha || !texto.trim() ? "0.4" : "1"}`)}
           >
             <Icon name="send" size={19} sw={2} />
           </button>

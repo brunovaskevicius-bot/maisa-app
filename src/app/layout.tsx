@@ -1,20 +1,49 @@
 import type { Metadata, Viewport } from "next";
-import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Mono, Plus_Jakarta_Sans, Alegreya_Sans } from "next/font/google";
 import "./globals.css";
 
-const jakarta = Plus_Jakarta_Sans({
+// A face de UI. Escolhida por métrica, não por gosto: os dez dígitos da IBM Plex Sans têm o MESMO
+// avanço (600/1000) e os da Plex Mono também — então um valor alinha em coluna no cartão, na
+// tabela e no recibo da NFS-e sem um único font-feature-settings. A Plus Jakarta Sans, que estava
+// aqui, tem dígitos proporcionais (o "1" mede metade do "0"), e por isso dinheiro e hora nunca
+// alinhavam; o paliativo era trocar de família para mono em 19 pontos.
+const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  // Exposta também como variável, não só className: o wordmark "maisa" (Jakarta
-  // 800 dourada) aparece dentro das landing pages, cujo escopo usa outra fonte
-  // de corpo. Sem a variável não há como referenciar a família do next/font lá.
-  variable: "--font-jakarta",
+  weight: ["400", "500", "600", "700"], // 800 não existe no sistema novo
+  variable: "--font-plex-sans",
   display: "swap",
 });
 
-const geistMono = JetBrains_Mono({
+const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
-  variable: "--font-geist-mono",
+  weight: ["400", "500"],
+  variable: "--font-plex-mono",
+  display: "swap",
+});
+
+// A VOZ DA SIDEBAR. O rail navy é o único lugar do app que não está a serviço de uma tarefa — é
+// onde a MAISA se apresenta —, então ganha uma segunda família, contrastando no eixo de
+// PERSONALIDADE (humanista calligráfica contra a neo-grotesque técnica da Plex), que é um dos três
+// eixos de pareamento legítimos. Medido contra a Plex Sans: x-height 11% menor, cap 14% menor, 'n'
+// 9% mais estreita, overshoot do 'o' de 5/1000 (lados quase retos = traço modulado à pena).
+// Descartei a Fira Sans, que era a candidata óbvia, porque é metricamente quase IGUAL à Plex
+// (x-height 0.527 vs 0.516) — pareamento similar-mas-não-idêntico lê como erro.
+// Pesos 400/500/700: a Alegreya Sans NÃO tem 600, e --w-title é 600, então o navegador
+// sintetizaria para 700. O rail usa 500/700 explicitamente (ver AppShell).
+const alegreya = Alegreya_Sans({
+  subsets: ["latin", "latin-ext"], // latin-ext: ã õ ç é ê desenhados, não compostos
+  weight: ["400", "500", "700"],
+  variable: "--font-nav-src", // --font-nav (com fallbacks) é composto no globals.css
+  display: "swap",
+});
+
+// Jakarta sobrevive como LOGOTIPO, não como família de texto: só o wordmark "maisa" (800 dourado),
+// no rail do app e dentro das landing pages — cujo escopo usa outra fonte de corpo, e por isso ela
+// precisa existir como variável, não só como className.
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["800"],
+  variable: "--font-jakarta",
   display: "swap",
 });
 
@@ -38,7 +67,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#233E71",
+  // acompanha --nav (oklch(0.290 0.078 262)); antes era o navy antigo #233E71
+  themeColor: "#152A52",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
@@ -46,8 +76,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="pt-BR" className={`${geistMono.variable} ${jakarta.variable}`}>
-      <body className={jakarta.className}>{children}</body>
+    <html lang="pt-BR" className={`${plexSans.variable} ${plexMono.variable} ${alegreya.variable} ${jakarta.variable}`}>
+      {/* sem className de fonte no body: quem manda é `font-family: var(--font-sans)` no
+          globals.css. Antes havia um literal 'Plus Jakarta Sans' no CSS que NUNCA resolvia (o
+          next/font ofusca o nome da família) e só não quebrava porque o className vencia por
+          especificidade — duas fontes de verdade, uma delas morta. */}
+      <body>{children}</body>
     </html>
   );
 }

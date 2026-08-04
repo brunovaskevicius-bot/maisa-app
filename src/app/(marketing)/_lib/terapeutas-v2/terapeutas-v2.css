@@ -1,0 +1,240 @@
+/* ============================================================================
+ * LP terapeutas (v2) — layout
+ * ----------------------------------------------------------------------------
+ * Só o que o DS não entrega: grade, seções e o palco da multidão. Botão, card,
+ * badge, bolha de conversa e wordmark vêm das classes .ms-* do próprio DS.
+ *
+ * Regras do DS respeitadas aqui, de propósito:
+ *   • duas cores de fundo na tela — creme (--surface-page) e branco (cards).
+ *     O verde-900 aparece UMA vez, no bloco .t2-verde, como âncora visual.
+ *   • fundo sempre chapado: nenhum gradiente, textura ou imagem decorativa.
+ *   • 96px entre seções (--section-y); 4px de base em tudo.
+ *   • blur em um lugar só: a topbar (.t2-nav).
+ *   • raio 8 em controle, 12 em card, 24 no bloco hero.
+ *   • borda 1px --border-subtle; sombra quente, nunca preta.
+ * ========================================================================== */
+
+/* A superfície do DS tem de cobrir a viewport inteira: `.maisa-ds` é uma div,
+   não o body, então sem isto o creme acabaria no fim do conteúdo. */
+.maisa-ds { min-height: 100dvh; }
+
+/* O globals.css do produto põe creme + textura de papel no body. A textura
+   apareceria no overscroll e atrás desta página, e o DS é explícito: "fundo cor
+   chapada, sempre — sem gradiente, sem textura". Só nesta rota, então.
+
+   O valor vai literal de propósito: os tokens do DS vivem em `.maisa-ds` (para
+   não vazar no produto), então --cream-100 NÃO existe no escopo do body. Usar
+   var() aqui daria valor inválido e a regra não faria nada. */
+body:has(.maisa-ds) {
+  background-color: #f7f2e9; /* = --cream-100 */
+  background-image: none;
+}
+
+.t2-container {
+  width: 100%;
+  max-width: var(--container-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.t2-secao { padding-block: var(--section-y); }
+.t2-secao--curta { padding-block: var(--space-16); }
+
+/* A topbar é sticky, então um link de âncora pararia com o título embaixo dela.
+   O recuo é a altura da barra mais um respiro. */
+.maisa-ds :where(section[id]) { scroll-margin-top: calc(var(--header-h) + var(--space-5)); }
+
+.t2-eyebrow {
+  font: var(--type-caption);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--accent-text);
+  margin-bottom: var(--space-4);
+}
+
+.t2-lead {
+  font: var(--type-body);
+  font-size: var(--text-lg);
+  color: var(--text-muted);
+  max-width: 58ch;
+}
+
+/* ---- Topbar — o único blur decorativo que o DS autoriza ------------------ */
+.t2-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: color-mix(in srgb, var(--cream-100) 82%, transparent);
+  backdrop-filter: blur(12px);
+}
+.t2-nav__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  width: 100%;
+}
+.t2-nav__links {
+  display: none;
+  gap: var(--space-6);
+  font: var(--type-body-sm);
+}
+.t2-nav__links a { color: var(--text-muted); text-decoration: none; }
+.t2-nav__links a:hover { color: var(--brand-text); }
+
+/* ---- Hero --------------------------------------------------------------- */
+.t2-hero { display: grid; gap: var(--space-12); align-items: center; }
+.t2-hero h1 { font: var(--type-display); letter-spacing: var(--tracking-display); }
+.t2-hero__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-8);
+}
+.t2-hero__nota {
+  margin-top: var(--space-4);
+  font: var(--type-caption);
+  color: var(--text-subtle);
+}
+
+/* conversa do WhatsApp — usa .ms-chat-row/.ms-bubble do DS por dentro */
+.t2-conversa { padding: var(--space-5); }
+.t2-conversa__topo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.t2-conversa__quem { font: var(--type-label); color: var(--text-strong); }
+.t2-conversa__estado { font: var(--type-caption); color: var(--success-text); }
+
+/* ---- Multidão — o palco da história ------------------------------------- */
+.t2-multidao { display: grid; gap: var(--space-8); }
+.t2-multidao-cabecalho { display: grid; gap: var(--space-2); }
+
+.t2-contador { display: flex; align-items: baseline; gap: var(--space-2); }
+.t2-contador-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-5xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-none);
+  color: var(--brand-text);
+}
+.t2-contador-de { font: var(--type-h3); color: var(--text-strong); }
+.t2-contador-legenda { font: var(--type-body); color: var(--text-muted); max-width: 52ch; }
+
+/* Bloco DELIMITADO — a emenda do DS proíbe a multidão em full-bleed ou atrás
+   de texto de corpo. Ela tem faixa própria, com chão visível. */
+.t2-palco {
+  --t2-peep-h: 132px;
+  position: relative;
+  border-radius: var(--radius-2xl);
+  background: var(--surface-sunken);
+  border: var(--border-width) solid var(--border-subtle);
+  padding: var(--space-8) var(--space-5) 0;
+  overflow: hidden;
+}
+/* GRADE, não flex-wrap. Os peeps têm larguras diferentes, então o wrap natural
+   distribuía 5/4/1 e sobrava uma pessoa sozinha na terceira linha. Com colunas
+   explícitas a fila é sempre 5+5 no celular e 10 numa linha no desktop — e a
+   altura de cada peep continua sendo a dele (align-items:end alinha os pés). */
+.t2-fila {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: end;
+  justify-items: center;
+  gap: var(--space-4) var(--space-1);
+}
+.t2-vaga { height: var(--t2-peep-h); display: flex; align-items: flex-end; }
+.t2-respiro { height: 100%; display: flex; align-items: flex-end; }
+
+/* o chão em que a fila pisa — hairline, não moldura */
+.t2-chao {
+  height: var(--border-width);
+  background: var(--border-default);
+  margin-top: var(--space-1);
+}
+
+/* ---- Três passos -------------------------------------------------------- */
+.t2-passos { display: grid; gap: var(--space-6); margin-top: var(--space-12); }
+.t2-passo__num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--accent-text);
+  margin-bottom: var(--space-3);
+}
+.t2-passo h3 { margin-bottom: var(--space-2); }
+.t2-passo p { font: var(--type-body-sm); color: var(--text-muted); }
+
+/* ---- Bloco verde — âncora visual, UMA vez na página --------------------- */
+.t2-verde {
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-16) var(--space-8);
+}
+.t2-verde h2 { color: var(--text-inverse); }
+.t2-verde .t2-lead { color: var(--green-200); }
+.t2-verde__grade { display: grid; gap: var(--space-8); margin-top: var(--space-12); }
+.t2-recurso h3 { color: var(--text-inverse); margin-bottom: var(--space-2); font: var(--type-h3); }
+.t2-recurso p { font: var(--type-body-sm); color: var(--green-200); }
+.t2-recurso__marca {
+  width: var(--space-8);
+  height: var(--border-width-strong);
+  background: var(--accent);
+  margin-bottom: var(--space-4);
+}
+
+/* ---- Depoimento --------------------------------------------------------- */
+.t2-depo { max-width: var(--container-narrow); margin-inline: auto; text-align: center; }
+.t2-depo blockquote {
+  font: var(--type-h2);
+  color: var(--text-strong);
+  margin: 0 0 var(--space-6);
+}
+.t2-depo__quem { display: flex; align-items: center; justify-content: center; gap: var(--space-3); }
+.t2-depo__nome { font: var(--type-label); color: var(--text-strong); }
+.t2-depo__papel { font: var(--type-caption); color: var(--text-muted); }
+
+/* ---- Chamada final ------------------------------------------------------ */
+.t2-final { text-align: center; }
+.t2-final__acoes { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: center; margin-top: var(--space-8); }
+
+/* ---- Rodapé ------------------------------------------------------------- */
+.t2-rodape {
+  border-top: var(--border-width) solid var(--border-subtle);
+  padding-block: var(--space-12);
+  font: var(--type-body-sm);
+  color: var(--text-muted);
+}
+.t2-rodape__row { display: flex; flex-wrap: wrap; gap: var(--space-6); justify-content: space-between; align-items: center; }
+
+/* ---- Respiro maior a partir de tablet ---------------------------------- */
+@media (min-width: 640px) {
+  .t2-palco { --t2-peep-h: 168px; padding-inline: var(--space-8); }
+  .t2-passos { grid-template-columns: repeat(3, 1fr); gap: var(--space-8); }
+  .t2-verde__grade { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 960px) {
+  .t2-nav__links { display: flex; }
+  .t2-hero { grid-template-columns: 1.05fr 0.95fr; gap: var(--space-16); }
+  /* Uma linha só, dez colunas. 190px é o teto real: a soma das proporções dos
+     dez peeps é ~4,9, então acima disso a fila estouraria a largura útil do
+     palco e o `max-width:100%` do base.css encolheria todo mundo por conta
+     própria — variação de altura achatada sem ninguém pedir. */
+  .t2-palco { --t2-peep-h: 190px; padding-inline: var(--space-10); }
+  .t2-fila { grid-template-columns: repeat(10, 1fr); gap: var(--space-2); }
+  .t2-verde { padding: var(--space-20) var(--space-16); }
+  .t2-verde__grade { grid-template-columns: repeat(4, 1fr); }
+}

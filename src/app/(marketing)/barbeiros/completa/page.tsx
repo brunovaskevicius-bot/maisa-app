@@ -121,9 +121,17 @@ export default function LpBarbeirosCompleta() {
         {/* -------------------------------- NÚMEROS -------------------------------- */}
         <section aria-label="Números" style={{ padding: "clamp(48px,6vw,80px) var(--mk-gutter)", background: "var(--mk-bg)" }}>
           <div style={{ maxWidth: "var(--mk-maxw)", marginInline: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "var(--mk-gap)" }}>
+            {/* Dois consertos numa linha, os dois de COR e TIPO:
+                1. os numerais saíram do DOURADO. O acento tinha 20+ papéis na página, e quatro
+                   numerais gigantes eram o maior consumidor — com o ouro em todo lugar, a faixa
+                   dourada do CTA final deixava de ser um evento. Agora o único pop dourado da
+                   rolagem é a faixa de conversão; aqui os números são tinta (--mk-ink).
+                2. saiu a Plex Mono, que era uma QUARTA família importada de fora do mundo (e mono
+                   numa marca que não é técnica), e com pesos que nem estavam carregados — os
+                   números saíam em faux bold. Agora usam a display do próprio mundo, Archivo. */}
             {NUMEROS.map(([valor, rotulo], i) => (
               <div key={rotulo} className="mk-reveal" style={{ animationDelay: `${40 + i * 80}ms`, textAlign: "center" }}>
-                <div style={{ font: "700 clamp(2.2rem,4vw,3rem)/1 var(--font-geist-mono), 'JetBrains Mono', monospace", color: "var(--mk-accent)", letterSpacing: "-0.03em" }}>
+                <div style={{ font: "800 clamp(2.2rem,4vw,3rem)/1 var(--mk-font-display)", color: "var(--mk-ink)", letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>
                   {valor}
                 </div>
                 <div style={{ marginTop: 8, font: "600 0.92rem/1.4 var(--mk-font-body)", color: "var(--mk-muted)" }}>{rotulo}</div>
@@ -136,24 +144,34 @@ export default function LpBarbeirosCompleta() {
         <FaqConversa />
 
         {/* ------------------------------- CTA FINAL ------------------------------- */}
-        <section aria-label="Ativar a MAISA" style={{ padding: "var(--mk-section-y) var(--mk-gutter)", background: "var(--mk-band-bg)", color: "var(--mk-band-ink)", textAlign: "center" }}>
+        {/* `lp-band` inverte --mk-wordmark para navy: dentro da faixa dourada o wordmark dourado
+            ficava a 1,02:1, invisível exatamente no momento de maior intenção da página. */}
+        <section className="lp-band" aria-label="Ativar a MAISA" style={{ padding: "var(--mk-section-y) var(--mk-gutter)", background: "var(--mk-band-bg)", color: "var(--mk-band-ink)", textAlign: "center" }}>
           <div style={{ maxWidth: "var(--mk-maxw-narrow)", marginInline: "auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
             <h2 style={{ fontFamily: "var(--mk-font-display)", fontSize: "clamp(1.9rem,3.6vw,3rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "var(--mk-band-ink)", margin: 0 }}>
-              No primeiro mês, a{" "}
-              <span style={{ fontFamily: "var(--font-jakarta), system-ui, sans-serif", fontWeight: 800, color: "var(--mk-band-ink)", letterSpacing: "-0.01em" }}>maisa</span>{" "}
-              já se paga.
+              {/* usa o componente Maisa, não um <span> à mão: era a 15ª forma de escrever a marca
+                  na mesma página, e a única sem o tratamento de identidade. Agora ela herda
+                  --mk-wordmark, que `.lp-band` já inverteu para navy. */}
+              No primeiro mês, a <Maisa escala="grande" /> já se paga.
             </h2>
             <p style={{ font: "400 1.1rem/1.6 var(--mk-font-body)", color: "var(--mk-band-muted)", maxWidth: "44ch", margin: 0 }}>
               Ative, coloque seus clientes no WhatsApp da barbearia e deixe a agenda com ela. Menos furo, mais cadeira ocupada.
             </p>
+            {/* BASE DO FUNIL: quem chegou aqui leu a página inteira. É o único ponto que pode pedir
+                o compromisso maior, e o rótulo diz o QUE acontece ("minha agenda"), não um verbo
+                genérico. Antes: "Ativar grátis" — o mesmo texto do topo, e falso. */}
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center", marginTop: 6 }}>
-              <Button href={cfg.rotas.base} variant="band" size="lg" icon="arrow" iconRight>
-                Ativar grátis
+              <Button href={cfg.rotas.base} variant="band" size="lg">
+                {cfg.ctaLabel}
               </Button>
               <Button href={cfg.ctaUrl} external variant="band-ghost" size="lg" icon="whatsapp">
-                Falar no WhatsApp
+                Tirar uma dúvida no WhatsApp
               </Button>
             </div>
+            {/* a prova de risco fecha a página, logo abaixo do botão que a exige */}
+            <p style={{ font: "600 0.95rem/1.5 var(--mk-font-body)", color: "var(--mk-band-muted)", margin: 0 }}>
+              A partir de R$ 97/mês · garantia de 1 mês · sem fidelidade · cerca de 30 min para ativar
+            </p>
           </div>
         </section>
       </main>

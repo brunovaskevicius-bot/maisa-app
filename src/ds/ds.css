@@ -1,0 +1,14 @@
+/* GERADO por scripts/vendor-ds.mjs a partir de styles.css do pacote do DS.
+   NÃO EDITE À MÃO — reexporte o DS e rode o script de novo. */
+/* Ordem importa: tokens -> base -> componentes.
+   Os componentes vêm por último para que as classes .ms-* ganhem dos
+   seletores de elemento do base (que são :where(), especificidade zero). */
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/shape.css";
+@import "./tokens/motion.css";
+@import "./base.css";
+@import "./components/components.css";
+@import "./components/forms.css";
+@import "./components/patterns.css";

@@ -21,13 +21,18 @@ const TAG: Record<TomTag, [string, string]> = {
   neutral: ["var(--line)", "var(--muted)"],
 };
 
-/** Cor do pontinho quando o cartão não tem avatar. */
+/* Cor do pontinho quando o cartão não tem avatar.
+   O ponto é o estado inteiro quando não há tag, então precisa dos 3:1 da WCAG 1.4.11.
+   - warn era --warm: 1.66:1 sobre --surface (invisível) e ainda divergia do TAG.warn, que já
+     usava --warn. Mesmo estado com duas cores no mesmo cartão. Âmbar tem dois empregos (marca e
+     ação primária) e estado não é um deles → --warn, igual à tag.
+   - neutral era --border (1.31:1, aresta de cartão fazendo papel de tinta) → --muted, que passa. */
 export const DOT: Record<TomTag, string> = {
   success: "var(--success)",
-  warn: "var(--warm)",
+  warn: "var(--warn)",
   primary: "var(--primary)",
   danger: "var(--danger)",
-  neutral: "var(--border)",
+  neutral: "var(--muted)",
 };
 
 export type CartaoProps = {
@@ -37,16 +42,20 @@ export type CartaoProps = {
   /** Semente do monograma. Sem ela, use `dot`. */
   seed?: string;
   dot?: TomTag;
-  /** Número/valor à direita, em mono. */
+  /** Número/valor à direita — dado, com numerais tabulares (.n). */
   meta?: string;
   tag?: { label: string; tom: TomTag };
   /** Linha extra que aparece no hover. */
   resumo?: string;
   chips?: string[];
-  /** Item pausado/inativo — cartão atenuado. */
+  /** Item pausado/inativo — muda a SUPERFÍCIE do cartão, não a opacidade do texto. */
   atenuado?: boolean;
 };
 
+// `atenuado` era opacity:.66 no cartão inteiro. Composto sobre o fundo, título e sub caíam para
+// 2.1-3.0:1 e reprovavam AA — e era semanticamente invertido: o registro pausado é exatamente o
+// que pede ação, e a translucidez o marcava como "ignore". Agora o estado é a superfície
+// (--surface-2) + a tag em contraste cheio; o texto tem a mesma cor dos ativos.
 export function Cartao({ titulo, sub, onClick, seed, dot, meta, tag, resumo, chips, atenuado }: CartaoProps) {
   const temResumo = !!(resumo || chips?.length);
   return (
@@ -56,20 +65,24 @@ export function Cartao({ titulo, sub, onClick, seed, dot, meta, tag, resumo, chi
       // título, sub, meta, tag) e o nome calculado sai como uma tripa confusa.
       aria-label={[titulo, sub, meta, tag?.label].filter(Boolean).join(", ")}
       className="m-exp m-focus"
-      style={s(`text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:18px;display:block;width:100%;align-self:flex-start;cursor:pointer;box-shadow:var(--shadow-card);opacity:${atenuado ? "0.66" : "1"}`)}
+      style={s(`text-align:left;background:${atenuado ? "var(--surface-2)" : "var(--surface)"};border:1px solid var(--border);border-radius:var(--radius-card);padding:18px;display:block;width:100%;align-self:flex-start;cursor:pointer;box-shadow:var(--shadow-card)`)}
     >
       <span style={s("display:flex;align-items:center;gap:14px;width:100%")}>
         {seed && <Monogram name={titulo} id={seed} size={46} radius={14} />}
         {!seed && dot && <span style={s(`width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${DOT[dot]}`)} />}
         <span style={s("flex:1;min-width:0;display:block")}>
-          <span style={s("display:block;font-size:16px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{titulo}</span>
-          <span style={s("display:block;font-size:13px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{sub}</span>
+          {/* título do cartão: --w-title (600). O letter-spacing de -.01em saiu — a 16px é
+              invisível e só atrapalha o hinting; negativo só a partir de 18px. */}
+          <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{titulo}</span>
+          <span style={s("display:block;font-size:var(--t-sm);color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{sub}</span>
         </span>
         {(meta || tag) && (
           <span style={s("flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:7px")}>
-            {meta && <span style={s("font-family:var(--font-mono);font-size:15px;font-weight:700")}>{meta}</span>}
+            {/* meta é dado (valor, hora, contagem) → --w-data + .n. Sem mono: os dígitos da Plex
+                Sans já têm avanço igual, e mono aqui leria como terminal, não como dinheiro. */}
+            {meta && <span className="n" style={s("font-size:var(--t-body);font-weight:var(--w-data)")}>{meta}</span>}
             {tag && (
-              <span style={s(`font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;background:${TAG[tag.tom][0]};color:${TAG[tag.tom][1]}`)}>
+              <span style={s(`font-size:var(--t-micro);font-weight:var(--w-title);padding:3px 9px;border-radius:999px;white-space:nowrap;background:${TAG[tag.tom][0]};color:${TAG[tag.tom][1]}`)}>
                 {tag.label}
               </span>
             )}
@@ -83,16 +96,17 @@ export function Cartao({ titulo, sub, onClick, seed, dot, meta, tag, resumo, chi
         <span className="m-exp-body">
           <span style={s("display:block")}>
             <span style={s("display:block;padding-top:14px;border-top:1px solid var(--line)")}>
-              {resumo && <span style={s("display:block;font-size:13.5px;line-height:1.55;color:var(--muted)")}>{resumo}</span>}
+              {resumo && <span style={s("display:block;font-size:var(--t-sm);line-height:var(--lh-prose);color:var(--muted)")}>{resumo}</span>}
               {!!chips?.length && (
                 <span style={s("display:flex;flex-wrap:wrap;gap:6px;margin-top:11px")}>
                   {chips.map((c) => (
-                    <span key={c} style={s("display:inline-flex;align-items:center;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background:var(--bg);color:var(--muted);border:1px solid var(--line)")}>{c}</span>
+                    // mesmo peso do <Chip> de ui.tsx (--w-data): o chip carrega dado, não prosa
+                    <span key={c} style={s("display:inline-flex;align-items:center;padding:5px 11px;border-radius:999px;font-size:var(--t-label);font-weight:var(--w-data);white-space:nowrap;background:var(--bg);color:var(--muted);border:1px solid var(--line)")}>{c}</span>
                   ))}
                 </span>
               )}
               <span style={s("display:flex;justify-content:flex-end;margin-top:12px")}>
-                <span style={s("display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;background:var(--primary-soft);color:var(--primary-dark)")}>
+                <span style={s("display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:var(--t-label);font-weight:var(--w-title);background:var(--primary-soft);color:var(--primary-dark)")}>
                   abrir e editar
                   <Icon name="arrow-right" size={13} sw={2.2} />
                 </span>
@@ -130,20 +144,25 @@ export function Hero({
   pronto?: string;
 }) {
   return (
-    <div style={s("display:flex;align-items:center;gap:26px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:20px 22px;box-shadow:var(--shadow-card)")}>
+    <div style={s("display:flex;align-items:center;gap:26px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:20px 22px;box-shadow:var(--shadow-card)")}>
       <div style={s("min-width:0")}>
-        <div style={s("font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)")}>{rotulo}</div>
+        {/* eyebrow em caixa-alta: tracking unificado em --ls-caps (era .13em) e tamanho em
+            --t-label — ele aparece nas 5 telas de grade e era o maior desvio de tracking do app. */}
+        <div style={s("font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>{rotulo}</div>
         <div style={s("display:flex;align-items:baseline;gap:10px;margin-top:7px;flex-wrap:wrap")}>
-          <span style={s("font-family:var(--font-mono);font-size:32px;font-weight:700;letter-spacing:-.03em;line-height:1")}>{valor}</span>
-          <span style={s("font-size:13.5px;color:var(--muted)")}>{sub}</span>
+          {/* numeral herói: o ÚNICO --w-emph (700) deste arquivo — é o número que a tela existe
+              para mostrar. Sem mono, com .n: dinheiro em mono lê como terminal. */}
+          <span className="n" style={s("font-size:var(--t-data);font-weight:var(--w-emph);letter-spacing:var(--ls-data);line-height:1")}>{valor}</span>
+          <span style={s("font-size:var(--t-sm);color:var(--muted)")}>{sub}</span>
         </div>
       </div>
       <div style={s("display:flex;align-items:center;gap:20px;flex-wrap:wrap")}>
         {marcos.map((m) => (
           <div key={m.label} style={s("display:flex;align-items:center;gap:9px")}>
             <span style={s(`width:9px;height:9px;border-radius:50%;background:${DOT[m.tom]}`)} />
-            <span style={s("font-size:13.5px;color:var(--muted)")}>
-              <span style={s("font-family:var(--font-mono);font-weight:700;color:var(--ink)")}>{m.n}</span> {m.label}
+            <span style={s("font-size:var(--t-sm);color:var(--muted)")}>
+              {/* contagem do marco = dado → --w-data + .n, sem mono */}
+              <span className="n" style={s("font-weight:var(--w-data);color:var(--ink)")}>{m.n}</span> {m.label}
             </span>
           </div>
         ))}
@@ -152,14 +171,14 @@ export function Hero({
         <button
           onClick={acao.onClick}
           className="m-hov-bright m-press m-focus"
-          style={s("margin-left:auto;height:48px;padding:0 22px;border:none;border-radius:14px;background:var(--warm);color:oklch(0.29 0.06 72);font-size:15px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:10px;white-space:nowrap")}
+          style={s("margin-left:auto;height:48px;padding:0 22px;border:none;border-radius:14px;background:var(--warm);color:var(--warm-ink);font-size:var(--t-body);font-weight:var(--w-title);cursor:pointer;display:inline-flex;align-items:center;gap:10px;white-space:nowrap")}
         >
           {acao.icon && <Icon name={acao.icon} size={18} sw={2.1} />}
           {acao.label}
         </button>
       )}
       {!acao && pronto && (
-        <span style={s("margin-left:auto;display:inline-flex;align-items:center;gap:9px;height:48px;padding:0 20px;border-radius:14px;background:var(--success-soft);color:var(--success);font-size:14.5px;font-weight:700;white-space:nowrap")}>
+        <span style={s("margin-left:auto;display:inline-flex;align-items:center;gap:9px;height:48px;padding:0 20px;border-radius:14px;background:var(--success-soft);color:var(--success);font-size:var(--t-sm);font-weight:var(--w-title);white-space:nowrap")}>
           <Icon name="check" size={18} sw={2.3} />
           {pronto}
         </span>

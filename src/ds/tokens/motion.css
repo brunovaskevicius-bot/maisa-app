@@ -1,0 +1,22 @@
+/* GERADO por scripts/vendor-ds.mjs a partir de tokens/motion.css do pacote do DS.
+   NÃO EDITE À MÃO — reexporte o DS e rode o script de novo. */
+/* maisa — movimento. Curto, com saída suave. Nada de bounce em UI de trabalho. */
+.maisa-ds{
+  --dur-instant:80ms; /* @kind other */
+  --dur-fast:120ms; /* @kind other */
+  --dur-base:180ms; /* @kind other */
+  --dur-slow:280ms; /* @kind other */
+  --dur-slower:420ms; /* @kind other */
+  --ease-out:cubic-bezier(.22,.61,.36,1); /* @kind other */
+  --ease-in-out:cubic-bezier(.65,0,.35,1); /* @kind other */
+  --ease-entrance:cubic-bezier(.16,1,.3,1); /* @kind other */
+  --ease-spring:cubic-bezier(.34,1.32,.64,1); /* @kind other */
+  --transition-control:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out),transform var(--dur-fast) var(--ease-out);
+}
+@media (prefers-reduced-motion:reduce){.maisa-ds{
+  --dur-instant:0ms; /* @kind other */
+  --dur-fast:0ms; /* @kind other */
+  --dur-base:0ms; /* @kind other */
+  --dur-slow:0ms; /* @kind other */
+  --dur-slower:0ms; /* @kind other */
+}}

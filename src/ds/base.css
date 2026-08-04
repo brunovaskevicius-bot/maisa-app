@@ -1,0 +1,15 @@
+/* GERADO por scripts/vendor-ds.mjs a partir de tokens/base.css do pacote do DS.
+   NÃO EDITE À MÃO — reexporte o DS e rode o script de novo. */
+:where(.maisa-ds),:where(.maisa-ds) *,:where(.maisa-ds) *::before,:where(.maisa-ds) *::after{box-sizing:border-box}
+:where(.maisa-ds){margin:0;background:var(--surface-page);color:var(--text-body);font:var(--type-body);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+:where(.maisa-ds) :where(h1),:where(.maisa-ds) :where(h2),:where(.maisa-ds) :where(h3),:where(.maisa-ds) :where(h4),:where(.maisa-ds) :where(h5),:where(.maisa-ds) :where(h6){margin:0;color:var(--text-strong);text-wrap:balance}
+:where(.maisa-ds) :where(h1){font:var(--type-h1);letter-spacing:var(--tracking-display)}
+:where(.maisa-ds) :where(h2){font:var(--type-h2);letter-spacing:var(--tracking-tight)}
+:where(.maisa-ds) :where(h3){font:var(--type-h3);letter-spacing:var(--tracking-tight)}
+:where(.maisa-ds) :where(p){margin:0;text-wrap:pretty}
+:where(.maisa-ds) :where(a){color:var(--brand-text);text-decoration-color:color-mix(in srgb,var(--brand-text) 35%,transparent);text-underline-offset:3px;transition:color var(--dur-fast) var(--ease-out)}
+:where(.maisa-ds) :where(a:hover){color:var(--brand-active);text-decoration-color:currentColor}
+:where(.maisa-ds) :where(a:focus-visible),:where(.maisa-ds) :where(button:focus-visible),:where(.maisa-ds) :where(input:focus-visible),:where(.maisa-ds) :where(select:focus-visible),:where(.maisa-ds) :where(textarea:focus-visible),:where(.maisa-ds) :where([tabindex]:focus-visible){outline:2px solid var(--brand);outline-offset:2px}
+:where(.maisa-ds) :where(button),:where(.maisa-ds) :where(input),:where(.maisa-ds) :where(select),:where(.maisa-ds) :where(textarea){font:inherit;color:inherit}
+:where(.maisa-ds) :where(img),:where(.maisa-ds) :where(svg){display:block;max-width:100%}
+:where(.maisa-ds) ::selection{background:var(--brand-soft);color:var(--green-900)}

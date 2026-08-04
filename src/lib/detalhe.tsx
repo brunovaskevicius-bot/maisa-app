@@ -22,9 +22,28 @@ import { useStore } from "./store";
 
 export type ItemLista = { id: string; nome: string; sub: string; seed?: string; onClick?: () => void };
 
+/** Campo editável da Gaveta. Sem botão "Salvar": grava a cada mudança, como os ajustes da MAISA
+ *  já fazem. Um save que só pisca um check é exatamente o botão morto que este app evita. */
+export type Campo = {
+  id: string;
+  label: string;
+  valor: string;
+  /** `numero` recebe inputMode numérico; `select` exige `opcoes`. */
+  tipo?: "texto" | "numero" | "select";
+  opcoes?: string[];
+  hint?: string;
+  /** Rótulo visível de cada opção do select (o valor é o id). */
+  rotuloOpcao?: (v: string) => string;
+  prefixo?: string;
+  sufixo?: string;
+  onChange: (v: string) => void;
+};
+
 export type Bloco =
   /** Pares label/valor em duas colunas — ficha de leitura. */
   | { tipo: "stats"; key: string; label?: string; linhas: [string, string][] }
+  /** Campos editáveis — grava direto, sem botão de salvar. */
+  | { tipo: "campos"; key: string; label?: string; campos: Campo[] }
   /** Chips de leitura; `on` destaca o que está ativo. */
   | { tipo: "chips"; key: string; label?: string; chips: { label: string; on?: boolean }[] }
   /** Parágrafo de contexto em caixa. */
@@ -46,6 +65,8 @@ export type Recibo = {
 };
 
 export type Acao = {
+  /** Desabilita a ação — usada quando falta preencher algo. */
+  desabilitada?: boolean;
   label: string;
   primaria?: boolean;
   tone?: "danger";
@@ -279,13 +300,86 @@ export function useDetalhe(id: string | null): Detalhe | null {
     };
   }
 
-  /* ── serviço ── */
-  const sv = D.servico(id);
+  /* ── novo atendimento (rascunho) ──
+   * A Agenda tinha 40 zonas de soltura que só aceitavam arrasto: marcar um horário — a ação nº1 de
+   * uma agenda — não existia. Clicar num vago abre aqui, com horário e profissional já resolvidos
+   * pelo próprio clique; falta escolher quem e o quê. */
+  if (st.rascunho && st.rascunho.id === id) {
+    const r = st.rascunho;
+    const disponiveis = st.servicos.filter((sv) => st.svcAtivo(sv.id));
+    const svEscolhido = r.servicoId ? st.servicoDe(r.servicoId) : undefined;
+    const completo = !!r.clienteId && !!r.servicoId;
+    return {
+      titulo: "Novo atendimento",
+      sub: `${r.dia === D.HOJE.num ? "hoje" : `${r.dia} de ${D.MES_AGENDA.nome}`}, ${D.hhmm(r.inicio)}, com ${D.primeiroNome(D.nomeProfissional(r.profissionalId))}`,
+      blocos: [
+        {
+          tipo: "campos", key: "quem", label: "Quem e o quê",
+          campos: [
+            {
+              id: "cliente", label: "Cliente", valor: r.clienteId, tipo: "select",
+              opcoes: ["", ...D.CLIENTES.filter((c) => st.cliAtivo(c.id)).map((c) => c.id)],
+              rotuloOpcao: (v) => (v ? D.nomeCliente(v) : "Escolha o cliente"),
+              onChange: (v) => st.editarRascunho({ clienteId: v }),
+            },
+            {
+              id: "servico", label: "Serviço", valor: r.servicoId, tipo: "select",
+              opcoes: ["", ...disponiveis.map((sv) => sv.id)],
+              rotuloOpcao: (v) => {
+                const sv = disponiveis.find((x) => x.id === v);
+                return sv ? `${sv.nome} · ${sv.duracao} min · ${fmt(sv.preco)}` : "Escolha o serviço";
+              },
+              hint: svEscolhido ? `Ocupa a agenda até ${D.hhmm(r.inicio + svEscolhido.duracao / 60)}.` : "A duração vem do serviço.",
+              onChange: (v) => st.editarRascunho({ servicoId: v }),
+            },
+          ],
+        },
+        ...(completo
+          ? []
+          : [{ tipo: "aviso" as const, key: "falta", tone: "warn" as const, texto: "Escolha o cliente e o serviço para marcar." }]),
+      ],
+      acoes: [
+        { label: "Descartar", onClick: () => st.descartarRascunho() },
+        { label: "Marcar atendimento", primaria: true, desabilitada: !completo, onClick: () => st.confirmarRascunho() },
+      ],
+    };
+  }
+
+  /* ── serviço ──
+   * Era leitura pura, com um chip prometendo "abrir e editar" e a gaveta oferecendo só um toggle
+   * e três linhas de stats. Preço e duração são a razão de existir de uma tela de catálogo: agora
+   * são campos, e gravam direto (sem botão de salvar, como os ajustes da MAISA). */
+  const sv = st.servicoDe(id);
   if (sv) {
     const on = st.svcAtivo(sv.id);
+    const novo = !D.servico(sv.id); // criado pelo usuário → pode ser excluído
     return {
       titulo: sv.nome, sub: `${sv.categoria} · ${fmt(sv.preco)} · ${sv.duracao} min`,
       blocos: [
+        {
+          tipo: "campos", key: "dados", label: "Dados do serviço",
+          campos: [
+            {
+              id: "nome", label: "Nome", valor: sv.nome,
+              onChange: (v) => st.editarServico(sv.id, { nome: v }),
+            },
+            {
+              id: "preco", label: "Preço", valor: String(sv.preco), tipo: "numero", prefixo: "R$",
+              hint: "O que o cliente paga por este serviço.",
+              onChange: (v) => st.editarServico(sv.id, { preco: Math.max(0, Number(v) || 0) }),
+            },
+            {
+              id: "duracao", label: "Duração", valor: String(sv.duracao), tipo: "numero", sufixo: "min",
+              hint: "Quanto tempo a MAISA reserva na agenda.",
+              onChange: (v) => st.editarServico(sv.id, { duracao: Math.max(5, Number(v) || 5) }),
+            },
+            {
+              id: "categoria", label: "Categoria", valor: sv.categoria, tipo: "select",
+              opcoes: [...D.CATEGORIAS],
+              onChange: (v) => st.editarServico(sv.id, { categoria: v as D.CategoriaServico }),
+            },
+          ],
+        },
         {
           tipo: "toggles", key: "cat", label: "No catálogo",
           toggles: [{
@@ -295,10 +389,9 @@ export function useDetalhe(id: string | null): Detalhe | null {
             alternar: () => st.alternarSvc(sv.id),
           }],
         },
-        {
-          tipo: "stats", key: "dados", label: "Dados",
-          linhas: [["Preço", fmt(sv.preco)], ["Duração", `${sv.duracao} min`], ["Categoria", sv.categoria]],
-        },
+        ...(sv.preco === 0
+          ? [{ tipo: "aviso" as const, key: "sem-preco", tone: "warn" as const, texto: "Sem preço, este serviço não entra no faturamento. Preencha antes de colocar no catálogo." }]
+          : []),
         {
           tipo: "lista", key: "quem", label: "Quem faz",
           itens: sv.profissionalIds.map((pid) => {
@@ -311,7 +404,11 @@ export function useDetalhe(id: string | null): Detalhe | null {
           }),
         },
       ],
-      acoes: [fecharAcao],
+      // Excluir SÓ o que o usuário criou: serviço do catálogo de partida pode ter agendamento
+      // histórico apontando para ele, e ali o certo é despublicar pelo toggle.
+      acoes: novo
+        ? [{ label: "Excluir serviço", tone: "danger", onClick: () => st.excluirServico(sv.id) }, fecharAcao]
+        : [fecharAcao],
     };
   }
 
@@ -346,33 +443,45 @@ export function useDetalhe(id: string | null): Detalhe | null {
     };
   }
 
-  /* ── agendamento de hoje ── */
+  /* ── um atendimento ──
+   * Já foi "o atendimento de hoje". Com a Agenda em semana e mês, a gaveta abre qualquer um dos
+   * ~150 do mês, e duas coisas passaram a importar: DIZER de que dia ele é (dois atendimentos das
+   * 10:00 em dias diferentes ficavam idênticos na tela) e não oferecer "Dar chegada" para alguém
+   * que só vem daqui a duas semanas. Dar chegada é uma ação do balcão: ela existe no dia. */
   const ag = st.agendamentoPorId(id);
   if (ag) {
     const cvAg = conversaDoCliente(ag.cliente.id);
+    const ehHoje = ag.dia === D.HOJE.num;
+    const passado = ag.dia < D.HOJE.num;
     const rotulo: Record<D.Etapa, string> = {
       chegando: "Dar chegada",
       atendendo: "Concluir atendimento",
       feito: "Reabrir",
     };
-    const acoes: Acao[] = [{
-      label: rotulo[ag.etapa],
-      primaria: true,
-      onClick: () => {
-        st.moverEtapa(ag.id, ag.etapa === "feito" ? "chegando" : ag.etapa === "chegando" ? "atendendo" : "feito");
-        st.fechar();
-      },
-    }];
-    if (cvAg) acoes.push({ label: "Abrir conversa", onClick: irParaConversa(cvAg.id) });
+    const acoes: Acao[] = [];
+    if (ehHoje) {
+      acoes.push({
+        label: rotulo[ag.etapa],
+        primaria: true,
+        onClick: () => {
+          st.moverEtapa(ag.id, ag.etapa === "feito" ? "chegando" : ag.etapa === "chegando" ? "atendendo" : "feito");
+          st.fechar();
+        },
+      });
+    }
+    if (cvAg) acoes.push({ label: "Abrir conversa", onClick: irParaConversa(cvAg.id), primaria: !ehHoje });
     else acoes.push({ label: "Fechar", onClick: st.fechar });
+
+    const quando = ehHoje ? "hoje" : `${ag.dia} de ${D.MES_AGENDA.nome}`;
 
     return {
       titulo: ag.cliente.nome, seed: ag.cliente.id,
-      sub: `${D.hhmm(ag.inicio)} · ${ag.servico.nome}`,
+      sub: `${quando}, ${D.hhmm(ag.inicio)} · ${ag.servico.nome}`,
       blocos: [
         {
           tipo: "stats", key: "d", label: "Atendimento",
           linhas: [
+            ["Dia", `${ag.dia} de ${D.MES_AGENDA.nome}${ehHoje ? " (hoje)" : ""}`],
             ["Horário", `${D.hhmm(ag.inicio)} – ${D.hhmm(ag.fim)}`],
             ["Duração", `${ag.duracao} min`],
             ["Profissional", ag.profissional.nome],
@@ -382,16 +491,24 @@ export function useDetalhe(id: string | null): Detalhe | null {
         },
         {
           tipo: "texto", key: "s", label: "Situação",
-          texto: !ag.confirmado
-            ? "Ainda não confirmou. A MAISA já mandou dois lembretes pelo WhatsApp."
-            : ag.etapa === "feito"
-              ? "Atendimento concluído."
-              : ag.etapa === "atendendo"
-                ? "Em atendimento agora."
-                : "Confirmado pelo WhatsApp com a MAISA.",
+          texto: passado
+            ? "Atendimento concluído."
+            : !ehHoje
+              ? !ag.confirmado
+                ? "Ainda não confirmou. A MAISA continua cobrando pelo WhatsApp até o dia chegar."
+                : "Confirmado pelo WhatsApp com a MAISA."
+              : !ag.confirmado
+                ? "Ainda não confirmou. A MAISA já mandou dois lembretes pelo WhatsApp."
+                : ag.etapa === "feito"
+                  ? "Atendimento concluído."
+                  : ag.etapa === "atendendo"
+                    ? "Em atendimento agora."
+                    : "Confirmado pelo WhatsApp com a MAISA.",
         },
-        ...(!ag.confirmado
-          ? [{ tipo: "aviso", key: "av", texto: "Sem confirmação, o horário pode furar. Vale uma ligação se estiver perto da hora." } as Bloco]
+        ...(!ag.confirmado && !passado
+          ? [{ tipo: "aviso", key: "av", texto: ehHoje
+              ? "Sem confirmação, o horário pode furar. Vale uma ligação se estiver perto da hora."
+              : "Sem confirmação ainda. Falta tempo — a MAISA cobra sozinha até lá." } as Bloco]
           : []),
       ],
       acoes,

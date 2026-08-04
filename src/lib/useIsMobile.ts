@@ -15,3 +15,11 @@ export function useIsMobile(query = "(max-width: 900px)"): boolean {
   }, [query]);
   return is;
 }
+
+/** Desktop apertado (901–1200px): cabe tabela, mas não cabem todas as colunas.
+ *  Existe porque entre o breakpoint mobile e um monitor largo havia uma faixa em que o layout
+ *  quebrava calado — o conteúdo truncava em vez de reduzir. As colunas marcadas `secundaria`
+ *  somem aqui em vez de espremer as que importam. */
+export function useEstreita(): boolean {
+  return useIsMobile("(max-width: 1200px)");
+}

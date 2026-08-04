@@ -113,10 +113,16 @@ export function HeroCompleto() {
           </Lead>
         </div>
         <div className="mk-reveal" style={{ animationDelay: "280ms", marginTop: 30, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "center" }}>
-          <Button href={ICPS.barbeiros.rotas.base} variant="primary" size="lg" icon="arrow" iconRight>
-            Ativar grátis
+          {/* UM primário só. Antes eram dois botões sólidos `lg` lado a lado — dourado e verde — e
+              dois primários é zero primário: a decisão se divide e o olho não sabe onde cair.
+              O rótulo saiu de "Ativar grátis", que era FALSO (não existe plano grátis; o destino é
+              uma página de R$ 97/mês), para o que o próprio `icp.ts` já declarava em `ctaLabel` e
+              esta página ignorava. Sem seta: "Ativar" é ação, não navegação — o ícone contradizia
+              o verbo. */}
+          <Button href={ICPS.barbeiros.rotas.base} variant="primary" size="lg">
+            {ICPS.barbeiros.ctaLabel}
           </Button>
-          <Button href={ICPS.barbeiros.ctaUrl} external variant="whatsapp" size="lg" icon="whatsapp">
+          <Button href={ICPS.barbeiros.ctaUrl} external variant="secondary" size="lg" icon="whatsapp">
             Falar no WhatsApp
           </Button>
         </div>
@@ -136,7 +142,10 @@ export function HeroCompleto() {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--mk-accent-ink)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m20 6-11 11-5-5" />
           </svg>
-          Setup em 30 min · sem secretária, sem planilha
+          {/* A PROVA DE REVERSIBILIDADE, que já existia escrita em /barbeiros/comecar e não
+              aparecia perto de nenhum botão desta página. É o que substitui a palavra "grátis":
+              o risco não se remove mentindo sobre o preço, se remove dizendo o preço e a saída. */}
+          A partir de R$ 97/mês · garantia de 1 mês · sem fidelidade
         </p>
       </div>
     </section>

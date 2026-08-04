@@ -27,19 +27,47 @@ const ICONE: Record<string, string> = {
 /* ───────────────────────────── peças ───────────────────────────── */
 
 function Rotulo({ children }: { children: React.ReactNode }) {
-  return <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>{children}</span>;
+  return <span style={s("font-size:var(--t-label);font-weight:var(--w-title);color:var(--muted)")}>{children}</span>;
 }
 
-const CAMPO = "width:100%;height:46px;padding:0 14px;border-radius:12px;border:1px solid var(--border);background:var(--bg);font-family:inherit;font-size:14.5px;font-weight:600;color:var(--ink);outline:none";
+const CAMPO = "width:100%;height:46px;padding:0 14px;border-radius:12px;border:1px solid var(--border-field);background:var(--surface);font-family:inherit;font-size:var(--t-sm);color:var(--ink);outline:none";
 
 function LinhaToggle({ titulo, desc, on, alternar }: { titulo: string; desc: string; on: boolean; alternar: () => void }) {
   return (
     <div style={s("display:flex;align-items:center;gap:16px;padding:13px 0;border-bottom:1px solid var(--line)")}>
       <span style={s("flex:1;min-width:0")}>
-        <span style={s("display:block;font-size:14px;font-weight:700")}>{titulo}</span>
-        <span style={s("display:block;font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.45")}>{desc}</span>
+        <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title)")}>{titulo}</span>
+        <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px;line-height:1.45")}>{desc}</span>
       </span>
-      <Toggle on={on} onChange={alternar} />
+      <Toggle on={on} onChange={alternar} rotulo={titulo} />
+    </div>
+  );
+}
+
+/* Interruptor mestre. Vive fora do acordeão porque é a decisão mais consequente da
+   tela — desligar aqui para o atendimento inteiro — e estava enterrada no fim de
+   "Personalidade", uma seção que fala de tom de voz. A faixa diz a CONSEQUÊNCIA
+   (as mensagens esperam por você), não o mecanismo, e o estado tem rótulo em texto
+   além da cor. */
+function FaixaAssistente() {
+  const st = useStore();
+  const ativa = st.assistente.ativa;
+  const forte = ativa ? "var(--success)" : "var(--warn)";
+  const fundo = ativa ? "var(--success-soft)" : "var(--warn-soft)";
+  return (
+    <div style={s(`flex-shrink:0;display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:16px;background:${fundo};border:1px solid ${forte}`)}>
+      <span style={s(`width:9px;height:9px;flex-shrink:0;border-radius:50%;background:${forte}`)} />
+      <span style={s("flex:1;min-width:0")}>
+        <span style={s(`display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:${forte}`)}>
+          {ativa ? "Assistente ativa" : "Assistente pausada"}
+        </span>
+        <span style={s("display:block;font-size:var(--t-label);color:var(--ink);margin-top:2px;line-height:var(--lh-ui)")}>
+          {ativa
+            ? "A MAISA responde no WhatsApp automaticamente"
+            : "As mensagens ficam esperando você responder"}
+        </span>
+      </span>
+      <Toggle on={ativa} onChange={(v) => st.setAssistente({ ativa: v })} rotulo="Assistente ativa" />
     </div>
   );
 }
@@ -71,7 +99,7 @@ function Personalidade() {
                 onClick={() => st.setAssistente({ tom: t })}
                 aria-pressed={on}
                 className="m-press m-focus m-hov-prim-border"
-                style={s(`display:inline-flex;align-items:center;padding:9px 16px;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;text-transform:capitalize;border:1px solid ${on ? "var(--primary)" : "var(--border)"};background:${on ? "var(--primary-soft)" : "var(--surface)"};color:${on ? "var(--primary-dark)" : "var(--muted)"}`)}
+                style={s(`display:inline-flex;align-items:center;padding:9px 16px;border-radius:999px;font-size:var(--t-sm);font-weight:var(--w-title);cursor:pointer;text-transform:capitalize;border:1px solid ${on ? "var(--primary)" : "var(--border)"};background:${on ? "var(--primary-soft)" : "var(--surface)"};color:${on ? "var(--primary-dark)" : "var(--muted)"}`)}
               >
                 {t}
               </button>
@@ -87,19 +115,11 @@ function Personalidade() {
           value={st.assistente.saudacao}
           onChange={(e) => st.setAssistente({ saudacao: e.target.value })}
           className="m-focus"
-          style={s("width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:var(--bg);font-family:inherit;font-size:14.5px;line-height:1.55;color:var(--ink);outline:none;resize:vertical;min-height:88px")}
+          style={s("width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--border-field);background:var(--surface);font-family:inherit;font-size:var(--t-sm);line-height:1.55;color:var(--ink);outline:none;resize:vertical;min-height:88px")}
         />
       </label>
-
-      <div style={s("display:flex;align-items:center;gap:16px;padding:14px 15px;border-radius:14px;border:1px solid var(--line);background:var(--bg)")}>
-        <span style={s("flex:1;min-width:0")}>
-          <span style={s("display:block;font-size:14px;font-weight:700")}>Assistente ativa</span>
-          <span style={s("display:block;font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.45")}>
-            Quando ligada, a MAISA responde no WhatsApp automaticamente
-          </span>
-        </span>
-        <Toggle on={st.assistente.ativa} onChange={(v) => st.setAssistente({ ativa: v })} />
-      </div>
+      {/* "Assistente ativa" saiu daqui: era cartão dentro de cartão e o interruptor
+          mestre não pertence à seção de tom de voz. Agora é a FaixaAssistente. */}
     </div>
   );
 }
@@ -113,8 +133,8 @@ function Horarios() {
           key={d.nome}
           style={s("display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)")}
         >
-          <span style={s(`font-size:14px;font-weight:700;width:96px;flex-shrink:0;color:${d.aberto ? "var(--ink)" : "var(--muted)"}`)}>{d.nome}</span>
-          <Toggle on={d.aberto} onChange={() => st.alternarDia(d.nome)} />
+          <span style={s(`font-size:var(--t-sm);font-weight:var(--w-title);width:96px;flex-shrink:0;color:${d.aberto ? "var(--ink)" : "var(--muted)"}`)}>{d.nome}</span>
+          <Toggle on={d.aberto} onChange={() => st.alternarDia(d.nome)} rotulo={`${d.nome} — atende`} />
           {d.aberto ? (
             <div style={s("margin-left:auto;display:flex;align-items:center;gap:9px")}>
               <input
@@ -123,20 +143,20 @@ function Horarios() {
                 onChange={(e) => st.setHorario(d.nome, "de", e.target.value)}
                 aria-label={`${d.nome} — abre às`}
                 className="m-focus"
-                style={s("width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border);background:var(--bg);font-family:var(--font-mono);font-size:13.5px;font-weight:600;color:var(--ink);outline:none")}
+                style={s("width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border-field);background:var(--surface);font-variant-numeric:tabular-nums;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--ink);outline:none")}
               />
-              <span style={s("font-size:13px;color:var(--muted)")}>às</span>
+              <span style={s("font-size:var(--t-sm);color:var(--muted)")}>às</span>
               <input
                 type="time"
                 value={d.ate}
                 onChange={(e) => st.setHorario(d.nome, "ate", e.target.value)}
                 aria-label={`${d.nome} — fecha às`}
                 className="m-focus"
-                style={s("width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border);background:var(--bg);font-family:var(--font-mono);font-size:13.5px;font-weight:600;color:var(--ink);outline:none")}
+                style={s("width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border-field);background:var(--surface);font-variant-numeric:tabular-nums;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--ink);outline:none")}
               />
             </div>
           ) : (
-            <span style={s("margin-left:auto;font-size:13px;font-weight:600;color:var(--muted)")}>Fechado</span>
+            <span style={s("margin-left:auto;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--muted)")}>Fechado</span>
           )}
         </div>
       ))}
@@ -180,6 +200,14 @@ function resumoDaSecao(id: string, st: ReturnType<typeof useStore>): string {
 
 /* ───────────────────────────── preview de WhatsApp ───────────────────────────── */
 
+/* Hora da bolha. No WhatsApp toda mensagem tem hora, e o preview copia a ESTRUTURA
+   dele (não a fonte). Derivada do índice, nunca de Date.now(): assim o preview não
+   muda a cada render nem difere entre servidor e cliente. */
+function horaDaMsg(i: number) {
+  const min = 9 * 60 + 12 + i; // uma conversa de manhã, um minuto entre falas
+  return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+}
+
 function Preview() {
   const st = useStore();
   const pv = D.PREVIEWS[st.secAtiva ?? "personalidade"] ?? D.PREVIEWS.personalidade;
@@ -193,37 +221,43 @@ function Preview() {
     <div style={s("flex:1;min-height:0;border-radius:30px;padding:9px;background:linear-gradient(150deg, oklch(0.32 0.03 262), oklch(0.20 0.02 262));box-shadow:0 22px 46px oklch(0.28 0.03 262 / 0.26);display:flex")}>
       <div style={s("flex:1;min-width:0;border-radius:23px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column")}>
         <div style={s("flex-shrink:0;display:flex;align-items:center;gap:10px;padding:13px 14px;background:var(--nav)")}>
-          <span style={s("width:36px;height:36px;flex-shrink:0;border-radius:50%;background:var(--nav-active);color:var(--warm);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px")}>m</span>
+          <span style={s("width:36px;height:36px;flex-shrink:0;border-radius:50%;background:var(--nav-active);color:var(--warm);display:flex;align-items:center;justify-content:center;font-weight:var(--w-title);font-size:var(--t-body)")}>m</span>
           <span style={s("flex:1;min-width:0")}>
-            <span style={s("display:block;font-size:14px;font-weight:800;color:var(--nav-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
+            <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--nav-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
               {st.assistente.nome || "MAISA"}
             </span>
-            <span style={s("display:flex;align-items:center;gap:5px;font-size:11px;color:var(--nav-soft);margin-top:1px")}>
-              <span style={s(`width:6px;height:6px;border-radius:50%;background:${st.assistente.ativa ? "var(--warm)" : "oklch(0.70 0.02 262)"}`)} />
+            <span style={s("display:flex;align-items:center;gap:5px;font-size:var(--t-micro);color:var(--nav-soft);margin-top:1px")}>
+              <span style={s(`width:6px;height:6px;border-radius:50%;background:${st.assistente.ativa ? "var(--whatsapp-mark)" : "var(--nav-muted)"}`)} />
               {st.assistente.ativa ? "online" : "pausada"} · tom {st.assistente.tom}
             </span>
           </span>
         </div>
 
         <div style={s("flex:1;min-height:0;overflow-y:auto;padding:16px 13px;display:flex;flex-direction:column;gap:9px")}>
-          <span style={s("align-self:center;font-size:10.5px;font-weight:700;color:var(--muted);background:var(--surface);padding:4px 12px;border-radius:999px")}>{pv.titulo}</span>
+          <span style={s("align-self:center;font-size:var(--t-micro);font-weight:var(--w-title);color:var(--muted);background:var(--surface);padding:4px 12px;border-radius:999px")}>{pv.titulo}</span>
+          {/* O cabeçalho apresenta a MAISA como o CONTATO, então quem olha esta tela é o
+              cliente: as falas da MAISA vêm à esquerda em bolha clara, e as do cliente à
+              direita. Estava invertido, e era justo aqui que o usuário aprende quem fala. */}
           {msgs.map((m, i) => {
             const bot = m.de === "bot";
             return (
               <div
                 key={`${st.secAtiva}-${i}`}
                 className="m-bubble"
-                style={s(`max-width:84%;align-self:${bot ? "flex-end" : "flex-start"};padding:10px 13px;font-size:13.5px;line-height:1.5;border-radius:15px;background:${bot ? "var(--primary-soft)" : "var(--surface)"};color:${bot ? "var(--primary-dark)" : "var(--ink)"};border-bottom-${bot ? "right" : "left"}-radius:5px;box-shadow:0 1px 2px oklch(0.30 0.03 60 / 0.08)`)}
+                style={s(`max-width:84%;align-self:${bot ? "flex-start" : "flex-end"};padding:9px 13px 7px;font-size:var(--t-sm);line-height:1.5;border-radius:15px;background:${bot ? "var(--surface)" : "var(--primary-soft)"};color:${bot ? "var(--ink)" : "var(--primary-dark)"};border-bottom-${bot ? "left" : "right"}-radius:5px;box-shadow:0 1px 2px oklch(0.22 0.03 262 / 0.08)`)}
               >
                 {m.txt}
+                <span className="n" style={s("display:block;text-align:right;margin-top:3px;font-size:var(--t-micro);font-weight:var(--w-data);color:var(--muted)")}>
+                  {horaDaMsg(i)}
+                </span>
               </div>
             );
           })}
         </div>
 
         <div style={s("flex-shrink:0;display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface);border-top:1px solid var(--line)")}>
-          <span style={s("flex:1;background:var(--bg);border-radius:999px;padding:8px 14px;font-size:12.5px;color:var(--muted)")}>Mensagem</span>
-          <span style={s("width:34px;height:34px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--primary);color:#fff")}>
+          <span style={s("flex:1;background:var(--bg);border-radius:999px;padding:8px 14px;font-size:var(--t-label);color:var(--muted)")}>Mensagem</span>
+          <span style={s("width:34px;height:34px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--primary);color:var(--on-primary)")}>
             <Icon name="send" size={15} sw={2} />
           </span>
         </div>
@@ -239,19 +273,19 @@ function Secao({ sec }: { sec: D.SecaoAjuste }) {
   const aberta = st.secAtiva === sec.id;
 
   return (
-    <div style={s(`background:var(--surface);border:1px solid ${aberta ? "var(--primary)" : "var(--border)"};border-radius:20px;overflow:hidden;box-shadow:${aberta ? "0 14px 34px oklch(0.30 0.03 60 / 0.12)" : "var(--shadow-card)"};transition:border-color var(--dur-slow) var(--ease-out),box-shadow var(--dur-slow) var(--ease-out)`)}>
+    <div style={s(`background:var(--surface);border:1px solid ${aberta ? "var(--primary)" : "var(--border)"};border-radius:16px;overflow:hidden;box-shadow:${aberta ? "0 14px 34px oklch(0.22 0.03 262 / 0.12)" : "var(--shadow-card)"};transition:border-color var(--dur-slow) var(--ease-out),box-shadow var(--dur-slow) var(--ease-out)`)}>
       <button
         onClick={() => st.abrirSecao(sec.id)}
         aria-expanded={aberta}
         className="m-press m-focus"
         style={s("width:100%;display:flex;align-items:center;gap:13px;padding:16px 18px;background:transparent;border:none;cursor:pointer;text-align:left")}
       >
-        <span style={s(`width:40px;height:40px;flex-shrink:0;border-radius:12px;display:flex;align-items:center;justify-content:center;background:${aberta ? "var(--primary)" : "var(--primary-soft)"};color:${aberta ? "#fff" : "var(--primary-dark)"};transition:var(--tr-ui)`)}>
+        <span style={s(`width:40px;height:40px;flex-shrink:0;border-radius:12px;display:flex;align-items:center;justify-content:center;background:${aberta ? "var(--primary)" : "var(--primary-soft)"};color:${aberta ? "var(--on-primary)" : "var(--primary-dark)"};transition:var(--tr-ui)`)}>
           <Icon name={ICONE[sec.id]} size={20} sw={1.9} />
         </span>
         <span style={s("flex:1;min-width:0")}>
-          <span style={s("display:block;font-size:15.5px;font-weight:800;letter-spacing:-.01em")}>{sec.titulo}</span>
-          <span style={s("display:block;font-size:12.5px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
+          <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title)")}>{sec.titulo}</span>
+          <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
             {resumoDaSecao(sec.id, st)}
           </span>
         </span>
@@ -274,27 +308,11 @@ function Secao({ sec }: { sec: D.SecaoAjuste }) {
 /* ───────────────────────────── tela ───────────────────────────── */
 
 export default function AMaisa() {
-  const st = useStore();
   const mobile = useIsMobile();
 
-  const rodape = (
-    <div style={s("display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap")}>
-      <span
-        aria-live="polite"
-        style={s(`display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--success);opacity:${st.salvo ? "1" : "0"};transition:opacity var(--dur-base) ease`)}
-      >
-        <Icon name="check" size={16} sw={2.4} />
-        Alterações salvas
-      </span>
-      <button
-        onClick={st.salvar}
-        className="m-hov-primary m-press m-focus"
-        style={s(`height:${mobile ? "52px" : "46px"};padding:0 22px;border:none;border-radius:14px;background:var(--primary);color:#fff;font-size:15px;font-weight:700;cursor:pointer;${mobile ? "width:100%;justify-content:center;" : ""}display:inline-flex;align-items:center;gap:9px`)}
-      >
-        {st.salvo ? "Salvo" : "Salvar alterações"}
-      </button>
-    </div>
-  );
+  // A faixa de rodapé com "Salvar alterações" saiu: cada ajuste já persiste sozinho,
+  // então o botão não fazia nada — e ainda repetia, em azul, o "Salvar ajustes" dourado
+  // da topbar. Duas cores para a mesma não-ação.
 
   const secoes = (
     <div style={s("display:flex;flex-direction:column;gap:12px")}>
@@ -305,26 +323,30 @@ export default function AMaisa() {
   if (mobile) {
     return (
       <div className="m-enter" style={s("flex:1;min-height:0;overflow-y:auto;padding:2px 16px 24px;display:flex;flex-direction:column;gap:14px")}>
-        {/* No celular o preview vem primeiro e é curto: é a prova do que os
-            ajustes abaixo fazem, então precisa estar visível sem rolar. */}
+        {/* No celular o preview vem logo depois da faixa e é curto: é a prova do que
+            os ajustes abaixo fazem, então precisa estar visível sem rolar. */}
+        <FaixaAssistente />
         <div style={s("height:340px;display:flex")}><Preview /></div>
         {secoes}
-        {rodape}
       </div>
     );
   }
 
   return (
     <div className="m-enter" style={s("flex:1;min-height:0;height:100%;display:grid;grid-template-columns:minmax(0,1fr) 306px;gap:24px;padding:22px 26px;overflow:hidden")}>
-      <div style={s("min-height:0;overflow-y:auto;padding-right:2px;display:flex;flex-direction:column;gap:14px")}>
-        {secoes}
-        {rodape}
+      {/* A faixa fica fora da área que rola: o interruptor mestre não pode sumir de vista
+          enquanto o usuário mexe nas seções. */}
+      <div style={s("min-height:0;display:flex;flex-direction:column;gap:14px")}>
+        <FaixaAssistente />
+        <div style={s("min-height:0;overflow-y:auto;padding:2px 2px 6px 0")}>
+          {secoes}
+        </div>
       </div>
 
       <div style={s("min-height:0;display:flex;flex-direction:column;gap:10px")}>
-        <span style={s("font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)")}>No WhatsApp</span>
+        <span style={s("font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>No WhatsApp</span>
         <Preview />
-        <span style={s("font-size:12px;line-height:1.5;color:var(--muted)")}>Muda conforme a seção aberta ao lado.</span>
+        <span style={s("font-size:var(--t-label);line-height:1.5;color:var(--muted)")}>Muda conforme a seção aberta ao lado.</span>
       </div>
     </div>
   );

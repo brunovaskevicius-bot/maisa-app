@@ -34,10 +34,9 @@ export const PERIODO = "Junho de 2026";
 /** "Hoje" do protótipo — o dia que o Fluxo e a Agenda exibem. */
 export const HOJE = { label: "Sexta, 17 de julho", dow: "SEX", num: 17, data: "17/07/2026" };
 
-/** Semana visível no seletor de dias da Agenda. */
-export const SEMANA: [string, number][] = [
-  ["SEG", 13], ["TER", 14], ["QUA", 15], ["QUI", 16], ["SEX", 17], ["SÁB", 18],
-];
+/* A antiga const SEMANA (seg 13 … sáb 18, escrita à mão) saiu: a semana agora é DERIVADA do dia
+   visível por semanaDoDia(), lá embaixo, junto com o resto do calendário. Duas verdades sobre
+   qual semana é essa era uma a mais. */
 
 /** Janela da grade da Agenda: 09:00 → 19:00, linha de 1h. */
 export const AGENDA_INICIO = 9;
@@ -55,14 +54,32 @@ export type Profissional = {
   desde: string;
   servicoIds: string[];
   ativo: boolean;
+  /** Faixa da semana em que atende, já legível ("Seg–Sáb 09–19"). A tela Equipe se chama
+   *  "Quem atende e quando" e não tinha UM horário — o "quando" simplesmente não existia no dado,
+   *  então o gestor abria a tela para saber quem trabalha sábado e saía sem resposta. */
+  horario: string;
+  /** Folga fixa, em linguagem natural. */
+  folga: string;
 };
 
 export const EQUIPE: Profissional[] = [
-  { id: "pr1", nome: "Rafael Antunes", papel: "Atendimento geral", atendimentosMes: 168, avaliacao: 4.9, comissao: 50, desde: "jan/2024", servicoIds: ["sv1", "sv2", "sv3", "sv7"], ativo: true },
-  { id: "pr2", nome: "Diego Moraes", papel: "Especialista sênior", atendimentosMes: 142, avaliacao: 4.8, comissao: 45, desde: "mar/2024", servicoIds: ["sv1", "sv3", "sv4", "sv6"], ativo: true },
-  { id: "pr3", nome: "Léo Barbosa", papel: "Atendimento especializado", atendimentosMes: 97, avaliacao: 4.7, comissao: 45, desde: "jun/2024", servicoIds: ["sv1", "sv2", "sv5"], ativo: true },
-  { id: "pr4", nome: "Caio Ferraz", papel: "Atendimento júnior", atendimentosMes: 0, avaliacao: 4.6, comissao: 40, desde: "fev/2025", servicoIds: ["sv6"], ativo: false },
+  { id: "pr1", nome: "Rafael Antunes", papel: "Atendimento geral", atendimentosMes: 168, avaliacao: 4.9, comissao: 50, desde: "jan/2024", servicoIds: ["sv1", "sv2", "sv3", "sv7"], ativo: true, horario: "Seg–Sáb 09–19", folga: "domingo" },
+  { id: "pr2", nome: "Diego Moraes", papel: "Especialista sênior", atendimentosMes: 142, avaliacao: 4.8, comissao: 45, desde: "mar/2024", servicoIds: ["sv1", "sv3", "sv4", "sv6"], ativo: true, horario: "Ter–Sáb 10–20", folga: "domingo e segunda" },
+  { id: "pr3", nome: "Léo Barbosa", papel: "Atendimento especializado", atendimentosMes: 97, avaliacao: 4.7, comissao: 45, desde: "jun/2024", servicoIds: ["sv1", "sv2", "sv5"], ativo: true, horario: "Seg–Sex 08–17", folga: "sábado e domingo" },
+  { id: "pr4", nome: "Caio Ferraz", papel: "Atendimento júnior", atendimentosMes: 0, avaliacao: 4.6, comissao: 40, desde: "fev/2025", servicoIds: ["sv6"], ativo: false, horario: "Qui–Sáb 13–19", folga: "segunda a quarta" },
 ];
+
+/** Atendimento sendo marcado na Agenda, antes de virar agendamento de verdade.
+ *  Nasce com horário e profissional (vieram do clique no vago); cliente e serviço faltam. */
+export type RascunhoAgendamento = {
+  id: string;
+  /** Dia do mês em que o clique caiu — com Semana e Mês na tela, o vago já não é sempre hoje. */
+  dia: number;
+  profissionalId: string;
+  inicio: number;
+  clienteId: string;
+  servicoId: string;
+};
 
 /** Profissionais que aparecem como coluna na grade da Agenda. */
 export const COLUNAS_AGENDA = ["pr1", "pr2", "pr3"];
@@ -196,6 +213,8 @@ export const ETAPAS: Etapa[] = ["chegando", "atendendo", "feito"];
 
 export type Agendamento = {
   id: string;
+  /** Dia do mês em MES_AGENDA. Ausente ⇒ HOJE, o dia de partida do protótipo. */
+  dia?: number;
   /** Início em hora decimal: 9.5 = 09:30. */
   inicio: number;
   profissionalId: string;
@@ -215,8 +234,135 @@ export const AGENDAMENTOS: Agendamento[] = [
   { id: "ag6", inicio: 14, profissionalId: "pr1", servicoId: "sv2", clienteId: "cl7", confirmado: true, etapaInicial: "chegando" },
   { id: "ag7", inicio: 15.5, profissionalId: "pr1", servicoId: "sv3", clienteId: "cl3", confirmado: true, etapaInicial: "chegando" },
   { id: "ag8", inicio: 17, profissionalId: "pr2", servicoId: "sv6", clienteId: "cl13", confirmado: false, etapaInicial: "chegando" },
-  { id: "ag9", inicio: 17.5, profissionalId: "pr3", servicoId: "sv5", clienteId: "cl12", confirmado: true, etapaInicial: "chegando" },
+  // 16:00 e não 17:30: o Léo atende até as 17 (EQUIPE[2].horario, e agora EXPEDIENTE.pr3), então
+  // às 17:30 este atendimento caía na faixa que a grade desenha como "fora do expediente" — a
+  // própria tela de Equipe desmentia a própria Agenda.
+  { id: "ag9", inicio: 16, profissionalId: "pr3", servicoId: "sv5", clienteId: "cl12", confirmado: true, etapaInicial: "chegando" },
 ];
+
+/* ───────────────────────────── o mês da agenda ─────────────────────────────
+ * A Agenda passou a ter visão de Semana e de Mês, e essas duas visões não têm o
+ * que mostrar com um dia só de dado. A tela anterior contornava isso dizendo a
+ * verdade — todo dia que não fosse 17 virava estado vazio —, e isso estava certo
+ * enquanto só existia a visão de Dia. Numa grade de mês, porém, trinta células
+ * vazias não são honestas: são a tela quebrada.
+ *
+ * Então o resto do mês é GERADO, e gerado de forma DETERMINÍSTICA: nada de
+ * Math.random nem de Date.now, porque o calendário mudaria a cada render e
+ * arrastar um bloco embaralharia a tela inteira. O mesmo dia sempre produz os
+ * mesmos atendimentos.
+ *
+ * O dia 17 fica FORA do gerador de propósito: ele continua sendo exatamente os
+ * nove agendamentos acima, que são o que o Fluxo de hoje mostra. Mexer neles
+ * mudaria o kanban, e o kanban não é assunto desta tela. */
+
+/** Mês que a Agenda exibe. 1/7/2026 caiu numa quarta ⇒ primeiroDow = 2. */
+export const MES_AGENDA = { nome: "julho", ano: 2026, dias: 31, primeiroDow: 2 };
+
+/** Semana começando na segunda — convenção pt-BR. Domingo é a última coluna. */
+export const DOW_CURTO = ["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"];
+export const DOW_LONGO = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
+
+/** Dia do mês → índice do dia da semana (0 = segunda … 6 = domingo). */
+export const dowDoDia = (dia: number) => (MES_AGENDA.primeiroDow + dia - 1) % 7;
+
+/** Domingo a casa não abre. A coluna existe só para o mês ter sete colunas. */
+export const fechado = (dia: number) => dowDoDia(dia) === 6;
+
+/** Os seis dias úteis (seg–sáb) da semana de um dia, sem transbordar o mês. */
+export function semanaDoDia(dia: number): number[] {
+  const segunda = dia - dowDoDia(dia);
+  return Array.from({ length: 6 }, (_, i) => segunda + i).filter((d) => d >= 1 && d <= MES_AGENDA.dias);
+}
+
+/** Célula da grade de mês. `dia: null` é o preenchimento antes do dia 1 / depois do 31. */
+export type CelulaMes = { chave: string; dia: number | null };
+
+/** A grade inteira, em múltiplos de 7 — 35 células em julho de 2026. */
+export function celulasDoMes(): CelulaMes[] {
+  const antes = MES_AGENDA.primeiroDow;
+  const total = Math.ceil((antes + MES_AGENDA.dias) / 7) * 7;
+  return Array.from({ length: total }, (_, i) => {
+    const d = i - antes + 1;
+    return { chave: `c${i}`, dia: d >= 1 && d <= MES_AGENDA.dias ? d : null };
+  });
+}
+
+/** Horários que a casa costuma encher, na ordem. Cada par (hora, profissional) é único. */
+const PAUTA: { inicio: number; servicoId: string; profissionalId: string }[] = [
+  { inicio: 9, servicoId: "sv1", profissionalId: "pr1" },
+  { inicio: 9.5, servicoId: "sv2", profissionalId: "pr3" },
+  { inicio: 10, servicoId: "sv3", profissionalId: "pr2" },
+  { inicio: 11, servicoId: "sv2", profissionalId: "pr1" },
+  { inicio: 11.5, servicoId: "sv4", profissionalId: "pr2" },
+  { inicio: 13.5, servicoId: "sv1", profissionalId: "pr3" },
+  { inicio: 14, servicoId: "sv2", profissionalId: "pr1" },
+  { inicio: 15, servicoId: "sv5", profissionalId: "pr3" },
+  { inicio: 15.5, servicoId: "sv3", profissionalId: "pr1" },
+  { inicio: 17, servicoId: "sv6", profissionalId: "pr2" },
+  { inicio: 17.5, servicoId: "sv5", profissionalId: "pr3" },
+];
+
+/** Quando cada profissional atende, em dado ESTRUTURADO.
+ *  EQUIPE[].horario e EQUIPE[].folga são frases para o dono ler ("Seg–Sex 08–17", "folga sábado
+ *  e domingo"); o calendário precisa do número. Sem isto a Agenda marcava o Léo num sábado e às
+ *  17:30 — e a tela de Equipe, na mesma sessão, dizia que ele folga sábado e sai às 17.
+ *  Se os dois divergirem, é ESTE que a Agenda obedece: mantenha o par junto. */
+export const EXPEDIENTE: Record<string, { folga: number[]; de: number; ate: number }> = {
+  pr1: { folga: [6], de: 9, ate: 19 },     // Seg–Sáb 09–19 · folga domingo
+  pr2: { folga: [6, 0], de: 10, ate: 20 }, // Ter–Sáb 10–20 · folga domingo e segunda
+  pr3: { folga: [5, 6], de: 8, ate: 17 },  // Seg–Sex 08–17 · folga sábado e domingo
+};
+
+/** Esse profissional trabalha nesse dia? */
+export const atende = (profissionalId: string, dia: number) => {
+  const e = EXPEDIENTE[profissionalId];
+  return !!e && !e.folga.includes(dowDoDia(dia));
+};
+
+/** Esse profissional pode começar um atendimento aí — dia de trabalho e hora dentro do expediente. */
+export const podeComecar = (profissionalId: string, dia: number, inicio: number) => {
+  const e = EXPEDIENTE[profissionalId];
+  return !!e && atende(profissionalId, dia) && inicio >= e.de && inicio < e.ate;
+};
+
+/** …e o atendimento inteiro cabe antes de ele ir embora. */
+export const cabeNoExpediente = (profissionalId: string, dia: number, inicio: number, duracaoMin: number) => {
+  const e = EXPEDIENTE[profissionalId];
+  return !!e && podeComecar(profissionalId, dia, inicio) && inicio + duracaoMin / 60 <= e.ate;
+};
+
+const CLI_AGENDA = ["cl1", "cl2", "cl3", "cl4", "cl5", "cl6", "cl7", "cl8", "cl9", "cl10", "cl11", "cl12", "cl13"];
+
+/** O resto do mês. Ver o bloco acima para por que isto existe e por que é determinístico. */
+export const AGENDA_MES: Agendamento[] = (() => {
+  const out: Agendamento[] = [];
+  for (let dia = 1; dia <= MES_AGENDA.dias; dia++) {
+    if (fechado(dia) || dia === HOJE.num) continue;
+    // Só os horários que cabem no expediente de quem atende — folga E hora de saída.
+    // SERVICOS.find e não o helper servico(): ele é declarado lá embaixo, e esta IIFE roda na
+    // avaliação do módulo — chamá-lo aqui cairia na temporal dead zone.
+    const livres = PAUTA.filter((p) => cabeNoExpediente(p.profissionalId, dia, p.inicio, SERVICOS.find((s) => s.id === p.servicoId)!.duracao));
+    const qtd = Math.min(4 + ((dia * 3) % 4), livres.length);
+    const salto = (dia * 3) % livres.length;
+    for (let i = 0; i < qtd; i++) {
+      const slot = livres[(salto + i) % livres.length];
+      const passado = dia < HOJE.num;
+      out.push({
+        id: `ag-${dia}-${i}`,
+        dia,
+        inicio: slot.inicio,
+        profissionalId: slot.profissionalId,
+        servicoId: slot.servicoId,
+        clienteId: CLI_AGENDA[(dia * 7 + i * 3) % CLI_AGENDA.length],
+        // dia que já passou está fechado; à frente, um em cada seis ainda não respondeu
+        confirmado: passado || (dia + i) % 6 !== 0,
+        etapaInicial: passado ? "feito" : "chegando",
+      });
+    }
+  }
+  return out;
+})();
 
 /* ───────────────────────────── conversas ─────────────────────────────
  * `estado` é a situação de origem; assumir/devolver no app sobrepõe isso.
@@ -427,7 +573,10 @@ export const FATURAS = [
 export const profissional = (id: string) => EQUIPE.find((p) => p.id === id);
 export const servico = (id: string) => SERVICOS.find((s) => s.id === id);
 export const cliente = (id: string) => CLIENTES.find((c) => c.id === id);
-export const agendamento = (id: string) => AGENDAMENTOS.find((a) => a.id === id);
+/** Procura nos dois lados: o dia de partida E o mês gerado. Olhar só AGENDAMENTOS deixava
+ *  arrastar um bloco de outro dia sem toast e sem "Desfazer" — a ação acontecia calada. */
+export const agendamento = (id: string) =>
+  AGENDAMENTOS.find((a) => a.id === id) ?? AGENDA_MES.find((a) => a.id === id);
 export const conversa = (id: string) => CONVERSAS.find((c) => c.id === id);
 
 export const nomeProfissional = (id: string) => profissional(id)?.nome ?? "—";

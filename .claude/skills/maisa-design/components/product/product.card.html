@@ -1,0 +1,25 @@
+<!-- @dsCard group="Components" viewport="700x400" name="Produto" subtitle="ChatBubble e StatCard — os dois padrões que só existem no maisa" -->
+<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>body{background:var(--surface-page);padding:20px;margin:0}.grp{margin-bottom:18px}.grp:last-child{margin-bottom:0}.lbl{font-family:var(--font-sans);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-subtle);margin-bottom:9px}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script></head><body><div id="root"></div>
+<script type="text/babel">
+const { Button, IconButton, Badge, Tag, Card, Avatar, Logo, Icon, Input, Textarea, Select, Checkbox, Radio, Switch, Dialog, Toast, Tooltip, EmptyState, Tabs, ChatBubble, StatCard } = window.MaisaDesignSystem_00adcb;
+function Demo(){return(<>
+<div className="grp"><div className="lbl">StatCard</div><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+<StatCard label="Atendimentos" value="38" icon={<Icon name="chat-bubble-left-right" size={18} />} delta="12% na semana" />
+<StatCard label="Faturamento" value="R$ 12.480" icon={<Icon name="banknotes" size={18} />} delta="8% na semana" />
+<StatCard label="Notas emitidas" value="26" icon={<Icon name="document-text" size={18} />} footnote="nenhuma pendente" />
+</div></div>
+<div className="grp"><div className="lbl">ChatBubble</div>
+<Card variant="sunken" pad="sm">
+<ChatBubble from="in" time="14:31">Oi! Tem horário amanhã de manhã?</ChatBubble>
+<ChatBubble from="out" author="maisa" time="14:31" status="read">Tenho sim, Juliana. 9h ou 10h30?</ChatBubble>
+<ChatBubble from="in" time="14:33">9h fica ótimo</ChatBubble>
+<ChatBubble from="note">Agendamento criado · quinta, 9h · Corte + escova</ChatBubble>
+</Card></div>
+</>);}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script></body></html>

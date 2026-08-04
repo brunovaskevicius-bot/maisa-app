@@ -62,12 +62,18 @@ export function ProvaSocial() {
     if (!el) return;
     const p = f.current;
 
+    // Só o gesto HORIZONTAL move o carrossel. Antes havia um `e.preventDefault()` incondicional
+    // com `{ passive: false }`, e o comentário original assumia que o carrossel "escapando" era o
+    // problema a resolver — mas o efeito era sequestrar a roda do mouse numa faixa full-bleed de
+    // até 720px no meio do funil: a página não passava daqui, e o FAQ e o CTA final ficam ABAIXO.
+    // Uma seção que impede a rolagem não é imersiva, é um beco. Rolagem vertical volta a ser da
+    // página; quem quiser navegar o carrossel usa o arrasto, as setas ou o teclado (já existem).
     const onWheel = (e: WheelEvent) => {
-      // preventDefault: sem isso a página rola junto e o carrossel "escapa".
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
       p.encaixando = false;
       p.ultimoGesto = Date.now();
-      p.alvo -= Math.max(Math.min(e.deltaY * 0.6, 50), -50);
+      p.alvo -= Math.max(Math.min(e.deltaX * 0.6, 50), -50);
     };
     const onDown = (e: PointerEvent) => {
       p.ponteiroAtivo = true;
@@ -237,8 +243,13 @@ export function ProvaSocial() {
 
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, oklch(0.15 0.04 264 / .22) 0%, oklch(0.15 0.04 264 / .12) 40%, oklch(0.15 0.04 264 / .58) 100%)", pointerEvents: "none" }} />
 
-      {/* placa central — fica parada, só o conteúdo troca */}
+      {/* placa central — fica parada, só o conteúdo troca.
+          `lp-band` porque o fundo aqui é DOURADO: sem ele o wordmark "maisa" da frase "marcado com
+          a maisa" herda --mk-wordmark (dourado) e fica a 1,00:1 — dourado sobre dourado, texto
+          invisível. É a segunda superfície dourada da página; a correção anterior só cobriu a faixa
+          do CTA final e deixou esta passar. Mesmo mecanismo, um nome de classe. */}
       <div
+        className="lp-band"
         aria-live="polite"
         style={{
           position: "absolute",

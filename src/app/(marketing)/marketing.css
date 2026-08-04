@@ -47,17 +47,33 @@ body:has(.mundo-terapeutas) {
   --mk-font-display: var(--font-barber-display), "Arial Narrow", system-ui, sans-serif;
   --mk-font-body: var(--font-barber-body), system-ui, -apple-system, sans-serif;
 
-  --mk-bg: oklch(0.19 0.045 262);
-  --mk-bg-deep: oklch(0.15 0.04 264);
-  --mk-panel: oklch(0.24 0.05 262);
-  --mk-panel-2: oklch(0.285 0.055 262);
-  --mk-surface: oklch(0.24 0.05 262);
+  /* Quatro degraus REAIS de profundidade. Antes --mk-panel e --mk-surface tinham o MESMO valor
+     (0.24) — dois nomes, uma cor — então os cartões de três seções eram molduras flutuando sobre
+     o próprio fundo, sem elevação alguma. */
+  --mk-bg: oklch(0.165 0.042 262);
+  --mk-bg-deep: oklch(0.13 0.038 264);
+  --mk-panel: oklch(0.225 0.048 262);
+  --mk-panel-2: oklch(0.265 0.052 262);
+  --mk-surface: oklch(0.30 0.055 262);
 
   --mk-ink: oklch(0.97 0.012 250);
   --mk-ink-soft: oklch(0.88 0.02 250);
   --mk-muted: oklch(0.79 0.028 250);     /* corpo secundário — AA sobre o navy (>= 4.5:1) */
-  --mk-border: oklch(0.37 0.05 260);
-  --mk-line: oklch(0.31 0.045 260);
+  /* --mk-border DELIMITA componente, então cai na WCAG 1.4.11 e precisa de 3:1 de verdade.
+     Estava em 0.37 = 1,77:1 sobre o bg e 1,58:1 sobre o painel: a borda dos cartões era invisível,
+     e o que separava cartão de fundo era só a sombra difusa — o "ghost-card" banido.
+     Medido em 0.56: 3,98:1 sobre bg · 3,54:1 sobre panel · 3,09:1 sobre surface. */
+  --mk-border: oklch(0.56 0.05 260);
+  /* --mk-line é hairline DECORATIVO (divisória), não delimita controle — não precisa de 3:1.
+     Ainda assim subiu de 0.31 (1,40:1) para 0.42 (~2,3:1): abaixo disso simplesmente não se vê. */
+  --mk-line: oklch(0.42 0.045 260);
+
+  /* Tinta do wordmark "maisa". É TOKEN porque o wordmark aparece sobre dois substratos opostos — o
+     navy da página e a faixa dourada do CTA final — e no dourado ele tem de INVERTER. Sem isso ele
+     herdava --warm, que é token do PRODUTO e não do marketing, e dava 1,02:1 sobre a faixa:
+     invisível. Navy sobre a faixa dá 9,80:1. Ver `.lp-band` no fim deste arquivo. */
+  --mk-wordmark: var(--mk-accent);
+  --mk-wordmark-shadow: oklch(0.50 0.11 66);
 
   --mk-brand: oklch(0.63 0.13 256);      /* azure claro p/ realces sobre o escuro */
   --mk-accent: oklch(0.80 0.14 82);      /* dourado/mel MAISA */
@@ -127,6 +143,10 @@ body:has(.mundo-terapeutas) {
   --mk-accent: oklch(0.80 0.12 80);      /* dourado suave (fills) */
   --mk-accent-strong: oklch(0.60 0.13 66);
   --mk-accent-ink: oklch(0.57 0.12 62);  /* âmbar/dourado p/ texto pequeno (AA em fundo claro) */
+
+  /* wordmark no mundo claro: navy, não dourado — dourado sobre off-white não passa AA */
+  --mk-wordmark: var(--mk-brand);
+  --mk-wordmark-shadow: transparent;
 
   --mk-on-brand: oklch(0.98 0.012 250);
 
@@ -229,7 +249,18 @@ body:has(.mundo-terapeutas) {
 .mk-btn-primary:hover { background: var(--mk-cta-hover); box-shadow: 0 12px 28px var(--mk-cta-glow); }
 .mk-btn-secondary:hover { border-color: var(--mk-ink); background: color-mix(in oklch, var(--mk-ink) 6%, transparent); }
 .mk-btn-ghost:hover { background: color-mix(in oklch, var(--mk-ink) 9%, transparent); }
-.mk-btn-whats:hover { background: var(--mk-whats-hover); box-shadow: 0 12px 28px oklch(0.48 0.13 150 / 0.35); }
+/* `.mk-btn-whatsapp`, não `.mk-btn-whats`: a classe é gerada como `mk-btn-${variant}` e a variante
+   se chama "whatsapp" — esta regra existia e NUNCA casava, então o botão de WhatsApp era o único
+   da página sem hover. */
+.mk-btn-whatsapp:hover { background: var(--mk-whats-hover); box-shadow: 0 12px 28px oklch(0.48 0.13 150 / 0.35); }
+
+/* ═══ A FAIXA DE CONVERSÃO — o único momento dourado da página ═══
+   Dentro dela o substrato inverte (dourado sólido), então tudo que era dourado tem de virar navy.
+   O wordmark é o caso crítico: sem este override ele fica ouro-sobre-ouro a 1,02:1. */
+.lp-band {
+  --mk-wordmark: var(--mk-band-ink);
+  --mk-wordmark-shadow: transparent;
+}
 .mk-btn-band:hover { background: var(--mk-band-btn-hover); }
 .mk-btn-band-ghost:hover { background: color-mix(in oklch, var(--mk-band-ink) 12%, transparent); }
 

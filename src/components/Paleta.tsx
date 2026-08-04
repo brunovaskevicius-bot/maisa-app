@@ -109,7 +109,7 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
     <>
       <div
         onClick={fechar}
-        style={{ ...s("position:fixed;inset:0;z-index:90;background:oklch(0.28 0.03 262 / 0.34)"), backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", animation: "mfade .18s ease both" }}
+        style={{ ...s("position:fixed;inset:0;z-index:90;background:oklch(0.22 0.03 262 / 0.38)"), backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", animation: "mfade .18s ease both" }}
       />
       <div
         role="dialog"
@@ -133,13 +133,15 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar cliente, conversa, serviço ou tela…"
             aria-label="Buscar"
-            style={s("flex:1;min-width:0;border:none;background:transparent;font-size:15px;color:var(--ink);outline:none")}
+            style={s("flex:1;min-width:0;border:none;background:transparent;font-size:var(--t-body);color:var(--ink);outline:none")}
           />
           <button
             onClick={fechar}
             aria-label="Fechar busca"
             className="m-hov-bg m-press-icon m-focus"
-            style={s("flex-shrink:0;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--muted);font-family:var(--font-mono);font-size:11px;font-weight:600;padding:4px 8px;cursor:pointer")}
+            /* mono FICA aqui: "esc" é a tecla literal, string de máquina — o único papel que
+               sobrou para o monoespaçado depois da troca de fonte. */
+            style={s("flex-shrink:0;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--muted);font-family:var(--font-mono);font-size:var(--t-micro);font-weight:var(--w-data);padding:4px 8px;cursor:pointer")}
           >
             esc
           </button>
@@ -147,7 +149,7 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
 
         <div ref={listaRef} style={s("flex:1;overflow-y:auto;padding:8px")}>
           {filtrados.length === 0 && (
-            <div style={s("padding:36px 16px;text-align:center;font-size:13.5px;color:var(--muted);line-height:1.5")}>
+            <div style={s("padding:36px 16px;text-align:center;font-size:var(--t-sm);color:var(--muted);line-height:1.5")}>
               Nada encontrado para “{busca}”.
             </div>
           )}
@@ -158,7 +160,7 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
             return (
               <React.Fragment key={i.chave}>
                 {novoGrupo && (
-                  <div style={s("font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:10px 10px 6px")}>
+                  <div style={s("font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted);padding:10px 10px 6px")}>
                     {i.grupo}
                   </div>
                 )}
@@ -172,8 +174,8 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
                     ? <Monogram name={i.titulo} id={i.seed} size={32} radius={10} />
                     : <span style={s(`width:32px;height:32px;flex-shrink:0;border-radius:10px;display:flex;align-items:center;justify-content:center;background:${ativo ? "var(--surface)" : "var(--bg)"};color:var(--primary-dark)`)}><Icon name={i.icone ?? "arrow-right"} size={16} /></span>}
                   <span style={s("flex:1;min-width:0")}>
-                    <span style={s("display:block;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{i.titulo}</span>
-                    <span style={s("display:block;font-size:12px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{i.sub}</span>
+                    <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{i.titulo}</span>
+                    <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{i.sub}</span>
                   </span>
                   {ativo && <Icon name="arrow-right" size={16} sw={2} stroke="var(--primary)" />}
                 </button>

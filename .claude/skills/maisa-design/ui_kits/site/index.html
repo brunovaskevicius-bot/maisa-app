@@ -1,0 +1,31 @@
+<!-- @dsCard group="Site" viewport="1280x820" name="Site institucional" subtitle="Home de marketing: hero com conversa real, como funciona, planos e FAQ" --><!-- @startingPoint section="Site" subtitle="Landing page completa da maisa" viewport="1280x820" -->
+<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>maisa — sua secretária que nunca dorme</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>body{margin:0;background:var(--surface-page)}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel" src="Header.jsx"></script>
+<script type="text/babel" src="Hero.jsx"></script>
+<script type="text/babel" src="Secoes.jsx"></script>
+<script type="text/babel" src="Precos.jsx"></script>
+<script type="text/babel" src="Rodape.jsx"></script>
+<script type="text/babel">
+function Site() {
+  return (<>
+    <Header />
+    <Hero />
+    <Faixa />
+    <Passos />
+    <Recursos />
+    <Depoimento />
+    <Precos />
+    <Perguntas />
+    <Chamada />
+    <Rodape />
+  </>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Site />);
+</script></body></html>

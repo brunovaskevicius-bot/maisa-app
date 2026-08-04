@@ -24,19 +24,24 @@ export const initials = (nome: string) => {
   return (((p[0] || "")[0] || "") + ((p[1] || "")[0] || "")).toUpperCase();
 };
 
-// paleta AVELUDADA — SÓ a identidade MAISA: tonalidades de AZUL e ÂMBAR/dourado (pares claro→escuro,
-// degradê matte). Nada de verde/rosa/roxo — tudo dentro de uma paleta só. Escuros fundos o bastante p/ iniciais brancas.
-const PALETTE: [string, string][] = [
-  ["#93B4DD", "#3F5F8D"], // azul aço
-  ["#E4C88C", "#96702E"], // dourado
-  ["#A6C4E8", "#567CAE"], // azul claro
-  ["#DCBE82", "#8A6528"], // ocre
-  ["#7C99C6", "#3A5687"], // azul profundo
-  ["#EAD59F", "#9E7C36"], // mel
-  ["#8AA9D6", "#456499"], // azul médio
-  ["#B4C8E2", "#57709E"], // azul acinzentado
+// Paleta de avatar — FILL CLARO com iniciais em --ink, e não fundo escuro com iniciais brancas.
+// A versão anterior eram 16 hex crus (fora do sistema OKLCH, imunes a reskin de token) com as
+// iniciais em branco 93%: medido no ponto médio do degradê, os 8 pares davam de 2.11:1 a 4.17:1 —
+// os OITO reprovavam AA. E as luminâncias eram vizinhas, com dois pares quase idênticos, então o
+// recurso de reconhecimento não reconhecia ninguém.
+// Agora: L fixo ~0.865 (contraste uniforme, 11.2-11.7:1 contra --ink) e o MATIZ é o que distingue —
+// oito matizes espaçados, o que faz o avatar finalmente cumprir a função dele.
+const PALETTE: string[] = [
+  "oklch(0.86 0.055 262)", // azul da marca
+  "oklch(0.87 0.060 78)",  // dourado da marca
+  "oklch(0.86 0.055 200)", // ciano
+  "oklch(0.87 0.050 320)", // malva
+  "oklch(0.86 0.055 152)", // verde
+  "oklch(0.87 0.055 30)",  // coral
+  "oklch(0.86 0.050 100)", // oliva
+  "oklch(0.87 0.055 240)", // índigo
 ];
-export function avatar(seed: string): [string, string] {
+export function avatar(seed: string): string {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
   return PALETTE[h % PALETTE.length];
@@ -115,7 +120,7 @@ export function Icon({ name, size = 20, sw = 1.8, stroke = "currentColor", style
 }
 
 /* ---------- primitivas ---------- */
-export function Card({ children, style, onClick, hover, pad = 20, radius = 18, className = "" }: { children: React.ReactNode; style?: React.CSSProperties; onClick?: () => void; hover?: boolean; pad?: number; radius?: number; className?: string }) {
+export function Card({ children, style, onClick, hover, pad = 20, radius = 16, className = "" }: { children: React.ReactNode; style?: React.CSSProperties; onClick?: () => void; hover?: boolean; pad?: number; radius?: number; className?: string }) {
   return (
     <div onClick={onClick} className={[hover ? "m-card-hov" : "", className].join(" ").trim()} style={{ ...s(`background:var(--surface);border:1px solid var(--border);border-radius:${radius}px;box-shadow:var(--shadow-card);padding:${pad}px${hover ? "" : ";transition:transform var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)"}`), ...(onClick ? { cursor: "pointer" } : {}), ...(style || {}) }}>
       {children}
@@ -125,28 +130,35 @@ export function Card({ children, style, onClick, hover, pad = 20, radius = 18, c
 
 type BtnVariant = "primary" | "secondary" | "ghost" | "danger" | "whats";
 const BTN_VAR: Record<BtnVariant, string> = {
-  primary: "border:none;background:var(--primary);color:#fff",
+  primary: "border:none;background:var(--primary);color:var(--on-primary)",
   secondary: "border:1px solid var(--border);background:var(--surface);color:var(--ink)",
   ghost: "border:none;background:transparent;color:var(--muted)",
   danger: "border:1px solid var(--danger-soft);background:var(--danger-soft);color:var(--danger)",
-  whats: "border:none;background:var(--whatsapp);color:#fff",
+  // --whatsapp (escurecido) e não o verde da marca: com #25D366 o branco dava 1.98:1
+  whats: "border:none;background:var(--whatsapp);color:var(--on-primary)",
 };
 export function Btn({ variant = "primary", icon, children, onClick, style, full, size = "md" }: { variant?: BtnVariant; icon?: string; children?: React.ReactNode; onClick?: () => void; style?: React.CSSProperties; full?: boolean; size?: "sm" | "md" }) {
   const pad = size === "sm" ? "8px 13px" : "10px 17px";
   const hov = variant === "primary" ? "m-hov-primary" : variant === "whats" ? "m-hov-bright" : "m-hov-bg";
   return (
-    <button onClick={onClick} className={`${hov} m-press m-focus`} style={{ ...s(`display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;padding:${pad};${full ? "width:100%;" : ""}${BTN_VAR[variant]}`), ...(style || {}) }}>
+    <button onClick={onClick} className={`${hov} m-press m-focus`} style={{ ...s(`display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;font-weight:var(--w-title);font-size:var(--t-sm);cursor:pointer;white-space:nowrap;padding:${pad};${full ? "width:100%;" : ""}${BTN_VAR[variant]}`), ...(style || {}) }}>
       {icon && <Icon name={icon} size={16} sw={2} />}
       {children}
     </button>
   );
 }
 
-export function IconBtn({ icon, onClick, tone = "neutral", title }: { icon: string; onClick?: () => void; tone?: "neutral" | "danger" | "primary"; title?: string }) {
+/** Botão só de ícone. `size="sm"` (30px) existe para barras densas — a de navegação do calendário
+ *  ficava alta demais com os 34px do padrão, e a alternativa era a Agenda desenhar o botão à mão e
+ *  o app passar a ter duas geometrias de botão-ícone para manter em sincronia. `disabled` idem: o
+ *  ‹ › do calendário precisa desligar na visão de Mês. */
+export function IconBtn({ icon, onClick, tone = "neutral", title, size = "md", disabled }: { icon: string; onClick?: () => void; tone?: "neutral" | "danger" | "primary"; title?: string; size?: "sm" | "md"; disabled?: boolean }) {
   const c = tone === "danger" ? "color:var(--danger)" : tone === "primary" ? "color:var(--primary)" : "color:var(--muted)";
+  const px = size === "sm" ? 30 : 34;
+  const off = disabled ? "opacity:.42;cursor:not-allowed" : "cursor:pointer";
   return (
-    <button title={title} aria-label={title} onClick={onClick} className="m-hov-bg m-press-icon m-focus" style={s(`width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:9px;background:var(--surface);cursor:pointer;${c}`)}>
-      <Icon name={icon} size={16} sw={2} />
+    <button title={title} aria-label={title} onClick={onClick} disabled={disabled} className="m-hov-bg m-press-icon m-focus" style={s(`width:${px}px;height:${px}px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:${size === "sm" ? 8 : 9}px;background:var(--surface);${off};${c}`)}>
+      <Icon name={icon} size={size === "sm" ? 15 : 16} sw={2} />
     </button>
   );
 }
@@ -163,7 +175,7 @@ const TONES: Record<Tone, [string, string]> = {
 export function Badge({ tone = "neutral", children, dot }: { tone?: Tone; children: React.ReactNode; dot?: boolean }) {
   const [bg, fg] = TONES[tone];
   return (
-    <span style={s(`display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:20px;background:${bg};color:${fg}`)}>
+    <span style={s(`display:inline-flex;align-items:center;gap:6px;font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-micro);padding:3px 10px;border-radius:20px;background:${bg};color:${fg}`)}>
       {dot && <span style={s(`width:6px;height:6px;border-radius:50%;background:${fg}`)} />}
       {children}
     </span>
@@ -174,10 +186,10 @@ export function Badge({ tone = "neutral", children, dot }: { tone?: Tone; childr
    `tone` primary marca o que está ligado/selecionado. */
 export function Chip({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "primary" }) {
   const cor = tone === "primary"
-    ? "background:var(--primary-soft);color:var(--primary-dark);border-color:oklch(0.92 0.020 262)"
+    ? "background:var(--primary-soft);color:var(--primary-dark);border-color:var(--primary-soft)"
     : "background:var(--bg);color:var(--muted);border-color:var(--line)";
   return (
-    <span style={s(`display:inline-flex;align-items:center;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;border:1px solid;${cor}`)}>
+    <span style={s(`display:inline-flex;align-items:center;padding:5px 11px;border-radius:999px;font-size:var(--t-label);font-weight:var(--w-data);letter-spacing:var(--ls-label);white-space:nowrap;border:1px solid;${cor}`)}>
       {children}
     </span>
   );
@@ -195,7 +207,7 @@ export function Filtros({ opcoes, ativo, onChange }: { opcoes: string[]; ativo: 
             onClick={() => onChange(o)}
             aria-pressed={on}
             className="m-press m-focus m-hov-prim-border"
-            style={s(`font-size:13px;font-weight:700;padding:8px 16px;border-radius:999px;cursor:pointer;white-space:nowrap;border:1px solid ${on ? "var(--primary)" : "var(--border)"};background:${on ? "var(--primary)" : "var(--surface)"};color:${on ? "#fff" : "var(--muted)"}`)}
+            style={s(`font-size:var(--t-sm);font-weight:var(--w-title);padding:8px 16px;border-radius:999px;cursor:pointer;white-space:nowrap;border:1px solid ${on ? "var(--primary)" : "var(--border)"};background:${on ? "var(--primary)" : "var(--surface)"};color:${on ? "var(--on-primary)" : "var(--muted)"}`)}
           >
             {o}
           </button>
@@ -206,7 +218,11 @@ export function Filtros({ opcoes, ativo, onChange }: { opcoes: string[]; ativo: 
 }
 
 // outline:none + classe .m-focus => mesmo anel de foco (:focus-visible) dos botões
-const INPUT ="width:100%;border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:14px;background:var(--surface);color:var(--ink);outline:none";
+// --border-field, não --border: este contorno é o ÚNICO meio de identificar o campo, então cai no
+// escopo da WCAG 1.4.11 e precisa de 3:1 real. Com --border dava 1.3:1 — o campo era invisível.
+// --t-body (16px) e não --t-sm: abaixo de 16px o Safari do iOS dá zoom ao focar o campo, e o
+// usuário perde o enquadramento da tela no meio do preenchimento.
+const INPUT ="width:100%;border:1px solid var(--border-field);border-radius:10px;padding:10px 13px;font-size:var(--t-body);background:var(--surface);color:var(--ink);outline:none";
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   const { style, className, ...rest } = props;
   return <input {...rest} className={["m-focus", className].filter(Boolean).join(" ")} style={{ ...s(INPUT), ...(style || {}) }} />;
@@ -222,46 +238,49 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 export function Field({ label, hint, children, style }: { label?: string; hint?: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <label style={{ ...s("display:flex;flex-direction:column;gap:6px"), ...(style || {}) }}>
-      {label && <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>{label}</span>}
+      {label && <span style={s("font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-label);color:var(--muted)")}>{label}</span>}
       {children}
-      {hint && <span style={s("font-size:11.5px;color:var(--muted)")}>{hint}</span>}
+      {hint && <span style={s("font-size:var(--t-micro);color:var(--muted)")}>{hint}</span>}
     </label>
   );
 }
 
-export function Toggle({ on, onChange }: { on: boolean; onChange?: (v: boolean) => void }) {
+/* role="switch" + aria-checked: sem isso o leitor de tela anuncia só "botão", e os 7 toggles de dia
+ * de A MAISA saem como "botão, botão, botão…" sem dizer que dia é nem se está ligado.
+ * `rotulo` é obrigatório na prática — passe o título da linha que o toggle controla.
+ * A área de TOQUE vai a 44px por padding transparente, mantendo o trilho em 26px: 44×26 reprovava
+ * o mínimo de 44pt, e no mobile há 14 deles empilhados. */
+export function Toggle({ on, onChange, rotulo }: { on: boolean; onChange?: (v: boolean) => void; rotulo?: string }) {
   return (
-    <button onClick={() => onChange?.(!on)} className="m-hov-bright m-focus" style={s(`width:44px;height:26px;border:none;border-radius:20px;cursor:pointer;padding:3px;display:flex;justify-content:flex-start;background:${on ? "var(--primary)" : "var(--border)"};transition:background .18s var(--ease-out)`)}>
-      <span className="m-knob" style={s(`width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.22);transform:translateX(${on ? 18 : 0}px)`)} />
+    <button
+      role="switch"
+      aria-checked={on}
+      aria-label={rotulo}
+      onClick={() => onChange?.(!on)}
+      className="m-hov-bright m-focus"
+      style={s(`width:44px;height:44px;flex-shrink:0;border:none;background:transparent;cursor:pointer;padding:9px 0;display:flex;align-items:center;justify-content:center`)}
+    >
+      <span style={s(`width:44px;height:26px;border-radius:20px;padding:3px;display:flex;justify-content:flex-start;background:${on ? "var(--primary)" : "var(--border)"};transition:background .18s var(--ease-out)`)}>
+        <span className="m-knob" style={s(`width:20px;height:20px;border-radius:50%;background:var(--on-primary);box-shadow:0 1px 3px oklch(0.22 0.03 262 / 0.25);transform:translateX(${on ? 18 : 0}px)`)} />
+      </span>
     </button>
   );
 }
 
 export function Monogram({ name, id, size = 44, radius = 13 }: { name: string; id?: string; size?: number; radius?: number }) {
-  const [lo, hi] = avatar(id || name);
-  // matte, aveludado: degradê linear calmo + trama sutil (textura de tapete), sem brilho/vidro
-  const weave =
-    "repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) 3px)," +
-    "repeating-linear-gradient(-45deg, rgba(0,0,0,0.045) 0px, rgba(0,0,0,0.045) 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) 3px)";
+  const fill = avatar(id || name);
+  // Fill sólido. A "trama de tapete" que existia aqui eram dois repeating-linear-gradient
+  // diagonais — listrado decorativo, defeito nomeado — e ainda por cima invisível a 44px.
   // <span>, não <div>: o monograma aparece dentro de <button> (cartões da grade,
   // linhas da gaveta) e <div> ali é HTML inválido. display:flex mantém o desenho.
   return (
     <span
-      style={{
-        width: size,
-        height: size,
-        borderRadius: radius,
-        flexShrink: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "rgba(255,255,255,0.93)",
-        fontWeight: 700,
-        fontSize: Math.round(size * 0.34),
-        letterSpacing: "0.02em",
-        background: `${weave}, linear-gradient(150deg, ${lo} 0%, ${hi} 100%)`,
-        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 1px 3px oklch(30% 0.02 60 / 0.10)",
-      }}
+      style={s(
+        `width:${size}px;height:${size}px;border-radius:${radius}px;flex-shrink:0;` +
+        `display:flex;align-items:center;justify-content:center;` +
+        `color:var(--ink);font-weight:var(--w-title);font-size:${Math.round(size * 0.34)}px;` +
+        `letter-spacing:0.01em;background:${fill}`
+      )}
     >
       {initials(name)}
     </span>
@@ -273,11 +292,13 @@ export function StatTile({ label, value, sub, icon, tone = "primary" }: { label:
   return (
     <Card pad={18} style={s("display:flex;flex-direction:column;gap:12px")}>
       <div style={s("display:flex;align-items:center;justify-content:space-between;gap:8px")}>
-        <span style={s("font-size:12.5px;font-weight:700;color:var(--muted)")}>{label}</span>
+        <span style={s("font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-label);color:var(--muted)")}>{label}</span>
         {icon && <span style={s(`width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${bg};color:${fg}`)}><Icon name={icon} size={18} /></span>}
       </div>
-      <span style={s("font-size:26px;font-weight:800;font-family:var(--font-mono);letter-spacing:-.02em;line-height:1")}>{value}</span>
-      {sub && <span style={s("font-size:12px;color:var(--muted)")}>{sub}</span>}
+      {/* numeral herói: um dos três lugares em que 700 sobrevive. Sem mono — os dígitos da Plex
+          Sans já são tabulares, e mono num numeral de display lia como terminal, não como dinheiro. */}
+      <span className="n" style={s("font-size:var(--t-data);font-weight:var(--w-emph);letter-spacing:var(--ls-data);line-height:var(--lh-tight)")}>{value}</span>
+      {sub && <span style={s("font-size:var(--t-label);color:var(--muted)")}>{sub}</span>}
     </Card>
   );
 }
@@ -286,8 +307,8 @@ export function SectionTitle({ title, sub, action }: { title: string; sub?: stri
   return (
     <div style={s("display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap")}>
       <div>
-        <h2 style={s("font-size:17px;font-weight:800;letter-spacing:-.01em")}>{title}</h2>
-        {sub && <p style={s("font-size:13px;color:var(--muted);margin-top:2px")}>{sub}</p>}
+        <h2 style={s("font-size:var(--t-lg);font-weight:var(--w-title);letter-spacing:var(--ls-lg)")}>{title}</h2>
+        {sub && <p style={s("font-size:var(--t-sm);color:var(--muted);margin-top:2px")}>{sub}</p>}
       </div>
       {action}
     </div>
@@ -298,10 +319,141 @@ export function EmptyState({ icon = "sparkle", title, sub, action }: { icon?: st
   return (
     <div style={s("display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 24px;gap:10px;color:var(--muted)")}>
       <span style={s("width:52px;height:52px;border-radius:16px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-dark)")}><Icon name={icon} size={26} /></span>
-      <span style={s("font-size:15px;font-weight:700;color:var(--ink)")}>{title}</span>
-      {sub && <span style={s("font-size:13px;max-width:360px;line-height:1.5")}>{sub}</span>}
+      <span style={s("font-size:var(--t-body);font-weight:var(--w-title);color:var(--ink)")}>{title}</span>
+      {sub && <span style={s("font-size:var(--t-sm);max-width:52ch;line-height:var(--lh-prose)")}>{sub}</span>}
       {action}
     </div>
+  );
+}
+
+/* ---------- Tabela: conteúdo tabular servido como tabela ----------
+ * Serviços, Faturamento, Equipe e Mais eram grades de cartões idênticos — o ban "identical card
+ * grids" — para conteúdo que é intrinsecamente uma tabela. O custo real não era estético: com
+ * valores alinhados à direita DENTRO de cada cartão, e cartões de largura diferente, os números
+ * nunca formavam coluna, então "qual é o meu serviço mais caro?" exigia varredura em zigue-zague.
+ *
+ * A grade de cartões continua certa onde a unidade é uma PESSOA com rosto (Clientes), e no mobile,
+ * onde 6 colunas não caberiam — quem escolhe é a tela, passando `mobile`.
+ *
+ * Ordenação é local ao componente: é estado de visualização, não decisão do usuário que mereça
+ * persistir. Colunas numéricas alinham à direita e recebem `.n` (tabular-nums). */
+export type Coluna<T> = {
+  chave: string;
+  label: string;
+  /** Conteúdo da célula. */
+  celula: (linha: T) => React.ReactNode;
+  /** Valor para ordenar. Ausente = coluna não ordenável. */
+  ordenar?: (linha: T) => string | number;
+  /** Números alinham à direita e ganham numerais tabulares. */
+  num?: boolean;
+  /** Some abaixo de ~1100px de largura útil. */
+  secundaria?: boolean;
+  largura?: string;
+};
+
+export function Tabela<T>({ colunas, linhas, chaveDe, onLinha, rotuloLinha, estreita }: {
+  colunas: Coluna<T>[];
+  linhas: T[];
+  chaveDe: (l: T) => string;
+  onLinha?: (l: T) => void;
+  /** Nome acessível da linha — a linha é um botão, precisa dizer o que abre. */
+  rotuloLinha?: (l: T) => string;
+  /** Esconde as colunas secundárias (viewport apertado). */
+  estreita?: boolean;
+}) {
+  const [ord, setOrd] = React.useState<{ chave: string; desc: boolean } | null>(null);
+  const cols = colunas.filter((c) => !estreita || !c.secundaria);
+
+  const dados = React.useMemo(() => {
+    if (!ord) return linhas;
+    const col = colunas.find((c) => c.chave === ord.chave);
+    if (!col?.ordenar) return linhas;
+    const f = col.ordenar;
+    return [...linhas].sort((a, b) => {
+      const x = f(a), y = f(b);
+      const n = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "pt-BR");
+      return ord.desc ? -n : n;
+    });
+  }, [linhas, ord, colunas]);
+
+  const grid = cols.map((c) => c.largura ?? "minmax(0,1fr)").join(" ");
+
+  return (
+    <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden")}>
+      {/* cabeçalho */}
+      <div role="row" style={s(`display:grid;grid-template-columns:${grid};gap:16px;padding:0 18px;border-bottom:1px solid var(--line);background:var(--surface-2)`)}>
+        {cols.map((c) => {
+          const ativa = ord?.chave === c.chave;
+          const conteudo = (
+            <>
+              {c.label}
+              {c.ordenar && (
+                <span aria-hidden style={s(`display:inline-block;margin-left:5px;opacity:${ativa ? "1" : "0.35"}`)}>
+                  {ativa && ord.desc ? "↓" : "↑"}
+                </span>
+              )}
+            </>
+          );
+          const base = `font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-label);color:var(--muted);padding:11px 0;text-align:${c.num ? "right" : "left"}`;
+          return c.ordenar ? (
+            <button
+              key={c.chave}
+              onClick={() => setOrd((o) => (o?.chave === c.chave ? { chave: c.chave, desc: !o.desc } : { chave: c.chave, desc: false }))}
+              aria-sort={ativa ? (ord.desc ? "descending" : "ascending") : "none"}
+              className="m-focus"
+              style={s(`${base};border:none;background:transparent;cursor:pointer;font-family:inherit`)}
+            >
+              {conteudo}
+            </button>
+          ) : (
+            <span key={c.chave} style={s(base)}>{conteudo}</span>
+          );
+        })}
+      </div>
+
+      {/* linhas */}
+      {dados.map((l, i) => {
+        const conteudo = cols.map((c) => (
+          <span
+            key={c.chave}
+            className={c.num ? "n" : undefined}
+            style={s(`min-width:0;font-size:var(--t-sm);padding:13px 0;display:flex;align-items:center;gap:8px;${c.num ? "justify-content:flex-end;font-weight:var(--w-data)" : ""}`)}
+          >
+            {c.celula(l)}
+          </span>
+        ));
+        // Bordas SÓ em propriedades não-shorthand: misturar `border:none` com `border-bottom` no
+        // mesmo elemento faz o React reclamar e pode dar bug de estilo ao reordenar (ele remove
+        // uma e depois a outra). Aqui cada lado é declarado por si.
+        const linhaBase = `display:grid;grid-template-columns:${grid};gap:16px;padding:0 18px;text-align:left;width:100%;background:transparent;border-top-width:0;border-left-width:0;border-right-width:0;border-style:solid;border-color:var(--line);border-bottom-width:${i < dados.length - 1 ? "1px" : "0"};`;
+        return onLinha ? (
+          <button
+            key={chaveDe(l)}
+            onClick={() => onLinha(l)}
+            aria-label={rotuloLinha?.(l)}
+            className="m-hov-bg m-focus"
+            style={s(`${linhaBase}cursor:pointer;font-family:inherit;color:inherit`)}
+          >
+            {conteudo}
+          </button>
+        ) : (
+          <div key={chaveDe(l)} style={s(linhaBase)}>{conteudo}</div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Nome + monograma numa célula — o par que aparece em quase toda primeira coluna. */
+export function CelulaNome({ nome, seed, sub }: { nome: string; seed?: string; sub?: string }) {
+  return (
+    <>
+      {seed && <Monogram name={nome} id={seed} size={28} radius={9} />}
+      <span style={s("min-width:0;display:flex;flex-direction:column;line-height:1.25")}>
+        <span style={s("font-weight:var(--w-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{nome}</span>
+        {sub && <span style={s("font-size:var(--t-label);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{sub}</span>}
+      </span>
+    </>
   );
 }
 
@@ -314,31 +466,51 @@ export function Screen({ children, style }: { children: React.ReactNode; style?:
   return <div className="m-enter" style={{ ...s("padding:28px"), ...(style || {}) }}>{children}</div>;
 }
 
-/* ---------- toast: feedback leve para ações (evita botão "morto") ---------- */
-let toastListeners: ((m: string) => void)[] = [];
+/* ---------- toast: feedback leve para ações (evita botão "morto") ----------
+ * Aceita uma AÇÃO opcional — é onde vive o "Desfazer". Sem isso, as ações irreversíveis do app
+ * (mover cartão, remarcar por arrasto, resolver item da fila) não tinham volta nenhuma: um
+ * arrasto errado era permanente e silencioso.
+ * Toast com ação vive mais tempo (7s): 2,4s não dá para ler e decidir. */
+export type ToastAcao = { label: string; onClick: () => void };
+let toastListeners: ((m: string, a?: ToastAcao) => void)[] = [];
 let toastSeq = 0;
-export function toast(msg: string) {
-  toastListeners.forEach((l) => l(msg));
+export function toast(msg: string, acao?: ToastAcao) {
+  toastListeners.forEach((l) => l(msg, acao));
 }
 export function Toaster() {
-  const [items, setItems] = React.useState<{ id: number; msg: string }[]>([]);
+  const [items, setItems] = React.useState<{ id: number; msg: string; acao?: ToastAcao }[]>([]);
   React.useEffect(() => {
-    const l = (msg: string) => {
+    const l = (msg: string, acao?: ToastAcao) => {
       const id = ++toastSeq;
-      setItems((x) => [...x, { id, msg }]);
-      setTimeout(() => setItems((x) => x.filter((i) => i.id !== id)), 2400);
+      setItems((x) => [...x, { id, msg, acao }]);
+      setTimeout(() => setItems((x) => x.filter((i) => i.id !== id)), acao ? 7000 : 2400);
     };
     toastListeners.push(l);
     return () => {
       toastListeners = toastListeners.filter((x) => x !== l);
     };
   }, []);
+  const dispensar = (id: number) => setItems((x) => x.filter((i) => i.id !== id));
+  // z-index 95: entra na escala que o app já tem (8 · 30 · 70 · 80 · 81 · 90 · 91) em vez do
+  // 9999 que estava aqui — o toast fica acima da Paleta (91) e abaixo de nada.
   return (
-    <div role="status" aria-live="polite" style={{ ...s("position:fixed;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:9999;pointer-events:none"), bottom: "max(26px, calc(env(safe-area-inset-bottom) + 14px))" }}>
+    <div role="status" aria-live="polite" style={{ ...s("position:fixed;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:95;pointer-events:none"), bottom: "max(26px, calc(env(safe-area-inset-bottom) + 14px))" }}>
       {items.map((i) => (
-        <div key={i.id} className="m-pop" style={s("display:flex;align-items:center;gap:9px;background:var(--ink);color:var(--surface);font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:var(--shadow-pop)")}>
+        // pointer-events:auto só no toast COM ação — o container é inerte de propósito, mas um
+        // "Desfazer" que não dá para clicar seria pior que não ter.
+        <div key={i.id} className="m-pop" style={s(`display:flex;align-items:center;gap:9px;background:var(--ink);color:var(--surface);font-size:var(--t-sm);font-weight:var(--w-data);padding:11px 18px;border-radius:12px;box-shadow:var(--shadow-pop)${i.acao ? ";pointer-events:auto" : ""}`)}>
           <Icon name="check" size={16} sw={2.4} stroke="var(--surface)" />
           {i.msg}
+          {i.acao && (
+            <button
+              onClick={() => { i.acao!.onClick(); dispensar(i.id); }}
+              className="m-press m-focus"
+              /* --nav-soft: azul claro da marca sobre o navy do toast (--ink), >9:1 */
+              style={s("margin-left:5px;border:none;background:transparent;color:var(--nav-soft);font-family:inherit;font-size:var(--t-sm);font-weight:var(--w-title);cursor:pointer;padding:2px 4px;text-decoration:underline;text-underline-offset:3px")}
+            >
+              {i.acao.label}
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -380,7 +552,7 @@ export function ConfirmDialog({
   if (!open) return null;
 
   const danger = tone === "danger";
-  const confirmVar = danger ? "background:var(--danger);color:#fff" : "background:var(--primary);color:#fff";
+  const confirmVar = danger ? "background:var(--danger);color:var(--on-primary)" : "background:var(--primary);color:var(--on-primary)";
   const confirmHov = danger ? "m-hov-bright" : "m-hov-primary";
 
   return (
@@ -389,11 +561,13 @@ export function ConfirmDialog({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      style={{ ...s("position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:28px;background:rgba(25,30,28,.5)"), backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", animation: "mfade .2s ease" }}
+      /* backdrop igual ao da Gaveta e da Paleta — antes eram dois pretos de modal diferentes */
+      style={{ ...s("position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:28px;background:oklch(0.22 0.03 262 / 0.38)"), backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", animation: "mfade .2s ease" }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ ...s("position:relative;width:420px;max-width:92vw;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-pop);padding:24px"), animation: "mrise .25s var(--ease-out)" }}
+        /* sem borda: com --shadow-pop a borda de 1px formaria o par ghost-card banido */
+        style={{ ...s("position:relative;width:420px;max-width:92vw;background:var(--surface);border-radius:16px;box-shadow:var(--shadow-pop);padding:24px"), animation: "mrise .25s var(--ease-out)" }}
       >
         <button
           onClick={onCancel}
@@ -404,20 +578,20 @@ export function ConfirmDialog({
         >
           <Icon name="x" size={16} sw={2.2} />
         </button>
-        <h2 style={s("font-size:17px;font-weight:800;letter-spacing:-.01em;padding-right:34px")}>{title}</h2>
-        {message && <p style={s("font-size:13.5px;color:var(--muted);line-height:1.55;margin-top:8px")}>{message}</p>}
+        <h2 style={s("font-size:var(--t-lg);font-weight:var(--w-title);letter-spacing:var(--ls-lg);padding-right:34px")}>{title}</h2>
+        {message && <p style={s("font-size:var(--t-sm);color:var(--muted);line-height:var(--lh-prose);margin-top:8px")}>{message}</p>}
         <div style={s("display:flex;justify-content:flex-end;gap:10px;margin-top:22px")}>
           <button
             onClick={onCancel}
             className="m-hov-bg m-press m-focus"
-            style={s("border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;padding:10px 17px")}
+            style={s("border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:10px;font-weight:var(--w-title);font-size:var(--t-sm);cursor:pointer;padding:10px 17px")}
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
             className={`${confirmHov} m-press m-focus`}
-            style={s(`border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;padding:10px 17px;${confirmVar}`)}
+            style={s(`border:none;border-radius:10px;font-weight:var(--w-title);font-size:var(--t-sm);cursor:pointer;padding:10px 17px;${confirmVar}`)}
           >
             {confirmText}
           </button>

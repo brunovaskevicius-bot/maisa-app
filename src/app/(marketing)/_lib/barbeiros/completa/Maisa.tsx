@@ -9,8 +9,15 @@ import type { Trecho } from "./dados";
  * linha de base: Jakarta 800 dourada com relevo, do mesmo jeito que aparece na
  * topbar do app — mesmo estando num escopo cuja fonte de corpo é outra.
  *
- * O relevo tem duas escalas porque a mesma sombra que dá corpo num h1 fica
- * pesada demais em 15px de corpo de texto.
+ * `escala` sobrevive só como compatibilidade das ~16 chamadas: ela existia para escolher entre dois
+ * relevos, e o relevo saiu (ver abaixo). Não faz mais nada.
+ *
+ * A COR VEM DE TOKEN, e o token é do MARKETING (--mk-wordmark), não do produto.
+ * Antes isto usava `var(--warm)` — token do app. Duas consequências, as duas ruins:
+ * a LP ficava acoplada à paleta do produto (mexer no app mudava a marca na LP em silêncio,
+ * que foi exatamente o que aconteceu), e sobre a faixa dourada do CTA final dava
+ * ouro-sobre-ouro a 1,02:1 — o wordmark simplesmente desaparecia no momento de maior
+ * intenção da página. `.lp-band` inverte --mk-wordmark para navy ali (9,80:1).
  * -------------------------------------------------------------------------- */
 
 export function Maisa({ escala = "inline" }: { escala?: "inline" | "grande" }) {
@@ -19,11 +26,13 @@ export function Maisa({ escala = "inline" }: { escala?: "inline" | "grande" }) {
       style={{
         fontFamily: "var(--font-jakarta), system-ui, sans-serif",
         fontWeight: 800,
-        color: "var(--warm)",
+        color: "var(--mk-wordmark)",
         letterSpacing: "-0.01em",
-        textShadow: escala === "grande"
-          ? "0 1.5px 0 oklch(0.58 0.12 68), 0 3px 5px rgba(0,0,0,.22)"
-          : "0 1px 0 oklch(0.58 0.12 68), 0 2px 3px rgba(0,0,0,.22)",
+        // SEM text-shadow. A tentativa anterior tokenizou só o relevo dourado e deixou a segunda
+        // sombra (escura) hardcoded — sobre a faixa dourada ela virava um halo cinza-sujo em volta
+        // de "maisa", visivelmente embaçado ao lado do texto nítido ao redor. Um bevel só existia
+        // para imitar a topbar do app; num wordmark de 15px dentro de frase ele não acrescenta
+        // profundidade, acrescenta borrão. A marca se distingue por família e peso, que bastam.
       }}
     >
       maisa

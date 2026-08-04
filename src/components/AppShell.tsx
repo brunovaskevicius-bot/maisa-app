@@ -14,7 +14,7 @@
  * três deles não fariam nada — e botão morto ensina o usuário a ignorar botões. */
 
 import React, { useEffect, useState } from "react";
-import { s, Icon, Monogram, Toaster } from "@/lib/ui";
+import { s, Icon, Monogram, Toaster, ConfirmDialog, fmt } from "@/lib/ui";
 import { useIsMobile } from "@/lib/useIsMobile";
 import * as D from "@/lib/data";
 import { useStore, type TelaId } from "@/lib/store";
@@ -32,7 +32,11 @@ import { Clientes, Faturamento, Equipe, Servicos, Mais } from "./screens/Grades"
 const TELA: Record<TelaId, { rotulo: string; titulo: string; sub: string; icone: string; Comp: React.ComponentType }> = {
   fluxo: { rotulo: "Fluxo de hoje", titulo: "Fluxo de hoje", sub: `${D.HOJE.label} · arraste entre as colunas`, icone: "flow", Comp: FluxoHoje },
   conversas: { rotulo: "Conversas", titulo: "Conversas", sub: "A MAISA responde; você entra quando precisa", icone: "chat", Comp: Conversas },
-  agenda: { rotulo: "Agenda", titulo: "Agenda", sub: `${D.HOJE.label} · arraste para remarcar`, icone: "calendar", Comp: Agenda },
+  // Sem data e sem dica de gesto, de propósito. A Agenda deixou de mostrar só o dia 17: agora ela
+  // navega e troca entre dia, semana e mês, então uma data cravada aqui contradiz o cartão logo
+  // abaixo — que já escreve o período. E "arraste para remarcar" virou o rodapé daquele cartão,
+  // além de ser mentira na visão de Mês, onde não se arrasta nada.
+  agenda: { rotulo: "Agenda", titulo: "Agenda", sub: "Quem vem e quando — no dia, na semana ou no mês", icone: "calendar", Comp: Agenda },
   clientes: { rotulo: "Clientes", titulo: "Clientes", sub: "Quem você atende — toque para ver a ficha", icone: "clientes", Comp: Clientes },
   faturamento: { rotulo: "Faturamento", titulo: "Faturamento", sub: `${D.PERIODO} · o mês fechado cliente por cliente`, icone: "receipt", Comp: Faturamento },
   equipe: { rotulo: "Equipe", titulo: "Equipe", sub: "Quem atende e quando", icone: "equipe", Comp: Equipe },
@@ -88,19 +92,29 @@ function ItemRail({ id, badge }: { id: TelaId; badge?: number }) {
       className="m-nav-item m-press m-focus"
       style={s(`width:100%;height:46px;flex-shrink:0;border:none;border-radius:14px;cursor:pointer;display:flex;align-items:center;gap:12px;padding:0 15px;position:relative;background:${on ? "var(--nav-active)" : "transparent"}`)}
     >
-      {/* barra dourada de tela ativa — some junto com o hover, não pisca */}
-      <span style={s(`position:absolute;left:-12px;top:13px;width:3px;height:20px;border-radius:2px;background:${on ? "var(--warm)" : "transparent"}`)} />
+      {/* barra de tela ativa — some junto com o hover, não pisca.
+          Era dourada. Não pode ser: no rail o ouro já significa "isto pede você" (ponto e badge de
+          pendência, e o CTA da topbar). Duas mensagens na mesma cor é nenhuma mensagem — seleção
+          passa a --nav-soft, que sobre --nav dá 8.8:1 e não briga com o ouro. */}
+      <span style={s(`position:absolute;left:-12px;top:13px;width:3px;height:20px;border-radius:2px;background:${on ? "var(--nav-soft)" : "transparent"}`)} />
       <span style={s("flex-shrink:0;display:flex;position:relative")}>
         <Icon name={t.icone} size={21} sw={1.9} stroke={on ? "var(--nav-ink)" : "var(--nav-muted)"} />
+        {/* ponto de pendência: ouro FICA aqui — sobre --nav dá 7.3:1, e pendência é chamado à ação
+            (o mesmo recado do botão dourado da topbar), não estado decorativo. --warn daria 2.4:1
+            neste fundo, invisível num ponto de 8px. */}
         {!!badge && (
           <span style={s("position:absolute;top:-3px;right:-4px;min-width:8px;height:8px;border-radius:999px;background:var(--warm)")} />
         )}
       </span>
-      <span className="m-rail-label" style={s(`flex:1;text-align:left;font-size:14.5px;font-weight:700;color:${on ? "var(--nav-ink)" : "var(--nav-muted)"}`)}>
+      {/* Rótulo na voz da sidebar (Alegreya Sans). O peso agora TAMBÉM marca a tela ativa —
+          antes só a cor fazia isso, e cor sozinha é o sinal mais frágil que existe. */}
+      <span className="m-rail-label" style={s(`flex:1;text-align:left;font-family:var(--font-nav);font-size:var(--t-nav);font-weight:${on ? "var(--w-nav-on)" : "var(--w-nav)"};color:${on ? "var(--nav-ink)" : "var(--nav-muted)"}`)}>
         {t.rotulo}
       </span>
+      {/* badge de contagem: sem mono (é número que muda, não string de máquina) — .n dá os
+          tabulares, e --w-data (500) porque contagem é DADO, não título. */}
       {!!badge && (
-        <span className="m-rail-label" style={s("flex-shrink:0;min-width:21px;height:21px;padding:0 7px;border-radius:999px;background:var(--warm);color:oklch(0.30 0.06 72);font-family:var(--font-mono);font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center")}>
+        <span className="m-rail-label n" style={s("flex-shrink:0;min-width:21px;height:21px;padding:0 7px;border-radius:999px;background:var(--warm);color:var(--warm-ink);font-size:var(--t-micro);font-weight:var(--w-data);display:flex;align-items:center;justify-content:center")}>
           {badge}
         </span>
       )}
@@ -112,16 +126,36 @@ function Rail() {
   const p = usePendencias();
   const badge: Partial<Record<TelaId, number>> = { conversas: p.conversas, faturamento: p.notas };
 
+  /* O rail abre no hover (CSS) e na navegação por TECLADO (esta classe). Antes as duas intenções
+     estavam num `:has(:focus-visible)` só, e o resultado era o rail preso aberto depois de um
+     clique de mouse, cobrindo o título da tela. Aqui a distinção é explícita: só entra em `is-nav`
+     quem chegou por tecla, e sai no primeiro movimento de ponteiro ou ao perder o foco. */
+  const [porTeclado, setPorTeclado] = useState(false);
+
   return (
-    <div style={s("width:76px;flex-shrink:0;position:relative;z-index:30")}>
+    <div
+      style={s("width:76px;flex-shrink:0;position:relative;z-index:30")}
+      onPointerDown={() => setPorTeclado(false)}
+    >
       <nav
         aria-label="Navegação principal"
-        className="m-rail"
-        style={s("position:absolute;top:0;bottom:0;left:0;background:var(--nav);border-radius:22px;box-shadow:0 10px 30px oklch(0.30 0.05 250 / 0.22);display:flex;flex-direction:column;padding:18px 12px;gap:4px;overflow:hidden")}
+        className={`m-rail${porTeclado ? " is-nav" : ""}`}
+        onKeyDown={(e) => { if (e.key === "Tab" || e.key.startsWith("Arrow")) setPorTeclado(true); }}
+        onFocus={(e) => { if (e.target instanceof HTMLElement && e.target.matches(":focus-visible")) setPorTeclado(true); }}
+        onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPorTeclado(false); }}
+        onPointerMove={() => { if (porTeclado) setPorTeclado(false); }}
+        /* sombra: era matiz 250 (o terceiro azul, já removido do sistema) num blur de 30px.
+           --shadow-card é a mesma sombra do cartão de conteúdo ao lado — o rail e o main passam a
+           flutuar na mesma altura, que é o que eles são. */
+        style={s("position:absolute;top:0;bottom:0;left:0;background:var(--nav);border-radius:22px;box-shadow:var(--shadow-card);display:flex;flex-direction:column;padding:18px 12px;gap:4px;overflow:hidden")}
       >
         <div style={s("display:flex;align-items:center;gap:12px;padding-left:3px;margin-bottom:14px;flex-shrink:0")}>
-          <span style={s("width:40px;height:40px;flex-shrink:0;border-radius:13px;background:var(--nav-active);display:flex;align-items:center;justify-content:center;color:var(--warm);font-weight:800;font-size:20px;line-height:1")}>m</span>
-          <span className="m-rail-label" style={s("font-size:19px;font-weight:800;letter-spacing:-.02em;color:var(--warm)")}>maisa</span>
+          {/* o "m" é a marca em forma de selo, mas não é o wordmark: --w-emph é reservado a três
+              lugares no app e aqui ele cabe no título (600). Fica na Plex Sans de propósito — a
+              Jakarta só existe para o logotipo escrito. */}
+          <span style={s("width:40px;height:40px;flex-shrink:0;border-radius:13px;background:var(--nav-active);display:flex;align-items:center;justify-content:center;color:var(--warm);font-weight:var(--w-title);font-size:var(--t-title);line-height:1")}>m</span>
+          {/* wordmark: único --w-emph deste arquivo, e o único ponto do app onde a Jakarta entra */}
+          <span className="m-rail-label" style={s("font-family:var(--font-jakarta), system-ui, sans-serif;font-size:var(--t-lg);font-weight:var(--w-emph);letter-spacing:var(--ls-lg);color:var(--warm)")}>maisa</span>
         </div>
 
         {GRUPOS.map((grupo, i) => (
@@ -135,14 +169,37 @@ function Rail() {
           <div style={s("display:flex;align-items:center;gap:12px;padding-left:3px")}>
             <Monogram name={D.NEGOCIO.nome} id={D.NEGOCIO.nome} size={40} radius={13} />
             <span className="m-rail-label" style={s("min-width:0;line-height:1.3")}>
-              <span style={s("display:block;font-size:13.5px;font-weight:700;color:var(--nav-ink)")}>{D.NEGOCIO.nome}</span>
-              <span style={s("display:block;font-size:11.5px;color:var(--nav-soft)")}>Plano {D.NEGOCIO.plano}</span>
+              {/* nome do negócio e plano: também na voz da sidebar — é a identidade de quem usa,
+                  não dado de tarefa. Peso 700 porque a Alegreya não tem 600. */}
+              <span style={s("display:block;font-family:var(--font-nav);font-size:var(--t-sm);font-weight:var(--w-nav-on);color:var(--nav-ink)")}>{D.NEGOCIO.nome}</span>
+              <span style={s("display:block;font-family:var(--font-nav);font-size:var(--t-label);font-weight:var(--w-nav);color:var(--nav-soft)")}>Plano {D.NEGOCIO.plano}</span>
             </span>
           </div>
           <div className="m-rail-label"><UserMenu /></div>
         </div>
       </nav>
     </div>
+  );
+}
+
+/* ───────────────────────────── confirmação do lote fiscal ─────────────────────────────
+ * Emitir NFS-e em lote é irreversível, tem prazo legal para cancelamento e sai do navegador para
+ * a prefeitura. Disparava direto, dos DOIS botões, sem nenhuma pergunta — e o ConfirmDialog já
+ * existia em ui.tsx, sem uso. Diz quantas e quanto, porque é a pergunta que o usuário faria. */
+function ConfirmaLote() {
+  const st = useStore();
+  const n = st.emitiveis.length;
+  const valor = st.emitiveis.reduce((a, c) => a + c.valor, 0);
+  return (
+    <ConfirmDialog
+      open={st.loteAberto}
+      title={n === 1 ? "Emitir 1 nota fiscal?" : `Emitir ${n} notas fiscais?`}
+      message={`Total de ${fmt(valor)}. As notas vão para a prefeitura e não dá para desfazer em lote — cancelar depois é uma a uma, e tem prazo.`}
+      confirmText={n === 1 ? "Emitir a nota" : `Emitir as ${n}`}
+      cancelText="Agora não"
+      onConfirm={st.confirmarLote}
+      onCancel={st.fecharLote}
+    />
   );
 }
 
@@ -153,37 +210,43 @@ function AcaoPrimaria() {
   const st = useStore();
   const p = usePendencias();
 
-  const dourado = "height:40px;padding:0 18px;border:none;border-radius:12px;background:var(--warm);color:oklch(0.29 0.06 72);font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;text-decoration:none";
+  // o ÚNICO fill âmbar clicável do shell: âmbar = marca + ação primária, e é esta a ação primária.
+  // Texto em --warm-ink (7.51:1 sobre o ouro) e peso de botão (--w-title), não de dado.
+  const dourado = "height:40px;padding:0 18px;border:none;border-radius:12px;background:var(--warm);color:var(--warm-ink);font-size:var(--t-sm);font-weight:var(--w-title);cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;text-decoration:none";
 
   if (st.tela === "faturamento") {
-    // Mesma regra do hero: o tomador de teste não entra no lote.
-    const aEmitir = st.fechamento.filter((c) => !c.teste && ["pendente", "erro", "cancelada"].includes(st.notaDe(c.id).status)).length;
+    // st.emitiveis: a MESMA lista que o hero mostra e que o lote emite. Esta topbar tinha a regra
+    // duplicada à mão — e incluía "cancelada", que o lote não emite —, então prometia mais do que
+    // entregava. A regra de negócio agora vive só no store.
+    const aEmitir = st.emitiveis.length;
     if (!aEmitir) return null;
     return (
-      <button onClick={st.emitirPendentes} className="m-hov-bright m-press m-focus" style={s(dourado)}>
+      <button onClick={st.pedirLote} className="m-hov-bright m-press m-focus" style={s(dourado)}>
         <Icon name="receipt" size={16} sw={2.1} />
         Emitir {aEmitir} {aEmitir === 1 ? "nota" : "notas"}
       </button>
     );
   }
 
-  if (st.tela === "assistente") {
+  // Catálogo sem "novo serviço" é relatório, não catálogo. Esta ação não existia: AcaoPrimaria
+  // retornava null para "servicos", e não havia caminho nenhum para criar um serviço no app.
+  if (st.tela === "servicos") {
     return (
-      <button onClick={st.salvar} className="m-hov-bright m-press m-focus" style={s(dourado)}>
-        <Icon name="check" size={16} sw={2.3} />
-        {st.salvo ? "Salvo" : "Salvar ajustes"}
+      <button onClick={st.criarServico} className="m-hov-bright m-press m-focus" style={s(dourado)}>
+        <Icon name="plus" size={16} sw={2.3} />
+        Novo serviço
       </button>
     );
   }
 
-  if (st.tela === "mais") {
-    return (
-      <a href="https://wa.me/5511999999999" target="_blank" rel="noopener noreferrer" className="m-hov-bright m-press m-focus" style={s(dourado)}>
-        <Icon name="whatsapp" size={16} sw={1.9} />
-        Falar com o suporte
-      </a>
-    );
-  }
+  /* "assistente" NÃO tem mais ação aqui. O botão dourado "Salvar ajustes" era o segundo save de uma
+     não-ação: os ajustes gravam a cada tecla, e havia DOIS botões (este dourado + um azul no rodapé
+     da tela) para a mesma coisa. O rodapé foi removido junto. Estado de "salvo" agora é implícito,
+     como no resto do app. */
+
+  /* "mais" também não tem: o suporte já é um botão verde no rodapé da própria tela, onde a frase
+     "Precisa de ajuda?" dá o contexto. Dourado aqui + verde lá é a mesma ação em dois vocabulários
+     visuais na mesma dobra. Um lugar só, e é o que tem contexto. */
 
   if (st.tela === "fluxo" && p.fila > 0) {
     return (
@@ -206,8 +269,8 @@ function Topbar({ onBuscar }: { onBuscar: () => void }) {
   return (
     <header style={s("height:70px;flex-shrink:0;display:flex;align-items:center;gap:18px;padding:0 24px;background:var(--nav)")}>
       <div style={s("min-width:0")}>
-        <h1 style={s("font-size:20px;font-weight:800;letter-spacing:-.02em;white-space:nowrap;color:var(--nav-ink)")}>{t.titulo}</h1>
-        <p style={s("font-size:12.5px;color:var(--nav-soft);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{t.sub}</p>
+        <h1 style={s("font-size:var(--t-title);font-weight:var(--w-title);letter-spacing:var(--ls-title);white-space:nowrap;color:var(--nav-ink)")}>{t.titulo}</h1>
+        <p style={s("font-size:var(--t-label);color:var(--nav-soft);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{t.sub}</p>
       </div>
 
       <button
@@ -216,15 +279,22 @@ function Topbar({ onBuscar }: { onBuscar: () => void }) {
         style={s("flex:1;max-width:360px;min-width:0;margin-left:10px;display:flex;align-items:center;gap:10px;height:40px;padding:0 14px;border-radius:12px;background:var(--nav-active);border:1px solid var(--nav-line);color:var(--nav-soft);cursor:pointer;text-align:left")}
       >
         <Icon name="search" size={17} sw={1.9} />
-        <span style={s("flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>Buscar cliente, conversa ou tela</span>
-        <span style={s("flex-shrink:0;font-family:var(--font-mono);font-size:11.5px;font-weight:600;padding:3px 7px;border-radius:6px;background:var(--nav);border:1px solid var(--nav-line)")}>⌘K</span>
+        <span style={s("flex:1;min-width:0;font-size:var(--t-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>Buscar cliente, conversa ou tela</span>
+        {/* ⌘K é string de máquina — um dos poucos lugares onde o mono sobrevive. Peso de dado (500):
+            é a tecla literal, não um título. */}
+        <span style={s("flex-shrink:0;font-family:var(--font-mono);font-size:var(--t-micro);font-weight:var(--w-data);padding:3px 7px;border-radius:6px;background:var(--nav);border:1px solid var(--nav-line)")}>⌘K</span>
       </button>
 
       <div style={s("margin-left:auto;display:flex;align-items:center;gap:14px;flex-shrink:0")}>
-        <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--nav-soft);white-space:nowrap")}>
+        <span style={s("display:inline-flex;align-items:center;gap:7px;font-size:var(--t-label);font-weight:var(--w-data);color:var(--nav-soft);white-space:nowrap")}>
+          {/* o ponto era dourado, e "no ar / pausada" é ESTADO — o emprego que o âmbar perdeu.
+              --success e --warn são escuros demais aqui (2.1:1 e 2.4:1 sobre --nav); o verde de
+              marca do WhatsApp é justamente o token de ponto/glifo, dá 7.3:1 e diz a verdade: a
+              MAISA está no ar no canal em que ela atende. Pausada vira --nav-muted (era um
+              oklch cru fora do sistema) e perde o pulso. */}
           <span
             className={st.assistente.ativa ? "m-pulse" : undefined}
-            style={s(`width:7px;height:7px;border-radius:50%;background:${st.assistente.ativa ? "var(--warm)" : "oklch(0.70 0.02 262)"}`)}
+            style={s(`width:7px;height:7px;border-radius:50%;background:${st.assistente.ativa ? "var(--whatsapp-mark)" : "var(--nav-muted)"}`)}
           />
           {st.assistente.ativa ? "MAISA no ar" : "MAISA pausada"}
         </span>
@@ -261,9 +331,13 @@ function TabBar() {
             style={s(`border:none;background:${on ? "var(--primary-soft)" : "transparent"};border-radius:14px;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;position:relative`)}
           >
             <Icon name={TELA[aba.id].icone} size={21} sw={1.9} stroke={cor} />
-            <span style={s(`font-size:10.5px;font-weight:700;color:${cor}`)}>{aba.rotulo}</span>
+            {/* mesma voz do rail: a tab bar É a navegação no mobile, então a fonte da sidebar vale
+                aqui também. Peso marca a aba ativa, como no rail. */}
+            <span style={s(`font-family:var(--font-nav);font-size:var(--t-label);font-weight:${on ? "var(--w-nav-on)" : "var(--w-nav)"};color:${cor}`)}>{aba.rotulo}</span>
+            {/* aqui o ponto de pendência NÃO pode ser o ouro do rail: a tab bar é --surface, e sobre
+                fundo claro o âmbar dá 1.6:1 (desaparece). Mesmo recado, substrato oposto → --warn. */}
             {!!pontos[aba.id] && (
-              <span style={s("position:absolute;top:6px;right:22%;width:7px;height:7px;border-radius:50%;background:var(--warm)")} />
+              <span style={s("position:absolute;top:6px;right:22%;width:7px;height:7px;border-radius:50%;background:var(--warn)")} />
             )}
           </button>
         );
@@ -301,8 +375,9 @@ export default function AppShell() {
       }}>
         <header style={s("flex-shrink:0;padding:12px 16px 12px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px")}>
           <div style={s("min-width:0")}>
-            <div style={s("font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)")}>{D.HOJE.label}</div>
-            <h1 style={s("font-size:24px;font-weight:800;letter-spacing:-.02em;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{TELA[st.tela].titulo}</h1>
+            {/* sobrancelha em caixa-alta: --ls-caps é o único tracking positivo do sistema (era .14em) */}
+            <div style={s("font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>{D.HOJE.label}</div>
+            <h1 style={s("font-size:var(--t-title);font-weight:var(--w-title);letter-spacing:var(--ls-title);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{TELA[st.tela].titulo}</h1>
           </div>
           <div style={s("display:flex;align-items:center;gap:8px;flex-shrink:0")}>
             <button
@@ -313,7 +388,8 @@ export default function AppShell() {
             >
               <Icon name="search" size={18} sw={1.9} />
             </button>
-            <span style={s("width:38px;height:38px;flex-shrink:0;border-radius:12px;background:var(--nav);color:var(--warm);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px")}>m</span>
+            {/* mesmo selo do rail, mesma decisão: marca em --warm sobre --nav, peso de título */}
+            <span style={s("width:38px;height:38px;flex-shrink:0;border-radius:12px;background:var(--nav);color:var(--warm);display:flex;align-items:center;justify-content:center;font-weight:var(--w-title);font-size:var(--t-lg)")}>m</span>
           </div>
         </header>
 
@@ -325,6 +401,7 @@ export default function AppShell() {
         <Gaveta />
         <Paleta aberta={paleta} fechar={() => setPaleta(false)} />
         <Toaster />
+        <ConfirmaLote />
       </div>
     );
   }
@@ -341,6 +418,7 @@ export default function AppShell() {
       <Gaveta />
       <Paleta aberta={paleta} fechar={() => setPaleta(false)} />
       <Toaster />
+      <ConfirmaLote />
     </div>
   );
 }

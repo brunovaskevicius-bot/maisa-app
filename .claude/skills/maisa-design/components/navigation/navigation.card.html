@@ -1,0 +1,17 @@
+<!-- @dsCard group="Components" viewport="700x220" name="Navegação" subtitle="Tabs — underline para a página, pill para filtros" -->
+<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>body{background:var(--surface-page);padding:20px;margin:0}.grp{margin-bottom:18px}.grp:last-child{margin-bottom:0}.lbl{font-family:var(--font-sans);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-subtle);margin-bottom:9px}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script></head><body><div id="root"></div>
+<script type="text/babel">
+const { Button, IconButton, Badge, Tag, Card, Avatar, Logo, Icon, Input, Textarea, Select, Checkbox, Radio, Switch, Dialog, Toast, Tooltip, EmptyState, Tabs, ChatBubble, StatCard } = window.MaisaDesignSystem_00adcb;
+function Demo(){const [a,setA]=React.useState('hoje');const [b,setB]=React.useState('todas');return(<>
+<div className="grp"><div className="lbl">underline</div>
+<Tabs value={a} onChange={setA} items={[{value:'hoje',label:'Hoje',count:8},{value:'semana',label:'Semana'},{value:'mes',label:'Mês'},{value:'cancelados',label:'Cancelados',count:2}]} /></div>
+<div className="grp"><div className="lbl">pill</div>
+<Tabs variant="pill" value={b} onChange={setB} items={[{value:'todas',label:'Todas'},{value:'aberto',label:'Em aberto'},{value:'maisa',label:'Respondidas pela maisa'}]} /></div>
+</>);}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script></body></html>

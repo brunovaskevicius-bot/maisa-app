@@ -65,7 +65,21 @@
 .lp-completa .lp-card { transition: transform 300ms var(--mk-ease), box-shadow 300ms var(--mk-ease), border-color 300ms var(--mk-ease); }
 .lp-completa .lp-card:hover { transform: translateY(-4px); box-shadow: var(--mk-shadow); border-color: var(--mk-accent); }
 
-/* ---- Nav espelhada: no mobile os links somem e sobra logo + CTA ----------- */
+/* ---- Nav espelhada: no mobile os links somem e sobra logo + CTA -----------
+   O layout do <ul> mora AQUI, não em style inline. Antes o componente trazia
+   `style={{ display: "flex", … }}` no próprio <ul>, e estilo inline vence folha de estilo — então
+   a media query abaixo era LETRA MORTA e os links nunca sumiam. Consequência medida: a nav pedia
+   489px numa viewport de 390px (`html.scrollWidth` 489 vs `clientWidth` 390) e o wordmark "maisa"
+   saía cortado na borda direita. É o ban "text that overflows its container", na primeira coisa
+   que o visitante vê, no aparelho em que ele vai ver. */
+.lp-completa .lp-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.8rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
 @media (max-width: 760px) {
   .lp-completa .lp-nav-links { display: none; }
 }

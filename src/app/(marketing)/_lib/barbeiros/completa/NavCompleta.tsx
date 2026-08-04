@@ -39,10 +39,16 @@ export function NavCompleta() {
           alignItems: "center",
           justifyContent: "space-between",
           gap: "1rem",
+          // wrap como rede de segurança: mesmo com os links escondidos, logo + CTA + wordmark não
+          // podem empurrar a linha além da viewport. `nowrap` em todos os níveis era o que fazia a
+          // nav pedir 489px em 390px.
+          flexWrap: "wrap",
         }}
       >
-        <nav aria-label="Seções da página" style={{ display: "flex", alignItems: "center", gap: "1.75rem" }}>
-          <ul className="lp-nav-links" style={{ display: "flex", alignItems: "center", gap: "1.8rem", listStyle: "none", margin: 0, padding: 0 }}>
+        <nav aria-label="Seções da página" style={{ display: "flex", alignItems: "center", gap: "1.75rem", flexWrap: "wrap", minWidth: 0 }}>
+          {/* sem `display:flex` inline: quem manda é `.lp-completa .lp-nav-links` no completa.css,
+              senão a media query de 760px que esconde os links nunca vence. */}
+          <ul className="lp-nav-links">
             {SECOES.map((s) => (
               <li key={s.id}>
                 <a
@@ -55,8 +61,11 @@ export function NavCompleta() {
               </li>
             ))}
           </ul>
+          {/* TOPO DO FUNIL: quem acabou de chegar não vai "ativar" nada. O CTA persistente pede o
+              menor compromisso possível — ver o preço — e é o único ponto que fala com alguém que
+              ainda não leu a página. Antes dizia "Ativar grátis", idêntico aos outros três. */}
           <Button href={ICPS.barbeiros.rotas.base} variant="primary" size="sm">
-            Ativar grátis
+            Ver planos
           </Button>
         </nav>
 

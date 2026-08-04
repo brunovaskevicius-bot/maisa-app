@@ -9,16 +9,16 @@
  * sabe DESENHAR blocos; não sabe o que é cliente, nota ou conversa. */
 
 import React, { useEffect, useRef } from "react";
-import { s, Icon, Monogram, Toggle, Chip } from "@/lib/ui";
+import { s, Icon, Monogram, Toggle, Chip, Field, Input, Select, toast } from "@/lib/ui";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useStore } from "@/lib/store";
-import { useDetalhe, type Bloco, type Recibo as ReciboT } from "@/lib/detalhe";
+import { useDetalhe, type Bloco, type Recibo as ReciboT, type Campo as CampoT } from "@/lib/detalhe";
 
 /* ───────────────────────────── blocos ───────────────────────────── */
 
 function Rotulo({ children }: { children: React.ReactNode }) {
   return (
-    <div style={s("font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)")}>
+    <div style={s("font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>
       {children}
     </div>
   );
@@ -32,9 +32,48 @@ function Stats({ linhas }: { linhas: [string, string][] }) {
           key={l + i}
           style={s(`display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:11px 0${i < linhas.length - 1 ? ";border-bottom:1px solid var(--line)" : ""}`)}
         >
-          <span style={s("font-size:14px;color:var(--muted);flex-shrink:0")}>{l}</span>
-          <span style={s("font-size:14px;font-weight:700;text-align:right;word-break:break-word")}>{v}</span>
+          <span style={s("font-size:var(--t-sm);color:var(--muted);flex-shrink:0")}>{l}</span>
+          {/* valor de linha rótulo/valor é DADO: 500, não 700 */}
+          <span style={s("font-size:var(--t-sm);font-weight:var(--w-data);text-align:right;word-break:break-word")}>{v}</span>
         </div>
+      ))}
+    </div>
+  );
+}
+
+/* Campos editáveis. Grava a cada mudança (o `onChange` do campo já persiste no store), então
+ * NÃO existe botão "Salvar" aqui — o app não tem save de mentira. O toast de confirmação sai no
+ * blur, não a cada tecla: um toast por caractere digitado seria ruído. */
+function Campos({ campos }: { campos: CampoT[] }) {
+  return (
+    <div style={s("display:flex;flex-direction:column;gap:14px")}>
+      {campos.map((c) => (
+        <Field key={c.id} label={c.label} hint={c.hint}>
+          {c.tipo === "select" ? (
+            <Select value={c.valor} onChange={(e) => c.onChange(e.target.value)}>
+              {/* `rotuloOpcao` separa o VALOR (um id) do rótulo visível — sem isso um select de
+                  cliente mostraria "cl6" em vez de "Fernanda Rocha". */}
+              {(c.opcoes ?? []).map((o) => <option key={o} value={o}>{c.rotuloOpcao ? c.rotuloOpcao(o) : o}</option>)}
+            </Select>
+          ) : (
+            <div style={s("position:relative;display:flex;align-items:center")}>
+              {c.prefixo && (
+                <span style={s("position:absolute;left:13px;font-size:var(--t-sm);color:var(--muted);pointer-events:none")}>{c.prefixo}</span>
+              )}
+              <Input
+                value={c.valor}
+                inputMode={c.tipo === "numero" ? "numeric" : undefined}
+                onChange={(e) => c.onChange(e.target.value)}
+                onBlur={() => toast("Serviço atualizado")}
+                className={c.tipo === "numero" ? "n" : undefined}
+                style={s(`${c.prefixo ? "padding-left:40px;" : ""}${c.sufixo ? "padding-right:52px;" : ""}`)}
+              />
+              {c.sufixo && (
+                <span style={s("position:absolute;right:14px;font-size:var(--t-sm);color:var(--muted);pointer-events:none")}>{c.sufixo}</span>
+              )}
+            </div>
+          )}
+        </Field>
       ))}
     </div>
   );
@@ -42,9 +81,10 @@ function Stats({ linhas }: { linhas: [string, string][] }) {
 
 function Texto({ texto }: { texto: string }) {
   return (
-    <div style={s("font-size:14.5px;line-height:1.6;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px")}>
+    <div style={s("font-size:var(--t-sm);line-height:1.6;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px")}>
+      {/* parágrafos seguintes caem no mesmo passo da escala; o que os rebaixa é a cor, não o tamanho */}
       {texto.split("\n\n").map((p, i) => (
-        <span key={i} style={i > 0 ? s("font-size:13px;color:var(--muted)") : undefined}>{p}</span>
+        <span key={i} style={i > 0 ? s("color:var(--muted)") : undefined}>{p}</span>
       ))}
     </div>
   );
@@ -52,12 +92,13 @@ function Texto({ texto }: { texto: string }) {
 
 function Aviso({ texto, tone = "warn" }: { texto: string; tone?: "warn" | "danger" }) {
   const c = tone === "danger"
-    ? "background:var(--danger-soft);border-color:oklch(0.88 0.06 30);color:var(--danger)"
-    : "background:var(--warn-soft);border-color:oklch(0.88 0.06 85);color:var(--warn)";
+    ? "background:var(--danger-soft);border-color:var(--danger-line);color:var(--danger)"
+    : "background:var(--warn-soft);border-color:var(--warn-line);color:var(--warn)";
   return (
     <div style={s(`display:flex;gap:12px;align-items:flex-start;border:1px solid;border-radius:14px;padding:14px 16px;${c}`)}>
       <span style={s("flex-shrink:0;display:flex;padding-top:1px")}><Icon name="alert" size={18} sw={2} /></span>
-      <span style={s("font-size:13.5px;line-height:1.55;font-weight:600")}>{texto}</span>
+      {/* aviso é prosa: sem font-weight (o body já é 400) — quem dá o peso é a cor semântica */}
+      <span style={s("font-size:var(--t-sm);line-height:1.55")}>{texto}</span>
     </div>
   );
 }
@@ -70,9 +111,9 @@ function Msgs({ msgs }: { msgs: { de: "cliente" | "bot" | "voce"; txt: string }[
         return (
           <div key={i} style={s(`max-width:86%;align-self:${meu ? "flex-end" : "flex-start"};display:flex;flex-direction:column;align-items:${meu ? "flex-end" : "flex-start"};gap:4px`)}>
             {m.de === "voce" && (
-              <span style={s("font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)")}>Você</span>
+              <span style={s("font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>Você</span>
             )}
-            <div style={s(`padding:11px 14px;border-radius:16px;font-size:13.5px;line-height:1.45;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-bottom-${meu ? "right" : "left"}-radius:5px`)}>
+            <div style={s(`padding:11px 14px;border-radius:16px;font-size:var(--t-sm);line-height:1.45;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-bottom-${meu ? "right" : "left"}-radius:5px`)}>
               {m.txt}
             </div>
           </div>
@@ -89,25 +130,30 @@ function Recibo({ r }: { r: ReciboT }) {
     <div style={s("border-radius:16px;overflow:hidden;border:1px solid var(--border);background:var(--surface)")}>
       <div style={s("display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;background:var(--bg);border-bottom:1px dashed var(--border)")}>
         <div style={s("min-width:0")}>
-          <div style={s("font-size:13.5px;font-weight:800;letter-spacing:-.01em")}>{r.prestador}</div>
-          <div style={s("font-size:11.5px;color:var(--muted);margin-top:2px")}>{r.doc}</div>
+          <div style={s("font-size:var(--t-sm);font-weight:var(--w-title)")}>{r.prestador}</div>
+          {/* CNPJ é string de máquina — mono + zero cortado, o único sobrevivente do mono aqui */}
+          <div className="n-mach" style={s("font-size:var(--t-micro);color:var(--muted);margin-top:2px")}>{r.doc}</div>
         </div>
         <div style={s("text-align:right;flex-shrink:0")}>
-          <div style={s("font-size:13px;font-weight:800")}>NFS-e</div>
-          <div style={s("font-size:10.5px;color:var(--muted)")}>Nota Fiscal de Serviços</div>
+          <div style={s("font-size:var(--t-sm);font-weight:var(--w-title)")}>NFS-e</div>
+          <div style={s("font-size:var(--t-micro);color:var(--muted)")}>Nota Fiscal de Serviços</div>
         </div>
       </div>
+      {/* .n em TODO valor do recibo — linha e total na mesma classe de numeral, senão a coluna
+          não alinha, que é justamente o serviço que um recibo presta. */}
       <div style={s("padding:14px 16px;display:flex;flex-direction:column;gap:9px")}>
         {r.linhas.map(([l, v]) => (
           <div key={l} style={s("display:flex;align-items:baseline;justify-content:space-between;gap:14px")}>
-            <span style={s("font-size:12.5px;color:var(--muted);flex-shrink:0")}>{l}</span>
-            <span style={s("font-size:13px;font-weight:600;text-align:right;word-break:break-word")}>{v}</span>
+            <span style={s("font-size:var(--t-label);color:var(--muted);flex-shrink:0")}>{l}</span>
+            <span className="n" style={s("font-size:var(--t-sm);font-weight:var(--w-data);text-align:right;word-break:break-word")}>{v}</span>
           </div>
         ))}
       </div>
       <div style={s("display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:14px 16px;border-top:1px dashed var(--border);background:var(--bg)")}>
-        <span style={s("font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)")}>Total</span>
-        <span style={s("font-family:var(--font-mono);font-size:19px;font-weight:700;letter-spacing:-.02em")}>{r.total}</span>
+        <span style={s("font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>Total</span>
+        {/* --w-emph aqui: este É o número pelo qual o bloco existe (o valor da nota). Sem mono —
+            os dígitos da Plex Sans já têm avanço igual, e mono lia como terminal, não como dinheiro. */}
+        <span className="n" style={s("font-size:var(--t-lg);font-weight:var(--w-emph);letter-spacing:var(--ls-lg)")}>{r.total}</span>
       </div>
     </div>
   );
@@ -122,8 +168,8 @@ function Toggles({ toggles }: { toggles: { titulo: string; desc: string; on: boo
           style={s(`display:flex;align-items:center;gap:14px;padding:14px 15px;border-radius:14px;border:1px solid var(--line);background:${t.on ? "var(--primary-soft)" : "var(--bg)"};transition:background-color var(--dur-fast) var(--ease-out)`)}
         >
           <span style={s("flex:1;min-width:0")}>
-            <span style={s("display:block;font-size:14.5px;font-weight:700")}>{t.titulo}</span>
-            <span style={s("display:block;font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.4")}>{t.desc}</span>
+            <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title)")}>{t.titulo}</span>
+            <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px;line-height:1.4")}>{t.desc}</span>
           </span>
           <Toggle on={t.on} onChange={t.alternar} />
         </div>
@@ -142,8 +188,8 @@ function Lista({ itens }: { itens: { id: string; nome: string; sub: string; seed
               ? <Monogram name={it.nome} id={it.seed} size={32} radius={10} />
               : <span style={s("width:32px;height:32px;flex-shrink:0;border-radius:10px;background:var(--primary-soft);color:var(--primary-dark);display:flex;align-items:center;justify-content:center")}><Icon name="tag" size={16} /></span>}
             <span style={s("flex:1;min-width:0;text-align:left")}>
-              <span style={s("display:block;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{it.nome}</span>
-              <span style={s("display:block;font-size:12px;color:var(--muted);margin-top:1px")}>{it.sub}</span>
+              <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{it.nome}</span>
+              <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:1px")}>{it.sub}</span>
             </span>
             {it.onClick && <Icon name="chevron-right" size={16} stroke="var(--muted)" />}
           </>
@@ -165,6 +211,7 @@ function RenderBloco({ b }: { b: Bloco }) {
   const corpo = (() => {
     switch (b.tipo) {
       case "stats": return <Stats linhas={b.linhas} />;
+      case "campos": return <Campos campos={b.campos} />;
       case "chips": return (
         <div style={s("display:flex;flex-wrap:wrap;gap:8px")}>
           {b.chips.map((c) => <Chip key={c.label} tone={c.on ? "primary" : "neutral"}>{c.label}</Chip>)}
@@ -206,12 +253,44 @@ export default function Gaveta() {
     return () => { document.body.style.overflow = antes; };
   }, [det]);
 
+  /* Esc fecha, e o Tab circula DENTRO do painel.
+   * A gaveta declarava `role="dialog" aria-modal="true"` e não cumpria nenhuma das duas coisas: Esc
+   * não fazia nada e o Tab escapava para os cartões atrás — que estão inertes visualmente mas
+   * continuavam focáveis. Declarar o contrato ARIA sem cumprir é pior que não declarar, porque o
+   * leitor de tela promete ao usuário um comportamento que não existe.
+   * O ConfirmDialog de ui.tsx já tratava Esc; a Gaveta, que é o painel mais usado do app, não. */
+  useEffect(() => {
+    if (!det) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); st.fechar(); return; }
+      if (e.key !== "Tab") return;
+      const p = painel.current;
+      if (!p) return;
+      const focaveis = Array.from(p.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (!focaveis.length) return;
+      const primeiro = focaveis[0];
+      const ultimo = focaveis[focaveis.length - 1];
+      const ativo = document.activeElement;
+      // ciclo: do último para o primeiro (Tab) e do primeiro para o último (Shift+Tab)
+      if (!e.shiftKey && (ativo === ultimo || !p.contains(ativo))) { e.preventDefault(); primeiro.focus(); }
+      else if (e.shiftKey && (ativo === primeiro || ativo === p || !p.contains(ativo))) { e.preventDefault(); ultimo.focus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [det, st]);
+
   if (!det) return null;
 
+  // 16px nos dois: 26px passava do teto de painel (12–16px). A sombra da folha mantém a geometria
+  // invertida (sobe de baixo), mas troca o matiz 60 (marrom) pelo 262 de --shadow-pop.
+  // Nenhum dos dois tem borda: com sombra de pop, borda de 1px é o par "ghost-card" banido — o que
+  // separa a gaveta do fundo é o backdrop.
   const painelEstilo = mobile
-    ? s("position:fixed;left:0;right:0;bottom:0;z-index:81;max-height:86vh;background:var(--surface);border-radius:26px 26px 0 0;box-shadow:0 -20px 50px oklch(0.30 0.03 60 / 0.22);display:flex;flex-direction:column;outline:none")
+    ? s("position:fixed;left:0;right:0;bottom:0;z-index:81;max-height:86vh;background:var(--surface);border-radius:16px 16px 0 0;box-shadow:0 -20px 50px oklch(0.20 0.03 262 / 0.22);display:flex;flex-direction:column;outline:none")
     : {
-      ...s("position:fixed;top:50%;left:50%;z-index:81;background:var(--surface);border:1px solid var(--border);border-radius:26px;box-shadow:var(--shadow-pop);display:flex;flex-direction:column;overflow:hidden;outline:none"),
+      ...s("position:fixed;top:50%;left:50%;z-index:81;background:var(--surface);border-radius:16px;box-shadow:var(--shadow-pop);display:flex;flex-direction:column;overflow:hidden;outline:none"),
       width: "min(680px, calc(100vw - 80px))",
       maxHeight: "min(760px, calc(100vh - 88px))",
     };
@@ -220,7 +299,8 @@ export default function Gaveta() {
     <>
       <div
         onClick={st.fechar}
-        style={{ ...s("position:fixed;inset:0;z-index:80;background:oklch(0.28 0.03 262 / 0.34)"), backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", animation: "mfade .18s ease both" }}
+        /* backdrop igual ao do ConfirmDialog e da Paleta — antes eram dois pretos de modal */
+        style={{ ...s("position:fixed;inset:0;z-index:80;background:oklch(0.22 0.03 262 / 0.38)"), backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", animation: "mfade .18s ease both" }}
       />
       <div
         ref={painel}
@@ -242,8 +322,10 @@ export default function Gaveta() {
         <div style={s(`padding:${mobile ? "10px 20px 16px" : "22px 24px 18px"};border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:14px;flex-shrink:0`)}>
           {det.seed && <Monogram name={det.titulo} id={det.seed} size={mobile ? 46 : 48} radius={15} />}
           <div style={s("flex:1;min-width:0")}>
-            <h2 style={s(`font-size:${mobile ? "19px" : "20px"};font-weight:800;letter-spacing:-.02em;line-height:1.2`)}>{det.titulo}</h2>
-            <p style={s("font-size:13.5px;color:var(--muted);margin-top:4px;line-height:1.4")}>{det.sub}</p>
+            {/* era 19px no mobile e 20px no desktop — 1px não é hierarquia. Um passo só, e é o
+                --t-lg: título de diálogo, o mesmo do ConfirmDialog (--t-title é h1 de tela). */}
+            <h2 style={s("font-size:var(--t-lg);font-weight:var(--w-title);letter-spacing:var(--ls-lg);line-height:1.2")}>{det.titulo}</h2>
+            <p style={s("font-size:var(--t-sm);color:var(--muted);margin-top:4px;line-height:1.4")}>{det.sub}</p>
           </div>
           {!mobile && (
             <button
@@ -272,14 +354,17 @@ export default function Gaveta() {
             const cor = a.tone === "danger"
               ? "border:1px solid var(--danger-soft);background:var(--danger-soft);color:var(--danger)"
               : a.primaria
-                ? "border:1px solid var(--primary);background:var(--primary);color:#fff"
+                ? "border:1px solid var(--primary);background:var(--primary);color:var(--on-primary)"
                 : "border:1px solid var(--border);background:var(--surface);color:var(--muted)";
+            // rótulo de botão é --t-sm nos dois tamanhos de tela (mesmo passo do Btn de ui.tsx);
+            // o que muda no mobile é a área de toque (a altura), não a letra.
             return (
               <button
                 key={a.label}
                 onClick={a.onClick}
-                className={`${a.primaria ? "m-hov-primary" : "m-hov-bg"} m-press m-focus`}
-                style={s(`flex:${a.primaria ? "1" : "0 1 auto"};height:${mobile ? "50px" : "46px"};padding:0 20px;border-radius:13px;font-size:${mobile ? "15px" : "14.5px"};font-weight:700;cursor:pointer;white-space:nowrap;${cor}`)}
+                disabled={a.desabilitada}
+                className={`${a.primaria && !a.desabilitada ? "m-hov-primary" : a.desabilitada ? "" : "m-hov-bg"} m-press m-focus`}
+                style={s(`flex:${a.primaria ? "1" : "0 1 auto"};height:${mobile ? "50px" : "46px"};padding:0 20px;border-radius:13px;font-size:var(--t-sm);font-weight:var(--w-title);cursor:${a.desabilitada ? "not-allowed" : "pointer"};white-space:nowrap;${cor}${a.desabilitada ? ";opacity:.5" : ""}`)}
               >
                 {a.label}
               </button>

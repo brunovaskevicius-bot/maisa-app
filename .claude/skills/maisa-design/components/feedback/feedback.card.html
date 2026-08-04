@@ -1,0 +1,33 @@
+<!-- @dsCard group="Components" viewport="700x420" name="Feedback" subtitle="Dialog, Toast, Tooltip, EmptyState" -->
+<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>body{background:var(--surface-page);padding:20px;margin:0}.grp{margin-bottom:18px}.grp:last-child{margin-bottom:0}.lbl{font-family:var(--font-sans);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-subtle);margin-bottom:9px}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script></head><body><div id="root"></div>
+<script type="text/babel">
+const { Button, IconButton, Badge, Tag, Card, Avatar, Logo, Icon, Input, Textarea, Select, Checkbox, Radio, Switch, Dialog, Toast, Tooltip, EmptyState, Tabs, ChatBubble, StatCard } = window.MaisaDesignSystem_00adcb;
+function Demo(){return(<>
+<div className="grp"><div className="lbl">Toast</div><div className="row" style={{alignItems:'flex-start'}}>
+<Toast tone="success" title="NF-e 1.284 emitida" description="Link enviado no WhatsApp da cliente." onClose={()=>{}} />
+<Toast tone="danger" title="Não deu pra emitir" description="O CNPJ tem um dígito a mais." onClose={()=>{}} />
+</div></div>
+<div className="grp"><div className="row" style={{alignItems:'stretch',gap:16}}>
+<div style={{flex:'0 0 330px'}}><div className="lbl">Dialog</div>
+<div style={{position:'relative',height:200,borderRadius:'var(--radius-card)',overflow:'hidden',border:'1px solid var(--border-subtle)'}}>
+<div className="ms-dialog__overlay" style={{position:'absolute'}}>
+<div className="ms-dialog ms-dialog--sm" style={{animation:'none'}}>
+<div className="ms-dialog__head"><h2 className="ms-dialog__title">Cancelar o agendamento?</h2></div>
+<p className="ms-dialog__desc">A maisa avisa a Juliana no WhatsApp na hora.</p>
+<div className="ms-dialog__foot"><Button variant="secondary" size="sm">Voltar</Button><Button variant="danger" size="sm">Cancelar</Button></div>
+</div></div></div></div>
+<div style={{flex:1}}><div className="lbl">EmptyState</div>
+<Card pad="none" variant="flat"><EmptyState icon={<Icon name="calendar-days" size={26} />} title="Agenda livre hoje" description="Nada marcado até agora. A maisa avisa aqui assim que alguém chamar." action={<Button variant="soft" size="sm">Criar agendamento</Button>} /></Card></div>
+</div></div>
+<div className="grp"><div className="lbl">Tooltip (passe o mouse)</div><div className="row">
+<Tooltip content="Exportar em CSV"><IconButton variant="outline" icon={<Icon name="arrow-down-tray" />} label="Exportar" /></Tooltip>
+<Tooltip side="right" content="Sincronizar agora"><IconButton variant="outline" icon={<Icon name="arrow-path" />} label="Sincronizar" /></Tooltip>
+</div></div>
+</>);}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script></body></html>

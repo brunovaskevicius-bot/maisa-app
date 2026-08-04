@@ -1,0 +1,70 @@
+/* maisa — cor
+   Base quente: creme + verde-mata + âmbar. Só tema claro. */
+:root{
+  /* — creme / superfícies quentes — */
+  --cream-50:#FDFBF7;--cream-100:#F7F2E9;--cream-200:#EFE8DA;--cream-300:#E3D9C6;
+
+  /* — verde maisa (primária) — */
+  --green-50:#EEF6F1;--green-100:#D6EADF;--green-200:#ADD5C0;--green-300:#7CBB9C;
+  --green-400:#4E9E79;--green-500:#2E805D;--green-600:#1F6749;--green-700:#17513A;
+  --green-800:#123D2C;--green-900:#0C2A1E;
+
+  /* — âmbar (acento) — */
+  --ochre-50:#FDF4E6;--ochre-100:#FAE6C6;--ochre-200:#F3CE93;--ochre-300:#EBB25E;
+  --ochre-400:#E09A34;--ochre-500:#C97F1E;--ochre-600:#A56316;--ochre-700:#7E4A12;
+
+  /* — tinta / neutros quentes — */
+  --ink-50:#F5F3EF;--ink-100:#E8E4DC;--ink-200:#D3CDC2;--ink-300:#B2AA9C;
+  --ink-400:#8B8375;--ink-500:#6A6357;--ink-600:#4E4941;--ink-700:#3A362F;
+  --ink-800:#262320;--ink-900:#171512;
+
+  /* — semânticas cruas — */
+  --red-50:#FCEFEC;--red-100:#F8DAD3;--red-500:#C7452F;--red-600:#A6371F;--red-700:#7F2A17;
+  --blue-50:#EDF3F7;--blue-100:#D6E5EF;--blue-500:#2F6F8F;--blue-600:#245A75;
+
+  --white:#FFFFFF;
+
+  /* ————— aliases semânticos ————— */
+  --brand:var(--green-600);
+  --brand-hover:var(--green-700);
+  --brand-active:var(--green-800);
+  --brand-soft:var(--green-100);
+  --brand-soft-hover:var(--green-200);
+  --brand-text:var(--green-700);
+  --on-brand:var(--white);
+
+  --accent:var(--ochre-400);
+  --accent-strong:var(--ochre-500);
+  --accent-soft:var(--ochre-100);
+  --accent-text:var(--ochre-700);
+  --on-accent:var(--ink-900);
+
+  --surface-page:var(--cream-100);
+  --surface-card:var(--white);
+  --surface-sunken:var(--cream-200);
+  --surface-muted:var(--ink-50);
+  --surface-inverse:var(--green-900);
+  --surface-accent:var(--ochre-50);
+  --surface-overlay:rgba(12,42,30,.44);
+
+  --text-strong:var(--ink-900);
+  --text-body:var(--ink-700);
+  --text-muted:var(--ink-500);
+  --text-subtle:var(--ink-400);
+  --text-inverse:var(--cream-50);
+  --text-on-brand:var(--white);
+
+  --border-subtle:var(--ink-100);
+  --border-default:var(--ink-200);
+  --border-strong:var(--ink-300);
+  --border-brand:var(--green-600);
+  --border-inverse:rgba(255,255,255,.16);
+
+  --success:var(--green-500);--success-soft:var(--green-50);--success-text:var(--green-700);
+  --warning:var(--ochre-400);--warning-soft:var(--ochre-50);--warning-text:var(--ochre-700);
+  --danger:var(--red-500);--danger-soft:var(--red-50);--danger-text:var(--red-700);
+  --info:var(--blue-500);--info-soft:var(--blue-50);--info-text:var(--blue-600);
+
+  --focus-ring:0 0 0 3px var(--green-200);
+  --focus-ring-danger:0 0 0 3px var(--red-100);
+}

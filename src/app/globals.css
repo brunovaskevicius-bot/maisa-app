@@ -1,53 +1,119 @@
-/* MAISA · design system (por MAISA) — mesmo idioma visual do Psico Manager
- * Tema único acolhedor: papel creme + azul calmo (primário) + mel/âmbar (fills/gradientes) + textura de papel.
- * Amarelo/âmbar SÓ em fills/gradientes, nunca em texto. Sidebar/topbar navy da marca + wordmark dourado.
+/* MAISA · design system (por MAISA)
+ * Tema único "turno claro": a cena que manda é a bancada iluminada — sol na vitrine, olhada de
+ * três segundos, celular a meio metro. Isso força claro e contraste alto.
+ * NEUTROS TEMPERADOS PARA O MATIZ DA PRÓPRIA MARCA (262), não para o quente. O creme + textura de
+ * papel que vinha do Psico Manager saiu: era neutro herdado de outro produto brigando com um navy
+ * de marca, e caía na banda que o impeccable bane (L 0.84-0.97 · C<0.06 · matiz 40-100).
+ * UM azul só (matiz 262, variando L e C) — o navy virou o sistema, inclusive a tinta.
+ * ÂMBAR tem DOIS empregos e só dois: marca e ação primária. Estado NUNCA é âmbar — sobre fundo
+ * claro o ouro dá 1.6:1 e desaparece; sobre --nav dá 7.4:1 e funciona.
  * Estilos são inline via helper s() + tokens — sem Tailwind. Mudar VALORES de token reskina tudo. */
 :root {
-  /* neutros terrosos quentes */
-  --bg: oklch(0.97 0.012 85);
-  --surface: oklch(0.99 0.006 90);
-  --surface-2: oklch(0.945 0.02 82);
-  --ink: oklch(0.28 0.02 60);
-  --muted: oklch(0.48 0.02 62);
-  --border: oklch(0.90 0.012 80);
-  --line: oklch(0.935 0.010 82);
+  /* neutros — temperados para o matiz 262 da marca (C 0.005-0.014) */
+  --bg: oklch(0.985 0.005 262);
+  --surface: oklch(1 0 0);          /* branco: elevação por luminância, não por sombra */
+  --surface-2: oklch(0.962 0.014 262);
+  --ink: oklch(0.225 0.030 262);    /* o navy é a tinta */
+  --muted: oklch(0.455 0.024 262);
+  --line: oklch(0.925 0.008 262);   /* divisor decorativo (não delimita controle) */
+  --border: oklch(0.865 0.012 262); /* aresta de cartão */
+  /* contorno de INPUT/SELECT/TEXTAREA — o único que delimita controle, então precisa dos 3:1 da
+     WCAG 1.4.11 de verdade (3.17:1 sobre --surface). --border reprovava a 1.3:1. */
+  --border-field: oklch(0.655 0.020 262);
 
-  /* primário — azul calmo (dessaturado, WCAG AA sobre creme e branco) */
-  --primary: oklch(0.50 0.145 248);
-  --primary-dark: oklch(0.42 0.14 248);
-  --primary-soft: oklch(0.93 0.045 245);
-  --ring: oklch(0.50 0.145 248 / 0.26);
+  /* primário — MESMO matiz do navy (antes 248 vs 262: dois azuis a 14° sem regra) */
+  --primary: oklch(0.470 0.135 262);
+  --primary-dark: oklch(0.385 0.120 262);
+  --primary-soft: oklch(0.945 0.026 262);
+  --on-primary: oklch(1 0 0);       /* texto sobre fill primário — 6.96:1 */
+  --ring: oklch(0.470 0.135 262 / 0.32);
 
-  /* sidebar/topbar — navy da marca MAISA (royal navy + dourado) */
-  --nav: oklch(0.37 0.095 262);
-  --nav-ink: oklch(0.98 0.008 95);
-  --nav-muted: oklch(0.77 0.05 262);
-  /* tom claro p/ rótulos secundários SOBRE --nav-active (ex.: chip "Plano X");
-     --nav-muted reprova (3.6:1) nesse fundo mais claro — este passa WCAG AA (>=4.5:1) */
-  --nav-soft: oklch(0.87 0.045 262);
-  --nav-active: oklch(0.45 0.09 262);
-  --nav-accent: oklch(0.80 0.13 250);
-  --nav-line: oklch(0.51 0.07 262);
+  /* chassi navy da marca MAISA */
+  --nav: oklch(0.290 0.078 262);
+  --nav-ink: oklch(0.985 0.005 262);
+  --nav-muted: oklch(0.760 0.040 262);
+  /* tom claro p/ rótulos secundários SOBRE --nav-active (ex.: chip "Plano X").
+     Agora --nav-muted também passa AA nesse fundo (5.19:1), mas --nav-soft segue sendo o token
+     de rótulo secundário — mantido por clareza de intenção, não por necessidade de contraste. */
+  --nav-soft: oklch(0.845 0.035 262);
+  --nav-active: oklch(0.355 0.072 262);
+  --nav-line: oklch(0.435 0.055 262);
+  /* --nav-accent removido: era o TERCEIRO azul (matiz 250), tinha 1 uso e estava fora do gamut
+     sRGB (clipava para #7ac3ff). Quem precisava dele usa --nav-soft. */
 
-  /* acento — mel / âmbar (SÓ fills e gradientes de conforto; nunca texto) */
-  --warm: oklch(0.83 0.14 82);
-  --warm-soft: oklch(0.92 0.07 88);
+  /* âmbar — SÓ marca e ação primária. Nunca estado, nunca sobre fundo claro. */
+  --warm: oklch(0.795 0.145 78);
+  --warm-soft: oklch(0.945 0.039 68);
+  --warm-ink: oklch(0.285 0.060 70);  /* texto SOBRE o âmbar — 7.51:1 */
+  --warm-line: oklch(0.635 0.130 68); /* glifo dourado raro em fundo claro — 3.53:1 */
 
-  /* semânticos (L rebaixado p/ WCAG AA do texto sobre os *-soft: >=4.5:1) */
-  --success: oklch(0.51 0.11 150);
-  --success-soft: oklch(0.94 0.05 150);
-  --warn: oklch(0.50 0.10 68);
-  --warn-soft: oklch(0.92 0.07 85);
-  --danger: oklch(0.52 0.18 27);
-  --danger-soft: oklch(0.93 0.05 30);
-  --whatsapp: #25D366;
+  /* semânticos — L calibrado p/ AA do texto sobre os *-soft E p/ 3:1 dos dots sobre --surface */
+  --success: oklch(0.475 0.115 152);
+  --success-soft: oklch(0.945 0.045 152);
+  --warn: oklch(0.505 0.115 62);
+  --warn-soft: oklch(0.945 0.039 68);
+  --danger: oklch(0.495 0.180 25);
+  --danger-soft: oklch(0.940 0.030 25);
+  /* linhas semânticas — aresta de bloco de aviso/erro. Existiam como literais soltos na Gaveta
+     (oklch(0.88 0.06 30) e oklch(0.88 0.06 85)), e o matiz 85 caía na banda de creme banida. */
+  --warn-line: oklch(0.860 0.060 68);
+  --danger-line: oklch(0.860 0.060 25);
+  /* dois verdes de WhatsApp de propósito: o da marca (#25D366, L 0.79) NUNCA aceita texto branco
+     — dava 1.98:1. --whatsapp é o fill que aceita (#fff a 5.64:1); --whatsapp-mark é só glifo/dot. */
+  --whatsapp: oklch(0.500 0.135 150);
+  --whatsapp-mark: oklch(0.790 0.200 145);
 
-  /* profundidade + forma + numerais */
-  --shadow-card: 0 1px 2px oklch(0.30 0.03 60 / 0.05), 0 6px 20px oklch(0.30 0.03 60 / 0.06);
-  --shadow-pop: 0 18px 50px oklch(0.25 0.03 60 / 0.20);
+  /* ===== TIPOGRAFIA — escala fixa em rem, base 16px, razão ~1.125 =====
+     Antes: 165 font-size literais, 22 valores distintos, 47% em meio-pixel (12.5/13.5/…), zero
+     em rem. Nove passos em 4px não é hierarquia, é lama. Sete passos, e cada um tem um trabalho. */
+  --t-micro: 0.6875rem; /* 11px — badge, timestamp, keycap */
+  --t-label: 0.75rem;   /* 12px — rótulo de campo, chip, cabeçalho de coluna */
+  --t-sm: 0.875rem;     /* 14px — texto secundário, sub de cartão, botão */
+  --t-body: 1rem;       /* 16px — corpo, título de cartão, item de lista */
+  --t-lg: 1.125rem;     /* 18px — h2 de seção */
+  --t-title: 1.375rem;  /* 22px — h1 de tela */
+  --t-data: 2rem;       /* 32px — numeral herói (único salto de display) */
+
+  /* pesos — antes: 111 declarações, 76x 700, ZERO 400/500. Quando tudo é bold, nada é.
+     400 prosa · 500 TODO DADO (valor, hora, contagem) · 600 título/botão/nav · 700 reservado a
+     três lugares: wordmark, numeral herói, e o número que a tela existe para mostrar. 800 morreu. */
+  --w-body: 400;
+  --w-data: 500;
+  --w-title: 600;
+  --w-emph: 700;
+
+  /* letter-spacing — antes 9 valores sem regra. Negativo só a partir de 18px. */
+  --ls-data: -0.015em;
+  --ls-title: -0.012em;
+  --ls-lg: -0.008em;
+  --ls-body: 0;
+  --ls-label: 0.005em;
+  --ls-micro: 0.01em;
+  --ls-caps: 0.08em;    /* ÚNICO valor para caixa-alta (antes: .05/.06/.1/.12/.13/.14em) */
+
+  --lh-tight: 1.15;
+  --lh-ui: 1.35;
+  --lh-prose: 1.55;
+
+  /* profundidade + forma
+     --shadow-card perdeu o blur de 20px: `border:1px` + sombra larga é o "ghost-card" banido, e
+     estava em 7 elementos. Sombra definida e curta, e a elevação real vem de --surface branco
+     sobre --bg azulado. Matiz das sombras foi de 60 (marrom) para 262, senão sujava a rampa nova. */
+  --shadow-card: 0 1px 2px oklch(0.22 0.03 262 / 0.06), 0 2px 6px oklch(0.22 0.03 262 / 0.07);
+  --shadow-pop: 0 16px 40px oklch(0.20 0.03 262 / 0.22);
   --radius-card: 16px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: var(--font-plex-sans), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  /* voz da sidebar — Alegreya Sans, humanista calligráfica (ver layout.tsx) */
+  --font-nav: var(--font-nav-src), var(--font-plex-sans), system-ui, sans-serif;
+  /* COMPENSAÇÃO ÓPTICA: a x-height da Alegreya é 0.461 contra 0.516 da Plex — 11% menor. A 14px
+     ela leria visivelmente menor que o resto do app, e num rail navy (claro sobre escuro, onde o
+     traço já floresce) isso custa legibilidade. Um passo acima iguala o tamanho ÓPTICO, não o
+     nominal. É o único lugar do sistema com tamanho fora da escala, e tem motivo medido. */
+  --t-nav: 0.9375rem;   /* 15px */
+  --w-nav: 500;         /* rótulo inativo — a Alegreya não tem 600 */
+  --w-nav-on: 700;      /* rótulo da tela ativa */
 
   /* ===== MOTION — durações ===== */
   --dur-fast: 140ms;   /* hover, focus ring, press release, exits curtos */
@@ -86,17 +152,34 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; padding: 0; }
 
+/* A textura de papel por feTurbulence saiu. Era ruído literal sob um app onde o usuário precisa
+   ler R$ de 12px — e "paper grain filter" é um defeito nomeado no impeccable. */
 body {
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   background-color: var(--bg);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'%3E%3Cfilter id='mpaper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.06'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23mpaper)'/%3E%3C/svg%3E");
-  background-size: 240px 240px;
   color: var(--ink);
-  font-size: 15px;
+  font-size: var(--t-body);
+  font-weight: var(--w-body);
+  line-height: var(--lh-ui);
+  font-kerning: normal;
 }
 
 button, input, select, textarea { font-family: inherit; }
+
+/* O placeholder padrão do Chrome (#757575) dá 4,22:1 e REPROVA — e no composer travado de
+   Conversas ele é a única explicação de por que o campo está morto. --muted passa a 6,4:1.
+   `opacity:1` porque o Firefox aplica opacidade própria ao placeholder. */
+::placeholder { color: var(--muted); opacity: 1; }
+
+/* Numerais tabulares. Os dígitos da IBM Plex Sans já são todos 600/1000 (tabulares por
+   construção) e os da Plex Mono também — mesmo advance, então valor no cartão, na tabela e no
+   recibo da NFS-e alinham nos três contextos. Esta classe é o contrato explícito e cobre o
+   fallback de system-ui, cujos dígitos são proporcionais.
+   Aplicar em TODO dado que muda: dinheiro, hora, duração, contagem. */
+.n { font-variant-numeric: tabular-nums; }
+/* string de máquina — CNPJ, número da nota, chave, ⌘K. Mono + zero cortado. */
+.n-mach { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; }
 
 /* anel de foco de teclado em TODOS os controles de formulário — cobre inputs inline
    que só setam outline:none (o box-shadow não é afetado pelo outline:none inline) */
@@ -117,7 +200,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { box-shadow: 
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
-  background: oklch(30% 0.02 60 / 0.16);
+  background: oklch(0.30 0.02 262 / 0.16);
   border-radius: 8px;
   border: 3px solid transparent;
   background-clip: content-box;
@@ -142,11 +225,11 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { box-shadow: 
 .m-hov-prim-border { transition: var(--tr-ui); }
 .m-hov-prim-border:hover { border-color: var(--primary) !important; color: var(--primary) !important; background: var(--primary-soft) !important; }
 .m-card-hov { transition: var(--tr-ui); }
-.m-card-hov:hover { transform: translateY(-3px) scale(1.012); box-shadow: 0 16px 40px oklch(30% 0.03 60 / 0.13); }
+.m-card-hov:hover { transform: translateY(-3px) scale(1.012); box-shadow: 0 10px 28px oklch(0.22 0.03 262 / 0.14); }
 .m-nav-item { transition: var(--tr-ui); }
 /* shader sutil: realce por sombra/borda (sem trocar cor de fundo) — hover e estado aberto */
 .m-lift { transition: var(--tr-ui); }
-.m-lift:hover, .m-lift.is-open { box-shadow: 0 10px 30px oklch(30% 0.03 60 / 0.12) !important; border-color: oklch(0.86 0.014 80) !important; }
+.m-lift:hover, .m-lift.is-open { box-shadow: 0 8px 22px oklch(0.22 0.03 262 / 0.13) !important; border-color: var(--primary-soft) !important; }
 
 /* ===== MOTION — VOCABULÁRIO (contrato único; ver ESPEC de motion) ===== */
 /* (i) entrada de página premium — fade + rise sutil (200ms) */
@@ -187,20 +270,37 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { box-shadow: 
    botão, e com :focus-within o rail ficava preso aberto depois do clique. Assim
    ele abre no hover e na navegação por teclado, mas fecha ao sair do mouse. */
 .m-rail { width: 76px; transition: width var(--dur-slow) var(--ease-out); }
-.m-rail:hover, .m-rail:has(:focus-visible) { width: 244px; }
-.m-rail-label { opacity: 0; white-space: nowrap; transition: opacity var(--dur-base) ease; }
-.m-rail:hover .m-rail-label, .m-rail:has(:focus-visible) .m-rail-label { opacity: 1; }
+/* `:focus-visible` DENTRO de `:has` não resolve o que o comentário acima promete: clicar num item
+   de nav com o mouse deixa o botão focado, e em vários navegadores esse foco conta como
+   focus-visible depois que o ponteiro sai — o rail ficava preso aberto sobrepondo o TÍTULO da
+   tela e o primeiro cartão. Verifiquei no navegador em Faturamento, A MAISA e Equipe.
+   A correção é separar as duas intenções em vez de tentar unificá-las num seletor:
+   o mouse abre por `:hover`, e o teclado abre por `.is-nav` — uma classe que o shell liga só
+   quando a navegação é por tecla (Tab/setas), não por clique. */
+.m-rail:hover, .m-rail.is-nav { width: 244px; }
+/* Rótulo: saída RÁPIDA (100ms) e entrada ATRASADA (120ms). Sem isso a opacidade (200ms) terminava
+   antes da largura (280ms) e as palavras apareciam cortadas pela borda do rail — "Flu", "Con",
+   "Fatu" — durante toda a transição. Assimetria de propósito: o texto nunca é visível enquanto o
+   rail está estreito. */
+.m-rail-label { opacity: 0; white-space: nowrap; transition: opacity 100ms ease; }
+.m-rail:hover .m-rail-label, .m-rail.is-nav .m-rail-label { opacity: 1; transition: opacity var(--dur-base) ease 120ms; }
 
 /* (b) CARTÃO EXPANSÍVEL — o resumo aparece no hover/foco; o detalhe editável
    fica na gaveta. grid-template-rows 0fr→1fr é o mesmo truque do .m-acc. */
 .m-exp { transition: transform var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out), border-color var(--dur-slow) var(--ease-out); }
-.m-exp:hover, .m-exp:focus-visible { transform: translateY(-5px); box-shadow: 0 18px 40px oklch(0.30 0.03 60 / 0.16); border-color: oklch(0.84 0.03 262) !important; }
+.m-exp:hover, .m-exp:focus-visible { transform: translateY(-5px); box-shadow: 0 12px 30px oklch(0.22 0.03 262 / 0.16); border-color: var(--primary-soft) !important; }
 .m-exp-body { display: grid; width: 100%; grid-template-rows: 0fr; opacity: 0; margin-top: 0; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur-base) ease, margin-top var(--dur-slow) var(--ease-out); }
 .m-exp-body > * { overflow: hidden; min-height: 0; }
 .m-exp:hover .m-exp-body, .m-exp:focus-visible .m-exp-body { grid-template-rows: 1fr; opacity: 1; margin-top: 14px; }
-/* Sem hover (toque) o resumo nunca abriria e o cartão pareceria truncado —
-   nesse caso ele simplesmente não existe: o toque vai direto pra gaveta. */
-@media (hover: none) { .m-exp-body { display: none; } }
+/* NO TOQUE O RESUMO FICA SEMPRE ABERTO — antes era `display:none`, e isso não era divulgação
+   progressiva, era PERDA DE INFORMAÇÃO: no celular o telefone do cliente, o valor do mês, o erro
+   da prefeitura e a categoria do serviço simplesmente não existiam em nenhum lugar da grade.
+   A camada de informação era exclusiva do desktop, onde é justamente menos necessária.
+   Sem hover não há o que revelar, então o conteúdo já nasce visível e o cartão fica mais alto —
+   que é o custo correto. */
+@media (hover: none) {
+  .m-exp-body { grid-template-rows: 1fr; opacity: 1; margin-top: 12px; transition: none; }
+}
 
 /* (c) ARRASTO — kanban e agenda. O cursor é a única affordance de "isto move". */
 .m-drag { cursor: grab; }
