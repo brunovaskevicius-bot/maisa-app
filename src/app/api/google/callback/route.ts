@@ -17,6 +17,29 @@ export const dynamic = "force-dynamic";
 
 const COOKIE_PKCE = "maisa_google_pkce";
 
+/** Erro de uma etapa nomeada. Existe para que o `catch` lá embaixo saiba QUAL etapa
+ *  quebrou sem precisar comparar mensagens soltas. */
+class FalhaDeEtapa extends Error {
+  constructor(readonly motivo: string, readonly causa: unknown) {
+    super(motivo);
+  }
+}
+
+/** Roda uma etapa e converte qualquer exceção em um motivo que a tela entende.
+ *
+ *  Antes havia um `try` só em volta das três etapas, devolvendo "falha_ao_conectar"
+ *  para causas MUITO diferentes: client secret errado, GOOGLE_TOKEN_KEY do tamanho
+ *  errado, insert recusado pelo banco. A única forma de descobrir qual era ler o log
+ *  do servidor — e quem está conectando uma agenda não tem acesso a log nenhum. */
+async function etapa<T>(nome: string, motivo: string, f: () => Promise<T>): Promise<T> {
+  try {
+    return await f();
+  } catch (err) {
+    console.error(`[google/callback] ${nome}:`, String(err));
+    throw new FalhaDeEtapa(motivo, err);
+  }
+}
+
 export async function GET(request: Request) {
   const { origin, searchParams } = new URL(request.url);
 
@@ -55,28 +78,50 @@ export async function GET(request: Request) {
   if (!verifier) return encerrar(erro("pkce_ausente"));
 
   try {
-    const tokens = await trocarCodigo(code, redirectUri(origin), verifier);
+    const tokens = await etapa("troca do código por token", "troca_recusada", () =>
+      trocarCodigo(code, redirectUri(origin), verifier),
+    );
 
     // Sem refresh token a conexão é inútil: o acesso morre em uma hora e não há como
     // renovar. O BIP grava string vazia aqui e redireciona com status=success — a UI
     // mostra "conectado", e só na primeira operação de agenda é que quebra. Preferimos
     // falhar agora, com um motivo que diz o que fazer.
-    if (!tokens.refreshToken) return encerrar(erro("sem_refresh_token"));
+    //
+    // Vai para um const próprio porque o `salvar` abaixo roda dentro de um callback, e
+    // o TypeScript descarta o narrowing de `tokens.refreshToken` ao cruzar a closure.
+    const refreshToken = tokens.refreshToken;
+    if (!refreshToken) return encerrar(erro("sem_refresh_token"));
 
-    const email = await emailDaConta(tokens.accessToken);
+    const email = await etapa("leitura do e-mail da conta", "sem_email", () =>
+      emailDaConta(tokens.accessToken),
+    );
 
-    await salvar({
-      userId: user.id,
-      profissionalId: e.profissionalId,
-      googleEmail: email,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiraEm: tokens.expiraEm,
-    });
+    // `salvar` cifra os tokens ANTES do insert, então esta etapa cobre duas falhas de
+    // conserto bem diferente: env var mal colada e banco recusando. O `catch` separa.
+    await etapa("gravação da conexão", "falha_ao_salvar", () =>
+      salvar({
+        userId: user.id,
+        profissionalId: e.profissionalId,
+        googleEmail: email,
+        accessToken: tokens.accessToken,
+        refreshToken,
+        expiraEm: tokens.expiraEm,
+      }),
+    );
 
     return encerrar(NextResponse.redirect(`${origin}${destino}?google=ok&pid=${e.profissionalId}`));
   } catch (err) {
-    console.error("[google/callback] falha ao concluir a conexão", String(err));
+    if (err instanceof FalhaDeEtapa) {
+      // A chave torta é a causa mais provável de a gravação falhar, e o conserto é
+      // outro (recolar uma env var, não mexer no banco). Vale distinguir: `chave()`
+      // lança citando GOOGLE_TOKEN_KEY pelo nome.
+      const texto = String(err.causa);
+      if (err.motivo === "falha_ao_salvar" && texto.includes("GOOGLE_TOKEN_KEY")) {
+        return encerrar(erro("chave_invalida"));
+      }
+      return encerrar(erro(err.motivo));
+    }
+    console.error("[google/callback] falha inesperada", String(err));
     return encerrar(erro("falha_ao_conectar"));
   }
 }

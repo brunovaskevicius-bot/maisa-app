@@ -79,7 +79,7 @@ Sem as três, o botão de conectar não aparece (e nada quebra) — mesma lógic
 ### Detalhes que valem saber
 
 - **As datas são deslocadas.** A Agenda é um julho/2026 fixo, que já passou. O evento real é criado deslocando o mês por **semanas inteiras** até cair no futuro — assim "sexta 17" continua caindo numa sexta, e a folga de cada profissional continua fazendo sentido. A gaveta sempre mostra a data real antes de criar. Lógica em [`src/lib/google/datas.ts`](src/lib/google/datas.ts).
-- **Ninguém é convidado por e-mail.** O evento é criado só na agenda do profissional. Os clientes do protótipo são fictícios, mas os e-mails deles usam domínios **reais** (`@email.com`) — convidar dispararia e-mail de verdade para caixa de estranho. Para ligar, mande `convidarCliente: true` no POST de `/api/google/evento`, ciente disso.
+- **Ninguém é convidado por e-mail.** O evento é criado só na agenda do profissional. Os clientes do protótipo são fictícios, mas o e-mail deles é **real**: hoje todos apontam para o dono do projeto, de propósito, para que um teste de convite caia na própria caixa. (Antes era `@email.com`, que é um domínio de verdade, com dono — convidar disparava e-mail para estranhos.) Para ligar, mande `convidarCliente: true` no POST de `/api/google/evento`, ciente de que é e-mail real saindo.
 - **O WhatsApp abre com a mensagem pronta** (link `wa.me`), faltando apertar enviar. Envio automático depende da API oficial do WhatsApp, que este protótipo ainda não tem.
 - **Desconectar revoga de verdade** no Google, não só apaga a linha local.
 
