@@ -17,6 +17,7 @@
 import * as D from "./data";
 import { fmt } from "./ui";
 import { useStore } from "./store";
+import { rotuloReal, rotuloDeISO, horaDeISO } from "./google/datas";
 
 /* ───────────────────────────── tipos de bloco ───────────────────────────── */
 
@@ -261,6 +262,40 @@ export function useDetalhe(id: string | null): Detalhe | null {
   if (pr) {
     const on = st.profAtivo(pr.id);
     const primeiro = D.primeiroNome(pr.nome);
+
+    /* Conexão com o Google Calendar — uma agenda por profissional, então é aqui que
+     * ela mora: o botão fica ao lado da pessoa de quem é a agenda, não numa tela de
+     * configurações distante. */
+    const conexao = st.googleDe(pr.id);
+    const ocupado = st.googleOcupado(pr.id);
+    const blocoGoogle: Bloco = conexao
+      ? {
+        tipo: "texto", key: "gcal", label: "Google Calendar",
+        texto: `Conectado como ${conexao.googleEmail}. Os atendimentos de ${primeiro} podem virar evento nesta agenda, com link do Meet.`,
+      }
+      : st.google.status === "nao_configurado"
+        ? {
+          tipo: "aviso", key: "gcal", tone: "warn",
+          texto: `Google Calendar não configurado neste ambiente. Falta: ${st.google.faltando.join(", ")}.`,
+        }
+        : st.google.status === "carregando"
+          ? { tipo: "texto", key: "gcal", label: "Google Calendar", texto: "Verificando a conexão…" }
+          : {
+            tipo: "texto", key: "gcal", label: "Google Calendar",
+            texto: st.google.status === "ok"
+              ? `A agenda de ${primeiro} ainda não está conectada. Conectando, cada atendimento pode virar um evento com link do Meet para mandar no WhatsApp.`
+              : "Entre na sua conta para conectar uma agenda do Google.",
+          };
+
+    const acoesGoogle: Acao[] = [];
+    if (st.google.status === "ok") {
+      acoesGoogle.push(
+        conexao
+          ? { label: ocupado ? "Desconectando…" : "Desconectar do Google", desabilitada: ocupado, onClick: () => st.desconectarGoogle(pr.id) }
+          : { label: "Conectar agenda do Google", onClick: () => st.conectarGoogle(pr.id) },
+      );
+    }
+
     return {
       titulo: pr.nome, seed: pr.id, sub: `${pr.papel} · na equipe desde ${pr.desde}`,
       blocos: [
@@ -273,6 +308,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
             alternar: () => st.alternarProf(pr.id),
           }],
         },
+        blocoGoogle,
         {
           tipo: "stats", key: "dados", label: "Dados do profissional",
           linhas: [["Papel", pr.papel], ["Comissão", `${pr.comissao}%`], ["Na equipe desde", pr.desde]],
@@ -294,7 +330,8 @@ export function useDetalhe(id: string | null): Detalhe | null {
         },
       ],
       acoes: [
-        { label: "Ver na agenda", primaria: true, onClick: () => st.irPara("agenda") },
+        ...acoesGoogle,
+        { label: "Ver na agenda", primaria: !acoesGoogle.length, onClick: () => st.irPara("agenda") },
         { label: "Fechar", onClick: st.fechar },
       ],
     };
@@ -469,10 +506,78 @@ export function useDetalhe(id: string | null): Detalhe | null {
         },
       });
     }
-    if (cvAg) acoes.push({ label: "Abrir conversa", onClick: irParaConversa(cvAg.id), primaria: !ehHoje });
-    else acoes.push({ label: "Fechar", onClick: st.fechar });
+
+    /* ── Google Calendar + Meet ──
+     * O evento vai para a agenda do PROFISSIONAL do atendimento, então a ação só
+     * existe se aquela agenda estiver conectada. */
+    const evento = st.eventoGoogleDe(ag.id);
+    const conexaoAg = st.googleDe(ag.profissionalId);
+    const ocupadoAg = st.googleOcupado(ag.id);
+
+    /* Depois de criado, a data vem do ISO GRAVADO, nunca mais do cálculo: a previsão
+     * anda 7 dias por semana (ver rotuloDeISO), e um cliente recebendo a data errada
+     * junto de um link que funciona é o pior desfecho possível aqui. */
+    const quandoGoogle = evento?.inicioISO ? rotuloDeISO(evento.inicioISO) : rotuloReal(ag.dia);
+    const horaGoogle = evento?.inicioISO ? horaDeISO(evento.inicioISO) : D.hhmm(ag.inicio);
+
+    if (evento) {
+      if (evento.meetLink) {
+        const link = evento.meetLink;
+        // wa.me com texto pronto: abre o WhatsApp (app ou web) com a mensagem digitada,
+        // faltando só apertar enviar. É o envio REAL possível hoje — a MAISA que dispara
+        // sozinha depende da API oficial, que este protótipo ainda não tem.
+        const msg = `Oi, ${D.primeiroNome(ag.cliente.nome)}! Seu ${ag.servico.nome.toLowerCase()} com ${D.primeiroNome(ag.profissional.nome)} é ${quandoGoogle}, às ${horaGoogle}. Link para entrar: ${link}`;
+        const zapAg = `https://wa.me/55${ag.cliente.telefone.replace(/\D/g, "")}?text=${encodeURIComponent(msg)}`;
+        acoes.push({
+          label: "Enviar link no WhatsApp",
+          primaria: !ehHoje,
+          onClick: () => window.open(zapAg, "_blank", "noopener"),
+        });
+      }
+      acoes.push({
+        label: ocupadoAg ? "Removendo…" : "Remover do Google",
+        tone: "danger",
+        desabilitada: ocupadoAg,
+        onClick: () => st.cancelarEventoGoogle(ag.id),
+      });
+    } else if (conexaoAg && !passado) {
+      acoes.push({
+        label: ocupadoAg ? "Criando no Google…" : "Criar evento com Meet",
+        primaria: !ehHoje,
+        desabilitada: ocupadoAg,
+        onClick: () => st.criarEventoGoogle(ag.id),
+      });
+    }
+
+    if (cvAg) acoes.push({ label: "Abrir conversa", onClick: irParaConversa(cvAg.id), primaria: !ehHoje && !acoes.length });
+    else if (!acoes.length) acoes.push({ label: "Fechar", onClick: st.fechar });
 
     const quando = ehHoje ? "hoje" : `${ag.dia} de ${D.MES_AGENDA.nome}`;
+
+    /* Bloco do Google. Mostra a data REAL do evento, que não é a da tela: o calendário
+     * do protótipo é um julho/2026 fixo e já passado, então o evento é criado deslocado
+     * em semanas inteiras para a frente (ver src/lib/google/datas.ts). Esconder isso
+     * faria o usuário procurar na agenda um evento que está em outra data. */
+    const blocoGoogle: Bloco | null = evento
+      ? {
+        tipo: "stats", key: "gcal", label: "No Google Calendar",
+        linhas: [
+          ["Data do evento", `${quandoGoogle}, ${horaGoogle}`],
+          ["Google Meet", evento.meetLink ? "link criado" : "sem link"],
+          ["Agenda de", ag.profissional.nome],
+        ],
+      }
+      : conexaoAg && !passado
+        ? {
+          tipo: "texto", key: "gcal", label: "Google Calendar",
+          texto: `A agenda de ${D.primeiroNome(ag.profissional.nome)} está conectada (${conexaoAg.googleEmail}). O evento seria criado em ${rotuloReal(ag.dia)}, às ${D.hhmm(ag.inicio)}, com link do Meet.`,
+        }
+        : !conexaoAg && !passado && st.google.status === "ok"
+          ? {
+            tipo: "texto", key: "gcal", label: "Google Calendar",
+            texto: `A agenda de ${D.primeiroNome(ag.profissional.nome)} ainda não está conectada. Conecte em Minha Equipe para criar o evento e o link do Meet.`,
+          }
+          : null;
 
     return {
       titulo: ag.cliente.nome, seed: ag.cliente.id,
@@ -505,6 +610,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
                     ? "Em atendimento agora."
                     : "Confirmado pelo WhatsApp com a MAISA.",
         },
+        ...(blocoGoogle ? [blocoGoogle] : []),
         ...(!ag.confirmado && !passado
           ? [{ tipo: "aviso", key: "av", texto: ehHoje
               ? "Sem confirmação, o horário pode furar. Vale uma ligação se estiver perto da hora."

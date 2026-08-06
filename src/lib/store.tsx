@@ -43,6 +43,28 @@ export type AgendamentoVivo = {
   etapa: D.Etapa;
 };
 
+/** Evento criado no Google Calendar para um agendamento.
+ *
+ *  Mora no localStorage, junto do resto: o Supabase guarda só os TOKENS. Os
+ *  agendamentos deste app são mock em src/lib/data.ts + o que o usuário marca no
+ *  navegador — não existe tabela de agendamentos para pendurar um google_event_id.
+ *  Manter o vínculo aqui é o que permite a integração ser real sem transformar o
+ *  protótipo inteiro num app com banco. */
+export type EventoGoogle = {
+  eventId: string;
+  meetLink?: string;
+  htmlLink?: string;
+  /** De quem era a agenda — necessário para cancelar depois. */
+  profissionalId: string;
+  /** Instante REAL do evento ("2026-08-21T14:30:00-03:00"), como o servidor criou.
+   *
+   *  Gravado porque a previsão não serve depois: `semanasDeslocadas` depende de
+   *  Date.now() e salta 7 dias uma vez por semana. Sem isto, a gaveta passaria a
+   *  mostrar — e o WhatsApp a anunciar — uma data 7 dias à frente do evento que
+   *  está de fato no Google. */
+  inicioISO?: string;
+};
+
 /** O que sobrevive a um F5. */
 type Persistido = {
   etapas: Record<string, D.Etapa>;
@@ -63,12 +85,37 @@ type Persistido = {
   enviadas: Record<string, D.Msg[]>;
   notas: Record<string, D.Nota>;
   proximoNumero: number;
+  /** Eventos já criados no Google, por id de agendamento. */
+  googleEventos: Record<string, EventoGoogle>;
   assistente: Assistente;
   dias: D.Dia[];
   cfg: Record<D.ChaveCfg, boolean>;
 };
 
 const CHAVE = "maisa.app.v2";
+
+/* Motivos que a rota de conexão devolve na query string, em português de gente.
+ * Cada um diz o que aconteceu E o que fazer — "erro genérico" não ajuda ninguém. */
+const MOTIVO_GOOGLE: Record<string, string> = {
+  nao_configurado: "O Google Calendar ainda não está configurado neste ambiente",
+  nao_autenticado: "Sua sessão expirou — entre de novo para conectar",
+  login_necessario: "Entre na sua conta para conectar uma agenda",
+  profissional_invalido: "Profissional não encontrado",
+  permissao_negada: "Você não autorizou o acesso à agenda",
+  sessao_expirada: "A conexão demorou demais — tente de novo",
+  sem_codigo: "O Google não devolveu a autorização",
+  pkce_ausente: "A conexão foi interrompida — tente de novo",
+  sem_refresh_token: "O Google não liberou acesso contínuo. Remova a MAISA em myaccount.google.com → Segurança e conecte de novo",
+  falha_ao_conectar: "Não foi possível concluir a conexão com o Google",
+};
+
+/** Status de erro das rotas de evento (respostas JSON). */
+const RESPOSTA_GOOGLE: Record<string, string> = {
+  nao_configurado: "O Google Calendar não está configurado neste ambiente",
+  nao_autenticado: "Sua sessão expirou — entre de novo",
+  login_necessario: "Entre na sua conta para usar o Google Calendar",
+  payload_invalido: "Faltam dados do atendimento",
+};
 
 /** Um único array vazio compartilhado para os dias sem nada marcado — devolver `[]` novo a cada
  *  chamada faria toda dependência de memo mudar de identidade sem nada ter mudado de verdade. */
@@ -88,6 +135,7 @@ const INICIAL: Persistido = {
   enviadas: {},
   notas: {},
   proximoNumero: D.PROXIMO_NUMERO,
+  googleEventos: {},
   assistente: {
     nome: "MAISA",
     tom: "amigável",
@@ -194,9 +242,33 @@ export type StoreValue = {
   confirmarRascunho: () => void;
   descartarRascunho: () => void;
 
+  /* google calendar */
+  /** Estado da integração: se está configurada, se precisa de login, quem conectou. */
+  google: EstadoGoogle;
+  /** Conexão do profissional, se houver. */
+  googleDe: (profissionalId: string) => { googleEmail: string } | undefined;
+  /** Manda o navegador para o consentimento do Google (sai do app e volta). */
+  conectarGoogle: (profissionalId: string) => void;
+  desconectarGoogle: (profissionalId: string) => void;
+  /** Evento já criado para um agendamento, se houver. */
+  eventoGoogleDe: (agendamentoId: string) => EventoGoogle | undefined;
+  criarEventoGoogle: (agendamentoId: string) => void;
+  cancelarEventoGoogle: (agendamentoId: string) => void;
+  /** Há chamada em voo para este id (agendamento ou profissional)? Desabilita o botão. */
+  googleOcupado: (id: string) => boolean;
+
   /* rail */
   railAberto: boolean;
   setRailAberto: (v: boolean) => void;
+};
+
+/** O que a UI precisa saber sobre a integração antes de oferecer qualquer botão. */
+export type EstadoGoogle = {
+  /** "carregando" | "ok" | "nao_configurado" | "nao_autenticado" | "login_necessario" */
+  status: "carregando" | "ok" | "nao_configurado" | "nao_autenticado" | "login_necessario";
+  conexoes: { profissionalId: string; googleEmail: string }[];
+  /** Variáveis de ambiente que faltam, quando status = nao_configurado. */
+  faltando: string[];
 };
 
 const Ctx = createContext<StoreValue | null>(null);
@@ -807,6 +879,181 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     agendar(() => setSalvo(false), 2200);
   }, [agendar]);
 
+  /* ── google calendar ──
+   * Duas metades bem separadas: a CONEXÃO (tokens) vive no Supabase e é consultada
+   * do servidor; o VÍNCULO evento↔agendamento vive aqui no localStorage, porque o
+   * agendamento também vive. Ver o comentário do tipo EventoGoogle lá em cima. */
+
+  const [google, setGoogle] = useState<EstadoGoogle>({ status: "carregando", conexoes: [], faltando: [] });
+
+  /* Ids com operação em voo. É um CONJUNTO, e não um id só: desconectar um
+   * profissional, criar um evento e cancelar outro compartilhavam o mesmo slot, então
+   * o `finally` de qualquer um deles reabilitava os botões dos outros dois — inclusive
+   * o de um POST que ainda estava no ar. */
+  const [googleOcupados, setGoocupados] = useState<string[]>([]);
+  const marcarOcupado = useCallback((id: string, on: boolean) => {
+    setGoocupados((v) => (on ? [...v, id] : v.filter((x) => x !== id)));
+  }, []);
+  const googleOcupado = useCallback((id: string) => googleOcupados.includes(id), [googleOcupados]);
+
+  /** Trava SÍNCRONA das chamadas em voo.
+   *
+   *  `googleOcupado` é estado do React: entre o clique e o re-render que desabilita o
+   *  botão existe uma janela em que um segundo clique passa pela mesma checagem e
+   *  dispara um segundo POST — dois eventos no Google para o mesmo atendimento. Um ref
+   *  fecha essa janela porque é atualizado no mesmo tick. (O `requestId` estável evita
+   *  duplicar a CONFERÊNCIA, mas não o evento.) */
+  const googleEmVoo = useRef<Set<string>>(new Set());
+
+  const lerStatusGoogle = useCallback(async () => {
+    try {
+      const r = await fetch("/api/google/status").then((x) => x.json());
+      setGoogle({ status: r.status, conexoes: r.conexoes ?? [], faltando: r.faltando ?? [] });
+    } catch {
+      setGoogle({ status: "nao_configurado", conexoes: [], faltando: [] });
+    }
+  }, []);
+
+  useEffect(() => { void lerStatusGoogle(); }, [lerStatusGoogle]);
+
+  /* A volta do consentimento chega como ?google=ok|erro na URL. Lemos, avisamos e
+   * limpamos a query — deixar o parâmetro para trás faria o toast voltar a cada F5. */
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const r = q.get("google");
+    if (!r) return;
+
+    if (r === "ok") {
+      toast("Agenda do Google conectada");
+      void lerStatusGoogle();
+    } else {
+      toast(MOTIVO_GOOGLE[q.get("motivo") ?? ""] ?? "Não foi possível conectar ao Google");
+    }
+    q.delete("google"); q.delete("motivo"); q.delete("pid");
+    const busca = q.toString();
+    window.history.replaceState({}, "", window.location.pathname + (busca ? `?${busca}` : ""));
+  }, [lerStatusGoogle]);
+
+  const googleDe = useCallback(
+    (pid: string) => google.conexoes.find((c) => c.profissionalId === pid),
+    [google.conexoes],
+  );
+
+  const conectarGoogle = useCallback((pid: string) => {
+    // Navegação de página inteira, não fetch: o consentimento acontece no domínio do
+    // Google e ele devolve o usuário por redirect. `volta` traz de volta para a tela atual.
+    const volta = encodeURIComponent(window.location.pathname);
+    window.location.href = `/api/google/conectar?pid=${encodeURIComponent(pid)}&volta=${volta}`;
+  }, []);
+
+  const desconectarGoogle = useCallback(async (pid: string) => {
+    marcarOcupado(pid, true);
+    try {
+      const r = await fetch(`/api/google/conectar?pid=${encodeURIComponent(pid)}`, { method: "DELETE" })
+        .then((x) => x.json());
+      if (r.ok) {
+        toast(r.revogado ? "Agenda desconectada e acesso revogado no Google" : "Agenda desconectada");
+        await lerStatusGoogle();
+      } else {
+        toast("Não foi possível desconectar");
+      }
+    } catch {
+      toast("Sem conexão com o servidor");
+    } finally {
+      marcarOcupado(pid, false);
+    }
+  }, [lerStatusGoogle]);
+
+  const eventoGoogleDe = useCallback((agId: string) => db.googleEventos[agId], [db.googleEventos]);
+
+  const criarEventoGoogle = useCallback(async (agId: string) => {
+    const ag = agendamentoPorId(agId);
+    if (!ag || db.googleEventos[agId] || googleEmVoo.current.has(agId)) return;
+
+    googleEmVoo.current.add(agId);
+    marcarOcupado(agId, true);
+    try {
+      const r = await fetch("/api/google/evento", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agendamentoId: agId,
+          // Agendamento criado pelo usuário não existe em D.AGENDAMENTOS: o servidor
+          // não teria como resolvê-lo sozinho, então mandamos os campos. Ele valida
+          // tudo de novo contra o catálogo antes de usar.
+          dia: ag.dia,
+          inicio: ag.inicio,
+          profissionalId: ag.profissionalId,
+          servicoId: ag.servico.id,
+          clienteId: ag.cliente.id,
+          // Serviço criado pelo usuário não existe no catálogo do servidor: sem estes
+          // dois, o POST voltaria "Faltam dados do atendimento" sem dizer por quê.
+          duracao: ag.servico.duracao,
+          servicoNome: ag.servico.nome,
+          comMeet: true,
+        }),
+      }).then((x) => x.json());
+
+      if (r.ok) {
+        patch((d) => ({
+          googleEventos: {
+            ...d.googleEventos,
+            [agId]: {
+              eventId: r.eventId,
+              meetLink: r.meetLink ?? undefined,
+              htmlLink: r.htmlLink ?? undefined,
+              profissionalId: ag.profissionalId,
+              inicioISO: r.inicioISO ?? undefined,
+            },
+          },
+        }));
+        toast(r.semMeet ? "Evento criado — o Google não devolveu link do Meet" : "Evento criado com link do Meet");
+        return;
+      }
+
+      if (r.status === "reconectar") {
+        toast("O acesso ao Google expirou — conecte a agenda de novo");
+        await lerStatusGoogle();
+        return;
+      }
+      toast(RESPOSTA_GOOGLE[r.status] ?? r.info ?? "Não foi possível criar o evento");
+    } catch {
+      toast("Sem conexão com o servidor");
+    } finally {
+      googleEmVoo.current.delete(agId);
+      marcarOcupado(agId, false);
+    }
+  }, [agendamentoPorId, db.googleEventos, patch, lerStatusGoogle]);
+
+  const cancelarEventoGoogle = useCallback(async (agId: string) => {
+    const ev = db.googleEventos[agId];
+    if (!ev || googleEmVoo.current.has(agId)) return;
+
+    googleEmVoo.current.add(agId);
+    marcarOcupado(agId, true);
+    try {
+      const r = await fetch(
+        `/api/google/evento?eventId=${encodeURIComponent(ev.eventId)}&pid=${encodeURIComponent(ev.profissionalId)}`,
+        { method: "DELETE" },
+      ).then((x) => x.json());
+
+      if (r.ok) {
+        patch((d) => {
+          const { [agId]: _, ...resto } = d.googleEventos;
+          return { googleEventos: resto };
+        });
+        toast("Evento removido do Google");
+        return;
+      }
+      toast(RESPOSTA_GOOGLE[r.status] ?? "Não foi possível remover o evento");
+    } catch {
+      toast("Sem conexão com o servidor");
+    } finally {
+      googleEmVoo.current.delete(agId);
+      marcarOcupado(agId, false);
+    }
+  }, [db.googleEventos, patch]);
+
   /* ── valor ── */
   const value = useMemo<StoreValue>(() => ({
     tela, irPara, sel, abrir, fechar,
@@ -826,6 +1073,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     salvo, salvar,
     diaSel, verDia,
     rascunho, novoAgendamento, editarRascunho, confirmarRascunho, descartarRascunho,
+    google, googleDe, conectarGoogle, desconectarGoogle,
+    eventoGoogleDe, criarEventoGoogle, cancelarEventoGoogle, googleOcupado,
     railAberto, setRailAberto,
   }), [
     tela, irPara, sel, abrir, fechar,
@@ -844,6 +1093,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     db.cfg, alternarCfg,
     salvo, salvar,
     diaSel, rascunho,
+    google, googleDe, conectarGoogle, desconectarGoogle,
+    eventoGoogleDe, criarEventoGoogle, cancelarEventoGoogle, googleOcupado,
     railAberto,
   ]);
 

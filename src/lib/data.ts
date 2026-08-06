@@ -137,22 +137,22 @@ export type Cliente = {
 };
 
 export const CLIENTES: Cliente[] = [
-  { id: "cl1", nome: "Mariana Alves", telefone: "(11) 98123-4567", email: "mariana.alves@email.com", cpf: "312.456.789-01", canal: "Online", ativo: true, desde: "mar/2024", servicoId: "sv1", atendimentos: 9, valor: 900 },
-  { id: "cl2", nome: "Rafael Costa", telefone: "(11) 99876-1234", email: "rafael.costa@email.com", cpf: "408.221.334-90", canal: "Presencial", ativo: true, desde: "jan/2024", servicoId: "sv2", atendimentos: 9, valor: 540 },
-  { id: "cl3", nome: "Beatriz Lima", telefone: "(11) 97654-3210", email: "bia.lima@email.com", cpf: "199.873.221-44", canal: "Online", ativo: true, desde: "set/2024", servicoId: "sv3", atendimentos: 10, valor: 1800 },
-  { id: "cl4", nome: "Camila e Rodrigo", telefone: "(11) 99654-0099", email: "camila.rodrigo@email.com", cpf: "221.667.880-12", canal: "Presencial", ativo: true, desde: "nov/2024", servicoId: "sv4", atendimentos: 5, valor: 750 },
-  { id: "cl5", nome: "Lucas Martins", telefone: "(11) 98112-9087", email: "lucas.martins@email.com", cpf: "389.220.115-67", canal: "Online", ativo: true, desde: "abr/2025", servicoId: "sv1", atendimentos: 9, valor: 900 },
-  { id: "cl6", nome: "Fernanda Rocha", telefone: "(11) 99003-2211", email: "fe.rocha@email.com", cpf: "470.118.226-05", canal: "Presencial", ativo: true, desde: "jun/2024", servicoId: "sv1", atendimentos: 9, valor: 900 },
-  { id: "cl7", nome: "Pedro Henrique", telefone: "(11) 98890-5544", email: "pedro.h@email.com", cpf: "612.334.778-21", canal: "Online", ativo: true, desde: "out/2024", servicoId: "sv2", atendimentos: 9, valor: 540 },
-  { id: "cl8", nome: "Juliana Dias", telefone: "(11) 97221-8866", email: "juliana.dias@email.com", cpf: "298.554.110-78", canal: "Presencial", ativo: true, desde: "dez/2024", servicoId: "sv1", atendimentos: 8, valor: 800 },
-  { id: "cl9", nome: "Gustavo Nunes", telefone: "(11) 99445-1100", email: "gustavo.nunes@email.com", cpf: "334.876.220-09", canal: "Online", ativo: true, desde: "jun/2026", servicoId: "sv3", atendimentos: 8, valor: 1440 },
-  { id: "cl10", nome: "Larissa Gomes", telefone: "(11) 98667-3322", email: "larissa.gomes@email.com", cpf: "145.998.667-30", canal: "Online", ativo: true, desde: "mai/2025", servicoId: "sv2", atendimentos: 8, valor: 480 },
-  { id: "cl11", nome: "Thiago Barros", telefone: "(11) 99778-4455", email: "thiago.barros@email.com", cpf: "502.117.889-64", canal: "Presencial", ativo: true, desde: "ago/2024", servicoId: "sv1", atendimentos: 9, valor: 900 },
-  { id: "cl12", nome: "Vinícius Carvalho", telefone: "(11) 98223-6677", email: "vinicius.c@email.com", cpf: "677.443.221-18", canal: "Online", ativo: true, desde: "jan/2025", servicoId: "sv5", atendimentos: 8, valor: 640 },
-  { id: "cl13", nome: "Anderson Reis", telefone: "(11) 99771-0342", email: "anderson.reis@email.com", cpf: "556.221.998-73", canal: "Presencial", ativo: true, desde: "fev/2025", servicoId: "sv6", atendimentos: 7, valor: 490 },
-  { id: "cl14", nome: "Sofia Ribeiro", telefone: "(11) 97334-9988", email: "sofia.r@email.com", cpf: "811.225.443-50", canal: "Online", ativo: false, desde: "mar/2023", servicoId: "sv1", atendimentos: 0, valor: 0 },
-  { id: "cl15", nome: "Marcelo Tavares", telefone: "(11) 99110-2200", email: "marcelo.t@email.com", cpf: "723.889.110-42", canal: "Presencial", ativo: false, desde: "jul/2023", servicoId: "sv2", atendimentos: 0, valor: 0 },
-  { id: "cl16", nome: "Patrícia Mendes", telefone: "(11) 98556-7711", email: "patricia.m@email.com", cpf: "455.667.889-23", canal: "Online", ativo: false, desde: "fev/2023", servicoId: "sv1", atendimentos: 0, valor: 0 },
+  { id: "cl1", nome: "Mariana Alves", telefone: "(11) 98123-4567", email: "bruno.vaskevicius@polijunior.com.br", cpf: "312.456.789-01", canal: "Online", ativo: true, desde: "mar/2024", servicoId: "sv1", atendimentos: 9, valor: 900 },
+  { id: "cl2", nome: "Rafael Costa", telefone: "(11) 99876-1234", email: "bruno.vaskevicius@polijunior.com.br", cpf: "408.221.334-90", canal: "Presencial", ativo: true, desde: "jan/2024", servicoId: "sv2", atendimentos: 9, valor: 540 },
+  { id: "cl3", nome: "Beatriz Lima", telefone: "(11) 97654-3210", email: "bruno.vaskevicius@polijunior.com.br", cpf: "199.873.221-44", canal: "Online", ativo: true, desde: "set/2024", servicoId: "sv3", atendimentos: 10, valor: 1800 },
+  { id: "cl4", nome: "Camila e Rodrigo", telefone: "(11) 99654-0099", email: "bruno.vaskevicius@polijunior.com.br", cpf: "221.667.880-12", canal: "Presencial", ativo: true, desde: "nov/2024", servicoId: "sv4", atendimentos: 5, valor: 750 },
+  { id: "cl5", nome: "Lucas Martins", telefone: "(11) 98112-9087", email: "bruno.vaskevicius@polijunior.com.br", cpf: "389.220.115-67", canal: "Online", ativo: true, desde: "abr/2025", servicoId: "sv1", atendimentos: 9, valor: 900 },
+  { id: "cl6", nome: "Fernanda Rocha", telefone: "(11) 99003-2211", email: "bruno.vaskevicius@polijunior.com.br", cpf: "470.118.226-05", canal: "Presencial", ativo: true, desde: "jun/2024", servicoId: "sv1", atendimentos: 9, valor: 900 },
+  { id: "cl7", nome: "Pedro Henrique", telefone: "(11) 98890-5544", email: "bruno.vaskevicius@polijunior.com.br", cpf: "612.334.778-21", canal: "Online", ativo: true, desde: "out/2024", servicoId: "sv2", atendimentos: 9, valor: 540 },
+  { id: "cl8", nome: "Juliana Dias", telefone: "(11) 97221-8866", email: "bruno.vaskevicius@polijunior.com.br", cpf: "298.554.110-78", canal: "Presencial", ativo: true, desde: "dez/2024", servicoId: "sv1", atendimentos: 8, valor: 800 },
+  { id: "cl9", nome: "Gustavo Nunes", telefone: "(11) 99445-1100", email: "bruno.vaskevicius@polijunior.com.br", cpf: "334.876.220-09", canal: "Online", ativo: true, desde: "jun/2026", servicoId: "sv3", atendimentos: 8, valor: 1440 },
+  { id: "cl10", nome: "Larissa Gomes", telefone: "(11) 98667-3322", email: "bruno.vaskevicius@polijunior.com.br", cpf: "145.998.667-30", canal: "Online", ativo: true, desde: "mai/2025", servicoId: "sv2", atendimentos: 8, valor: 480 },
+  { id: "cl11", nome: "Thiago Barros", telefone: "(11) 99778-4455", email: "bruno.vaskevicius@polijunior.com.br", cpf: "502.117.889-64", canal: "Presencial", ativo: true, desde: "ago/2024", servicoId: "sv1", atendimentos: 9, valor: 900 },
+  { id: "cl12", nome: "Vinícius Carvalho", telefone: "(11) 98223-6677", email: "bruno.vaskevicius@polijunior.com.br", cpf: "677.443.221-18", canal: "Online", ativo: true, desde: "jan/2025", servicoId: "sv5", atendimentos: 8, valor: 640 },
+  { id: "cl13", nome: "Anderson Reis", telefone: "(11) 99771-0342", email: "bruno.vaskevicius@polijunior.com.br", cpf: "556.221.998-73", canal: "Presencial", ativo: true, desde: "fev/2025", servicoId: "sv6", atendimentos: 7, valor: 490 },
+  { id: "cl14", nome: "Sofia Ribeiro", telefone: "(11) 97334-9988", email: "bruno.vaskevicius@polijunior.com.br", cpf: "811.225.443-50", canal: "Online", ativo: false, desde: "mar/2023", servicoId: "sv1", atendimentos: 0, valor: 0 },
+  { id: "cl15", nome: "Marcelo Tavares", telefone: "(11) 99110-2200", email: "bruno.vaskevicius@polijunior.com.br", cpf: "723.889.110-42", canal: "Presencial", ativo: false, desde: "jul/2023", servicoId: "sv2", atendimentos: 0, valor: 0 },
+  { id: "cl16", nome: "Patrícia Mendes", telefone: "(11) 98556-7711", email: "bruno.vaskevicius@polijunior.com.br", cpf: "455.667.889-23", canal: "Online", ativo: false, desde: "fev/2023", servicoId: "sv1", atendimentos: 0, valor: 0 },
   // Tomador de teste da integração fiscal. CPF real e existente de propósito: a
   // prefeitura valida a existência do documento, e CPF inventado é rejeitado
   // antes de a integração ser exercitada. R$ 1,00 para o valor não importar.
