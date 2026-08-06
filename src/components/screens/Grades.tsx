@@ -8,7 +8,7 @@
  * Nenhuma delas tem estado próprio: tudo que muda vem do store. */
 
 import React from "react";
-import { s, Icon, fmt, fmtK, Filtros, EmptyState, Tabela, CelulaNome, Badge, SectionTitle } from "@/lib/ui";
+import { s, Icon, fmt, fmtK, Filtros, EmptyState, Tabela, CelulaNome, Badge, SectionTitle, Btn, Monogram } from "@/lib/ui";
 import * as D from "@/lib/data";
 import { useIsMobile, useEstreita } from "@/lib/useIsMobile";
 import { useStore, type TelaId } from "@/lib/store";
@@ -255,7 +255,11 @@ export function Equipe() {
                 atenuado={!on}
                 onClick={() => st.abrir(p.id)}
                 resumo={`${p.atendimentosMes} atendimentos no mês · nota ${p.avaliacao.toFixed(1)} · comissão ${p.comissao}% · folga ${p.folga}`}
-                chips={p.servicoIds.slice(0, 2).map((sid) => D.nomeServico(sid))
+                /* "Google" entra na frente dos serviços: no celular só cabem uns três
+                   chips, e saber que a agenda está ligada muda o que dá para fazer
+                   com aquele profissional — quais serviços ele faz, não. */
+                chips={(st.googleDe(p.id) ? ["Google"] : [])
+                  .concat(p.servicoIds.slice(0, 2).map((sid) => D.nomeServico(sid)))
                   .concat(p.servicoIds.length > 2 ? [`+${p.servicoIds.length - 2}`] : [])}
               />
             );
@@ -308,6 +312,20 @@ export function Equipe() {
               celula: (p) => st.profAtivo(p.id)
                 ? <Badge tone="success" dot>ativo</Badge>
                 : <Badge tone="neutral" dot>pausado</Badge>,
+            },
+            /* "Quem tem agenda conectada?" era uma pergunta que só a gaveta respondia,
+               uma pessoa por vez. Aqui é comparativa como o resto da tabela — e o
+               e-mail no title revela quando duas pessoas dividem a mesma conta. */
+            {
+              chave: "gcal", label: "Agenda", largura: "130px", secundaria: true,
+              ordenar: (p) => (st.googleDe(p.id) ? 0 : 1),
+              celula: (p) => {
+                const conexao = st.googleDe(p.id);
+                if (st.google.status !== "ok") return <span style={s("color:var(--muted)")}>—</span>;
+                return conexao
+                  ? <span title={conexao.googleEmail}><Badge tone="primary" dot>Google</Badge></span>
+                  : <span style={s("font-size:var(--t-label);color:var(--muted)")}>não conectada</span>;
+              },
             },
           ]}
         />
@@ -430,6 +448,121 @@ export function Servicos() {
  * Agora tem três grupos com nome, e os atalhos de navegação só existem no MOBILE, onde o rail
  * não existe. No desktop eles não aparecem, porque ali já estão a um clique de distância. */
 
+/* ═══════════════════════════════ CONEXÕES ═══════════════════════════════ */
+
+/** O painel que responde "a agenda está conectada?" sem obrigar ninguém a abrir
+ *  quatro gavetas para descobrir.
+ *
+ *  O botão de conectar continua morando na ficha do profissional — é lá que a
+ *  ação faz sentido, ao lado da pessoa de quem é a agenda. O que faltava era o
+ *  panorama: com uma conexão POR PROFISSIONAL, o estado da integração é uma
+ *  lista, não um interruptor, e não existia tela nenhuma que mostrasse essa
+ *  lista inteira. Quem conectou dois de quatro não tinha como perceber.
+ *
+ *  Também é o único lugar que mostra a causa quando não dá para conectar
+ *  (ambiente sem as chaves, sessão caída). Na gaveta isso aparecia solto, uma
+ *  ficha de cada vez, como se fosse problema daquele profissional. */
+function Conexoes() {
+  const st = useStore();
+  const equipe = D.EQUIPE;
+  const conectados = equipe.filter((p) => st.googleDe(p.id)).length;
+
+  /* Cabeçalho da seção: um número, não um adjetivo. "Parcialmente conectado"
+     não diz se falta um ou três. */
+  const sub = st.google.status === "ok"
+    ? conectados === 0
+      ? "Nenhuma agenda conectada ainda"
+      : `${conectados} de ${equipe.length} agendas conectadas`
+    : "Google Calendar e Meet";
+
+  /* Estados em que a lista por profissional não faz sentido: o impedimento é do
+     ambiente ou da sessão, igual para todo mundo. Mostrar quatro linhas de
+     "não conectado" aqui sugeriria que é só clicar. */
+  const impedimento =
+    st.google.status === "carregando"
+      ? { tom: "neutral" as const, titulo: "Verificando a conexão…", texto: "Consultando quais agendas já estão ligadas." }
+      : st.google.status === "nao_configurado"
+        ? {
+            tom: "warn" as const,
+            titulo: "Google Calendar não configurado neste ambiente",
+            texto: `Falta definir ${st.google.faltando.join(", ")}. Enquanto isso o app funciona normalmente — só não cria eventos.`,
+          }
+        : st.google.status !== "ok"
+          ? { tom: "warn" as const, titulo: "Entre na sua conta para conectar", texto: "As agendas ficam ligadas à sua conta, então é preciso estar logado." }
+          : null;
+
+  return (
+    <section>
+      <SectionTitle title="Conexões" sub={sub} />
+      <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden")}>
+        {/* Faixa de topo: o que a integração FAZ, em uma frase. Sem isto, "Google
+            Calendar — conectado" não diz o que muda no dia a dia de quem usa. */}
+        <div style={s("display:flex;align-items:center;gap:13px;padding:15px 17px;border-bottom:1px solid var(--line)")}>
+          <span style={s("width:38px;height:38px;flex-shrink:0;border-radius:12px;background:var(--primary-soft);color:var(--primary-dark);display:flex;align-items:center;justify-content:center")}>
+            <Icon name="calendar-check" size={19} sw={1.9} />
+          </span>
+          <span style={s("flex:1;min-width:0;line-height:1.35")}>
+            <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title)")}>Google Calendar + Meet</span>
+            <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px")}>
+              Cada atendimento pode virar um evento na agenda do profissional, com link do Meet para mandar no WhatsApp.
+            </span>
+          </span>
+        </div>
+
+        {impedimento ? (
+          <div style={s("display:flex;align-items:flex-start;gap:11px;padding:15px 17px")}>
+            <span style={s(`flex-shrink:0;margin-top:1px;color:${impedimento.tom === "warn" ? "var(--warn)" : "var(--muted)"}`)}>
+              <Icon name={impedimento.tom === "warn" ? "alert" : "clock"} size={17} sw={1.9} />
+            </span>
+            <span style={s("flex:1;min-width:0;line-height:1.4")}>
+              <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title)")}>{impedimento.titulo}</span>
+              <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:3px")}>{impedimento.texto}</span>
+            </span>
+          </div>
+        ) : (
+          equipe.map((p, i) => {
+            const conexao = st.googleDe(p.id);
+            const ocupado = st.googleOcupado(p.id);
+            return (
+              <div
+                key={p.id}
+                style={s(`display:flex;align-items:center;gap:12px;padding:13px 17px;flex-wrap:wrap;${i < equipe.length - 1 ? "border-bottom:1px solid var(--line)" : ""}`)}
+              >
+                <Monogram name={p.nome} id={p.id} size={34} radius={11} />
+                <span style={s("flex:1;min-width:150px;line-height:1.3")}>
+                  <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title)")}>{p.nome}</span>
+                  {/* O e-mail da conta, não só "conectado": a mesma conta Google pode
+                      servir a mais de um profissional, e sem o endereço não dá para
+                      saber que duas colunas caem na MESMA agenda. */}
+                  <span
+                    style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}
+                    title={conexao?.googleEmail}
+                  >
+                    {conexao ? conexao.googleEmail : "Sem agenda conectada"}
+                  </span>
+                </span>
+                {conexao
+                  ? <Badge tone="success" dot>conectada</Badge>
+                  : <Badge tone="neutral" dot>desligada</Badge>}
+                <Btn
+                  size="sm"
+                  variant={conexao ? "secondary" : "primary"}
+                  onClick={() => (conexao ? st.desconectarGoogle(p.id) : st.conectarGoogle(p.id))}
+                  style={ocupado ? s("opacity:.5;pointer-events:none") : undefined}
+                >
+                  {ocupado ? "Aguarde…" : conexao ? "Desconectar" : "Conectar"}
+                </Btn>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ═══════════════════════════════ MAIS ═══════════════════════════════ */
+
 export function Mais() {
   const st = useStore();
   const mobile = useIsMobile();
@@ -508,6 +641,8 @@ export function Mais() {
           <Badge tone="success" dot>em dia</Badge>
         </button>
       </section>
+
+      <Conexoes />
 
       <section>
         <SectionTitle title="Conteúdo e números" sub="O que a MAISA responde e como o mês foi" />
