@@ -109,6 +109,9 @@ const MOTIVO_GOOGLE: Record<string, string> = {
   /* Os quatro abaixo eram um "falha_ao_conectar" só. Separados porque o conserto de
      cada um é diferente — e quem conecta uma agenda não tem como abrir log de servidor. */
   troca_recusada: "O Google recusou a troca do código. Confira o GOOGLE_CLIENT_SECRET e se o redirect URI cadastrado bate exatamente com o do app",
+  secret_invalido: "O Google não reconheceu o app (invalid_client): o GOOGLE_CLIENT_ID ou o GOOGLE_CLIENT_SECRET no Vercel não são os do client OAuth que você criou",
+  uri_nao_bate: "O redirect URI não bate. Cadastre exatamente https://…/api/google/callback no client OAuth, sem barra no fim",
+  codigo_gasto: "A autorização venceu ou já tinha sido usada. Clique em Conectar de novo e conclua sem recarregar a página",
   sem_email: "Autorizou, mas não deu para ler o e-mail da conta. Falta o escopo userinfo.email na tela de consentimento",
   chave_invalida: "GOOGLE_TOKEN_KEY inválida: precisa dar 32 bytes ao decodificar de base64. Gere com openssl rand -base64 32 e cole o valor inteiro",
   falha_ao_salvar: "Autorizou, mas o banco recusou a gravação. Confira se o SQL de supabase/ rodou no projeto certo",

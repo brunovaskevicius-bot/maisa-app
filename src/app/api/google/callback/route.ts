@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isGoogleConfigured, redirectUri, caminhoDeVolta } from "@/lib/google/config";
 import { lerEstado } from "@/lib/google/cripto";
-import { trocarCodigo, emailDaConta } from "@/lib/google/oauth";
+import { trocarCodigo, emailDaConta, RecusaDoGoogle } from "@/lib/google/oauth";
 import { salvar } from "@/lib/google/integracoes";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,11 +112,23 @@ export async function GET(request: Request) {
     return encerrar(NextResponse.redirect(`${origin}${destino}?google=ok&pid=${e.profissionalId}`));
   } catch (err) {
     if (err instanceof FalhaDeEtapa) {
+      // O Google diz por que recusou, e cada código tem conserto próprio. Sem isto,
+      // "secret errado" e "redirect URI que não bate" saem com a mesma frase — e o
+      // usuário vai mexer na coisa errada.
+      if (err.causa instanceof RecusaDoGoogle) {
+        const porCodigo: Record<string, string> = {
+          invalid_client: "secret_invalido",
+          unauthorized_client: "secret_invalido",
+          redirect_uri_mismatch: "uri_nao_bate",
+          invalid_grant: "codigo_gasto",
+        };
+        return encerrar(erro(porCodigo[err.causa.codigo] ?? "troca_recusada"));
+      }
+
       // A chave torta é a causa mais provável de a gravação falhar, e o conserto é
       // outro (recolar uma env var, não mexer no banco). Vale distinguir: `chave()`
       // lança citando GOOGLE_TOKEN_KEY pelo nome.
-      const texto = String(err.causa);
-      if (err.motivo === "falha_ao_salvar" && texto.includes("GOOGLE_TOKEN_KEY")) {
+      if (err.motivo === "falha_ao_salvar" && String(err.causa).includes("GOOGLE_TOKEN_KEY")) {
         return encerrar(erro("chave_invalida"));
       }
       return encerrar(erro(err.motivo));

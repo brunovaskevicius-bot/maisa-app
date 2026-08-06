@@ -20,6 +20,20 @@ export class PrecisaReconectar extends Error {
   }
 }
 
+/** Recusa do endpoint de token, com o código que o PRÓPRIO Google devolveu.
+ *
+ *  `codigo` é o campo `error` do corpo — enumeração fechada do RFC 6749
+ *  (`invalid_client`, `invalid_grant`, `redirect_uri_mismatch`…), não texto livre,
+ *  então dá para mapear numa mensagem nossa sem ecoar string de terceiro na tela.
+ *  A distinção importa: "client secret errado" e "redirect URI que não bate" caem
+ *  os dois em "recusado", e o conserto de um não tem nada a ver com o do outro. */
+export class RecusaDoGoogle extends Error {
+  constructor(public codigo: string) {
+    super(`Google recusou a troca: ${codigo}`);
+    this.name = "RecusaDoGoogle";
+  }
+}
+
 /* ───────────────────────────── consent ───────────────────────────── */
 
 export function urlDeConsentimento(opts: { redirectUri: string; state: string; challenge: string }): string {
@@ -73,7 +87,12 @@ export async function trocarCodigo(code: string, redirectUri: string, verifier: 
   });
 
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`Falha ao trocar o código: ${d.error ?? r.status}`);
+  // `d.error_description` também vem, e fica SÓ no log: é texto que o Google escreve,
+  // e texto de terceiro não deve virar a frase que o usuário lê na nossa tela.
+  if (!r.ok) {
+    console.error("[google/oauth] troca recusada:", d.error, d.error_description ?? "");
+    throw new RecusaDoGoogle(String(d.error ?? r.status));
+  }
 
   return {
     accessToken: d.access_token,
