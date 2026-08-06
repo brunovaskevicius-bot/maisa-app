@@ -1,9 +1,21 @@
 "use client";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { s, Icon } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/client";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/supabase/config";
+
+/* Motivos que /auth/callback devolve, em português de gente. Cada um diz o que
+ * aconteceu E o que fazer — "tente de novo" só serve quando tentar de novo pode
+ * dar certo, e no caso do provedor desligado nunca dá. */
+const MOTIVO: Record<string, string> = {
+  provedor_desligado: "O login com Google não está habilitado neste projeto. Entre com e-mail e senha.",
+  permissao_negada: "Você não autorizou o acesso à sua conta Google.",
+  sem_codigo: "O provedor não devolveu a autorização. Entre com e-mail e senha.",
+  troca_falhou: "A autorização expirou antes de virar sessão. Tente entrar de novo.",
+  oauth: "Não foi possível concluir o login pelo provedor. Entre com e-mail e senha.",
+  auth: "Não foi possível concluir o login. Tente de novo.", // legado: links antigos
+};
 
 function GoogleG() {
   return (
@@ -22,8 +34,29 @@ function LoginInner() {
   const next = params.get("next") || "/";
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [erro, setErro] = useState<string | null>(params.get("error") ? "Não foi possível concluir o login. Tente de novo." : null);
+  const motivo = params.get("error");
+  const [erro, setErro] = useState<string | null>(motivo ? (MOTIVO[motivo] ?? MOTIVO.auth) : null);
   const [carregando, setCarregando] = useState(false);
+
+  /* O botão do Google só aparece se o provedor estiver LIGADO no projeto.
+   *
+   * Sem esta checagem ele navega para o /authorize do Supabase, que responde
+   * 400 com um JSON cru — e o usuário, que só queria entrar, encara
+   * {"code":400,…,"Unsupported provider"} numa página branca. Um botão que não
+   * pode funcionar é pior do que botão nenhum, então some.
+   *
+   * `null` = ainda checando: some também, para o botão não piscar na tela e
+   * sumir. É um GET público no mesmo host que a página já vai conversar. */
+  const [googleLigado, setGoogleLigado] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let vivo = true;
+    fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_ANON_KEY! } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => vivo && setGoogleLigado(Boolean(j?.external?.google)))
+      .catch(() => vivo && setGoogleLigado(false));
+    return () => { vivo = false; };
+  }, []);
 
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,15 +133,19 @@ function LoginInner() {
             </button>
           </form>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={s("flex:1;height:1px;background:var(--border)")} />
-            <span style={s("font-size:var(--t-label);color:var(--muted);font-weight:var(--w-title)")}>ou</span>
-            <div style={s("flex:1;height:1px;background:var(--border)")} />
-          </div>
+          {googleLigado && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={s("flex:1;height:1px;background:var(--border)")} />
+                <span style={s("font-size:var(--t-label);color:var(--muted);font-weight:var(--w-title)")}>ou</span>
+                <div style={s("flex:1;height:1px;background:var(--border)")} />
+              </div>
 
-          <button onClick={entrarGoogle} disabled={!isSupabaseConfigured || carregando} className="m-hov-bg m-press m-focus" style={s(`display:flex;align-items:center;justify-content:center;gap:11px;height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:var(--w-title);font-size:var(--t-sm);cursor:${!isSupabaseConfigured || carregando ? "not-allowed" : "pointer"};opacity:${!isSupabaseConfigured ? ".6" : "1"}`)}>
-            <GoogleG /> Continuar com Google
-          </button>
+              <button onClick={entrarGoogle} disabled={!isSupabaseConfigured || carregando} className="m-hov-bg m-press m-focus" style={s(`display:flex;align-items:center;justify-content:center;gap:11px;height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:var(--w-title);font-size:var(--t-sm);cursor:${!isSupabaseConfigured || carregando ? "not-allowed" : "pointer"};opacity:${!isSupabaseConfigured ? ".6" : "1"}`)}>
+                <GoogleG /> Continuar com Google
+              </button>
+            </>
+          )}
         </div>
 
         <p style={s("text-align:center;font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
