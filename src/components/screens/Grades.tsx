@@ -234,9 +234,13 @@ export function Equipe() {
         rotulo="Equipe"
         valor={String(ativos.length)}
         sub={`de ${D.EQUIPE.length} recebendo agendamentos`}
+        /* "pausados" só aparece quando há algum. Com a equipe de uma pessoa o marco
+           ficava fixo em "0 pausados" — ocupando espaço para não dizer nada. */
         marcos={[
           { n: D.EQUIPE.reduce((a, p) => a + p.atendimentosMes, 0), label: "atendimentos no mês", tom: "primary" },
-          { n: D.EQUIPE.length - ativos.length, label: "pausados", tom: "neutral" },
+          ...(D.EQUIPE.length - ativos.length > 0
+            ? [{ n: D.EQUIPE.length - ativos.length, label: "pausados", tom: "neutral" as const }]
+            : []),
         ]}
       />
       {mobile ? (

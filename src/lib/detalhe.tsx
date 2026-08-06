@@ -319,13 +319,16 @@ export function useDetalhe(id: string | null): Detalhe | null {
         },
         {
           tipo: "lista", key: "svc", label: "Faz estes serviços",
-          itens: pr.servicoIds.map((sid) => {
-            const sv = D.servico(sid)!;
-            return {
+          // Espelho do "Quem faz" do serviço, e com a mesma correção: um id órfão
+          // sai da lista em vez de derrubar a gaveta.
+          itens: pr.servicoIds.flatMap((sid) => {
+            const sv = D.servico(sid);
+            if (!sv) return [];
+            return [{
               id: sid, nome: sv.nome,
               sub: `${fmt(sv.preco)} · ${sv.duracao} min`,
               onClick: () => st.abrir(sid),
-            };
+            }];
           }),
         },
       ],
@@ -431,13 +434,17 @@ export function useDetalhe(id: string | null): Detalhe | null {
           : []),
         {
           tipo: "lista", key: "quem", label: "Quem faz",
-          itens: sv.profissionalIds.map((pid) => {
-            const p = D.profissional(pid)!;
-            return {
+          // flatMap e não map: o `!` de antes derrubava a gaveta inteira quando o
+          // serviço citava alguém fora da equipe — e sv4/sv5/sv6 eram exatamente esse
+          // caso. Sumir da lista é infinitamente melhor que tela branca.
+          itens: sv.profissionalIds.flatMap((pid) => {
+            const p = D.profissional(pid);
+            if (!p) return [];
+            return [{
               id: pid, nome: p.nome, seed: pid,
               sub: st.profAtivo(pid) ? "recebendo agendamentos" : "pausado",
               onClick: () => st.abrir(pid),
-            };
+            }];
           }),
         },
       ],

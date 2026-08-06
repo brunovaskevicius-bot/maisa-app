@@ -358,24 +358,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const agendamentos = useMemo<AgendamentoVivo[]>(() => {
     // D.AGENDAMENTOS é o dia de partida, D.AGENDA_MES é o resto do mês (gerado — ver data.ts),
     // e `novosAgendamentos` são os que o usuário marcou na Agenda.
-    return [...D.AGENDAMENTOS, ...D.AGENDA_MES, ...db.novosAgendamentos].map((a) => {
+    return [...D.AGENDAMENTOS, ...D.AGENDA_MES, ...db.novosAgendamentos].flatMap((a) => {
       const pos = db.posicoes[a.id];
       const profissionalId = pos?.profissionalId ?? a.profissionalId;
       const inicio = pos?.inicio ?? a.inicio;
-      const sv = D.servico(a.servicoId) ?? db.svcNovos.find((s) => s.id === a.servicoId)!;
-      return {
+      const sv = D.servico(a.servicoId) ?? db.svcNovos.find((s) => s.id === a.servicoId);
+      const pf = D.profissional(profissionalId);
+      const cl = D.cliente(a.clienteId);
+
+      /* Aqui havia três `!`. Eles são promessa de compilação e não valem nada em
+       * runtime: um agendamento apontando para profissional/serviço/cliente que não
+       * existe mais devolvia `undefined`, e a primeira leitura de `.nome` derrubava
+       * a tela INTEIRA — inclusive o Fluxo de hoje, que é a porta de entrada.
+       *
+       * Isso deixou de ser hipótese quando a equipe encolheu para uma pessoa: basta
+       * um registro velho no localStorage citando `pr2`. Some da lista e avisa no
+       * console; um atendimento a menos é muito melhor que tela branca. */
+      if (!sv || !pf || !cl) {
+        console.warn(
+          `[store] agendamento ${a.id} ignorado — ` +
+          [!pf && `profissional ${profissionalId}`, !sv && `serviço ${a.servicoId}`, !cl && `cliente ${a.clienteId}`]
+            .filter(Boolean).join(", ") + " não existe(m)",
+        );
+        return [];
+      }
+
+      return [{
         id: a.id,
         dia: pos?.dia ?? a.dia ?? D.HOJE.num,
         inicio,
         duracao: sv.duracao,
         fim: inicio + sv.duracao / 60,
         profissionalId,
-        profissional: D.profissional(profissionalId)!,
+        profissional: pf,
         servico: sv,
-        cliente: D.cliente(a.clienteId)!,
+        cliente: cl,
         confirmado: a.confirmado,
         etapa: db.etapas[a.id] ?? a.etapaInicial,
-      };
+      }];
     }).sort((x, y) => x.dia - y.dia || x.inicio - y.inicio);
     // novosAgendamentos e svcNovos entram nas deps: sem elas o memo ficava preso na lista antiga e
     // um atendimento recém-marcado era gravado no localStorage sem NUNCA aparecer na grade.

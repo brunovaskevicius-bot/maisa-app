@@ -239,11 +239,14 @@ function GradeDia({ dia }: { dia: number }) {
       <div style={s(`display:grid;grid-template-columns:${colunas};position:sticky;top:0;background:var(--surface);z-index:8;padding-top:12px`)}>
         <div />
         {D.COLUNAS_AGENDA.map((pid) => {
-          const p = D.profissional(pid)!;
+          // COLUNAS_AGENDA e EQUIPE têm que andar juntos; se divergirem, pular a coluna
+          // em vez de estourar num `!` que só existe no compilador.
+          const p = D.profissional(pid);
+          if (!p) return <div key={pid} />;
           const on = st.profAtivo(pid);
           // Folga do dia visível — coisa diferente de "pausado", que é você ter desligado a pessoa
-          // no app. Sem esta marca a coluna do Léo num sábado lia como o horário mais vazio da
-          // casa, e a tela de Equipe, na mesma sessão, dizia que ele folga sábado.
+          // no app. Sem esta marca uma coluna em dia de folga lia como o horário mais vazio da
+          // casa, e a tela de Equipe, na mesma sessão, dizia que era folga.
           const folga = !D.atende(pid, dia);
           return (
             <div key={pid} style={s(`display:flex;align-items:center;gap:9px;padding:0 10px 12px;opacity:${on && !folga ? "1" : "0.55"}`)}>

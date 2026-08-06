@@ -62,11 +62,17 @@ export type Profissional = {
   folga: string;
 };
 
+/* UM profissional só, e é de propósito.
+ *
+ * A agenda do Google do `pr1` é a fonte da verdade dos atendimentos (conectada em
+ * 06/08/2026), e uma agenda real de UMA pessoa não convive com três colegas
+ * fictícios: as outras colunas mostrariam atendimentos que não existem em lugar
+ * nenhum. Quem quiser a equipe de volta traz junto uma conexão por pessoa.
+ *
+ * Os serviços de pr2/pr3/pr4 foram absorvidos aqui (ver SERVICOS abaixo) para
+ * nenhum serviço ficar sem quem o faça. */
 export const EQUIPE: Profissional[] = [
-  { id: "pr1", nome: "Rafael Antunes", papel: "Atendimento geral", atendimentosMes: 168, avaliacao: 4.9, comissao: 50, desde: "jan/2024", servicoIds: ["sv1", "sv2", "sv3", "sv7"], ativo: true, horario: "Seg–Sáb 09–19", folga: "domingo" },
-  { id: "pr2", nome: "Diego Moraes", papel: "Especialista sênior", atendimentosMes: 142, avaliacao: 4.8, comissao: 45, desde: "mar/2024", servicoIds: ["sv1", "sv3", "sv4", "sv6"], ativo: true, horario: "Ter–Sáb 10–20", folga: "domingo e segunda" },
-  { id: "pr3", nome: "Léo Barbosa", papel: "Atendimento especializado", atendimentosMes: 97, avaliacao: 4.7, comissao: 45, desde: "jun/2024", servicoIds: ["sv1", "sv2", "sv5"], ativo: true, horario: "Seg–Sex 08–17", folga: "sábado e domingo" },
-  { id: "pr4", nome: "Caio Ferraz", papel: "Atendimento júnior", atendimentosMes: 0, avaliacao: 4.6, comissao: 40, desde: "fev/2025", servicoIds: ["sv6"], ativo: false, horario: "Qui–Sáb 13–19", folga: "segunda a quarta" },
+  { id: "pr1", nome: "Rafael Antunes", papel: "Atendimento geral", atendimentosMes: 168, avaliacao: 4.9, comissao: 50, desde: "jan/2024", servicoIds: ["sv1", "sv2", "sv3", "sv4", "sv5", "sv6", "sv7"], ativo: true, horario: "Seg–Sáb 09–19", folga: "domingo" },
 ];
 
 /** Atendimento sendo marcado na Agenda, antes de virar agendamento de verdade.
@@ -81,8 +87,14 @@ export type RascunhoAgendamento = {
   servicoId: string;
 };
 
-/** Profissionais que aparecem como coluna na grade da Agenda. */
-export const COLUNAS_AGENDA = ["pr1", "pr2", "pr3"];
+/** Profissionais que aparecem como coluna na grade da Agenda.
+ *
+ *  ⚠️ É TAMBÉM a allowlist do servidor nas rotas do Google (conectar e evento): só
+ *  ids daqui podem conectar uma agenda ou criar evento. A exceção é o DELETE de
+ *  conectar, que aceita qualquer `pr…` de propósito — senão uma conexão antiga em
+ *  pr2/pr3 viraria linha impossível de desconectar, segurando um refresh token vivo
+ *  e invisível. O RLS já garante que ninguém apaga a linha de outro. */
+export const COLUNAS_AGENDA = ["pr1"];
 
 /* ───────────────────────────── catálogo ───────────────────────────── */
 
@@ -98,13 +110,16 @@ export type Servico = {
   ativo: boolean;
 };
 
+/* Todo serviço aponta para pr1 — sv4, sv5 e sv6 eram exclusivos de pr2/pr3/pr4.
+ * Deixá-los sem ninguém não era só cosmético: a gaveta do serviço faz
+ * `D.profissional(pid)!.nome` para montar "Quem faz", e abrir sv4 dava tela branca. */
 export const SERVICOS: Servico[] = [
-  { id: "sv1", nome: "Atendimento padrão", categoria: "Recorrente", preco: 100, duracao: 40, profissionalIds: ["pr1", "pr2", "pr3"], ativo: true },
-  { id: "sv2", nome: "Atendimento rápido", categoria: "Recorrente", preco: 60, duracao: 30, profissionalIds: ["pr1", "pr3"], ativo: true },
-  { id: "sv3", nome: "Pacote completo", categoria: "Pacote", preco: 180, duracao: 60, profissionalIds: ["pr1", "pr2"], ativo: true },
-  { id: "sv4", nome: "Atendimento premium", categoria: "Pacote", preco: 150, duracao: 45, profissionalIds: ["pr2"], ativo: true },
-  { id: "sv5", nome: "Serviço adicional", categoria: "Extra", preco: 80, duracao: 40, profissionalIds: ["pr3"], ativo: true },
-  { id: "sv6", nome: "Atendimento avulso", categoria: "Extra", preco: 70, duracao: 30, profissionalIds: ["pr2", "pr4"], ativo: true },
+  { id: "sv1", nome: "Atendimento padrão", categoria: "Recorrente", preco: 100, duracao: 40, profissionalIds: ["pr1"], ativo: true },
+  { id: "sv2", nome: "Atendimento rápido", categoria: "Recorrente", preco: 60, duracao: 30, profissionalIds: ["pr1"], ativo: true },
+  { id: "sv3", nome: "Pacote completo", categoria: "Pacote", preco: 180, duracao: 60, profissionalIds: ["pr1"], ativo: true },
+  { id: "sv4", nome: "Atendimento premium", categoria: "Pacote", preco: 150, duracao: 45, profissionalIds: ["pr1"], ativo: true },
+  { id: "sv5", nome: "Serviço adicional", categoria: "Extra", preco: 80, duracao: 40, profissionalIds: ["pr1"], ativo: true },
+  { id: "sv6", nome: "Atendimento avulso", categoria: "Extra", preco: 70, duracao: 30, profissionalIds: ["pr1"], ativo: true },
   { id: "sv7", nome: "Consulta inicial", categoria: "Extra", preco: 90, duracao: 30, profissionalIds: ["pr1"], ativo: false },
 ];
 
@@ -225,19 +240,21 @@ export type Agendamento = {
   etapaInicial: Etapa;
 };
 
+/* Os nove eram repartidos entre pr1, pr2 e pr3, e três pares se sobrepunham no
+ * relógio — o que era normal quando eram três pessoas em colunas diferentes.
+ * Com uma só, foram REESCALONADOS em fila: uma pessoa não atende dois às 9:30.
+ * `escalonar()` na Agenda até desenharia os dois lado a lado, mas o dado estaria
+ * mentindo. Tudo cabe em 09–19, que é o expediente do pr1. */
 export const AGENDAMENTOS: Agendamento[] = [
   { id: "ag1", inicio: 9, profissionalId: "pr1", servicoId: "sv1", clienteId: "cl6", confirmado: true, etapaInicial: "feito" },
-  { id: "ag2", inicio: 9.5, profissionalId: "pr3", servicoId: "sv2", clienteId: "cl2", confirmado: true, etapaInicial: "feito" },
-  { id: "ag3", inicio: 10, profissionalId: "pr2", servicoId: "sv3", clienteId: "cl9", confirmado: true, etapaInicial: "atendendo" },
-  { id: "ag4", inicio: 11.5, profissionalId: "pr2", servicoId: "sv4", clienteId: "cl4", confirmado: true, etapaInicial: "chegando" },
-  { id: "ag5", inicio: 13.5, profissionalId: "pr3", servicoId: "sv1", clienteId: "cl11", confirmado: false, etapaInicial: "chegando" },
-  { id: "ag6", inicio: 14, profissionalId: "pr1", servicoId: "sv2", clienteId: "cl7", confirmado: true, etapaInicial: "chegando" },
+  { id: "ag2", inicio: 10, profissionalId: "pr1", servicoId: "sv2", clienteId: "cl2", confirmado: true, etapaInicial: "feito" },
+  { id: "ag3", inicio: 11, profissionalId: "pr1", servicoId: "sv3", clienteId: "cl9", confirmado: true, etapaInicial: "atendendo" },
+  { id: "ag4", inicio: 13, profissionalId: "pr1", servicoId: "sv4", clienteId: "cl4", confirmado: true, etapaInicial: "chegando" },
+  { id: "ag5", inicio: 14, profissionalId: "pr1", servicoId: "sv1", clienteId: "cl11", confirmado: false, etapaInicial: "chegando" },
+  { id: "ag6", inicio: 15, profissionalId: "pr1", servicoId: "sv2", clienteId: "cl7", confirmado: true, etapaInicial: "chegando" },
   { id: "ag7", inicio: 15.5, profissionalId: "pr1", servicoId: "sv3", clienteId: "cl3", confirmado: true, etapaInicial: "chegando" },
-  { id: "ag8", inicio: 17, profissionalId: "pr2", servicoId: "sv6", clienteId: "cl13", confirmado: false, etapaInicial: "chegando" },
-  // 16:00 e não 17:30: o Léo atende até as 17 (EQUIPE[2].horario, e agora EXPEDIENTE.pr3), então
-  // às 17:30 este atendimento caía na faixa que a grade desenha como "fora do expediente" — a
-  // própria tela de Equipe desmentia a própria Agenda.
-  { id: "ag9", inicio: 16, profissionalId: "pr3", servicoId: "sv5", clienteId: "cl12", confirmado: true, etapaInicial: "chegando" },
+  { id: "ag8", inicio: 16.5, profissionalId: "pr1", servicoId: "sv6", clienteId: "cl13", confirmado: false, etapaInicial: "chegando" },
+  { id: "ag9", inicio: 17.5, profissionalId: "pr1", servicoId: "sv5", clienteId: "cl12", confirmado: true, etapaInicial: "chegando" },
 ];
 
 /* ───────────────────────────── o mês da agenda ─────────────────────────────
@@ -288,30 +305,33 @@ export function celulasDoMes(): CelulaMes[] {
   });
 }
 
-/** Horários que a casa costuma encher, na ordem. Cada par (hora, profissional) é único. */
+/** Horários que a casa costuma encher, na ordem.
+ *
+ *  Espaçados de HORA EM HORA de propósito. O gerador de AGENDA_MES escolhe um
+ *  subconjunto diferente a cada dia (`salto`), e com três profissionais dois picks
+ *  vizinhos podiam se sobrepor sem problema — eram colunas diferentes. Com um
+ *  profissional só, qualquer sobreposição vira a mesma pessoa em dois lugares.
+ *  Como a maior duração do catálogo é 60 min (sv3), passo de 60 min garante que
+ *  NENHUM subconjunto colida, sem o gerador precisar saber disso. */
 const PAUTA: { inicio: number; servicoId: string; profissionalId: string }[] = [
   { inicio: 9, servicoId: "sv1", profissionalId: "pr1" },
-  { inicio: 9.5, servicoId: "sv2", profissionalId: "pr3" },
-  { inicio: 10, servicoId: "sv3", profissionalId: "pr2" },
-  { inicio: 11, servicoId: "sv2", profissionalId: "pr1" },
-  { inicio: 11.5, servicoId: "sv4", profissionalId: "pr2" },
-  { inicio: 13.5, servicoId: "sv1", profissionalId: "pr3" },
-  { inicio: 14, servicoId: "sv2", profissionalId: "pr1" },
-  { inicio: 15, servicoId: "sv5", profissionalId: "pr3" },
-  { inicio: 15.5, servicoId: "sv3", profissionalId: "pr1" },
-  { inicio: 17, servicoId: "sv6", profissionalId: "pr2" },
-  { inicio: 17.5, servicoId: "sv5", profissionalId: "pr3" },
+  { inicio: 10, servicoId: "sv2", profissionalId: "pr1" },
+  { inicio: 11, servicoId: "sv3", profissionalId: "pr1" },
+  { inicio: 13, servicoId: "sv4", profissionalId: "pr1" },
+  { inicio: 14, servicoId: "sv1", profissionalId: "pr1" },
+  { inicio: 15, servicoId: "sv2", profissionalId: "pr1" },
+  { inicio: 16, servicoId: "sv5", profissionalId: "pr1" },
+  { inicio: 17, servicoId: "sv6", profissionalId: "pr1" },
+  { inicio: 18, servicoId: "sv2", profissionalId: "pr1" },
 ];
 
 /** Quando cada profissional atende, em dado ESTRUTURADO.
- *  EQUIPE[].horario e EQUIPE[].folga são frases para o dono ler ("Seg–Sex 08–17", "folga sábado
- *  e domingo"); o calendário precisa do número. Sem isto a Agenda marcava o Léo num sábado e às
- *  17:30 — e a tela de Equipe, na mesma sessão, dizia que ele folga sábado e sai às 17.
+ *  EQUIPE[].horario e EQUIPE[].folga são frases para o dono ler ("Seg–Sáb 09–19", "folga
+ *  domingo"); o calendário precisa do número. Sem isto a Agenda marcava gente em dia de folga
+ *  e fora do horário — e a tela de Equipe, na mesma sessão, desmentia a Agenda.
  *  Se os dois divergirem, é ESTE que a Agenda obedece: mantenha o par junto. */
 export const EXPEDIENTE: Record<string, { folga: number[]; de: number; ate: number }> = {
   pr1: { folga: [6], de: 9, ate: 19 },     // Seg–Sáb 09–19 · folga domingo
-  pr2: { folga: [6, 0], de: 10, ate: 20 }, // Ter–Sáb 10–20 · folga domingo e segunda
-  pr3: { folga: [5, 6], de: 8, ate: 17 },  // Seg–Sex 08–17 · folga sábado e domingo
 };
 
 /** Esse profissional trabalha nesse dia? */
@@ -440,7 +460,7 @@ export const SUGESTOES: Record<string, string[]> = {
 export type ItemFila = { id: string; alvo: string; titulo: string; tag: string; msg: string };
 
 export const FILA: ItemFila[] = [
-  { id: "fl1", alvo: "cv2", titulo: "Larissa (mãe do Gustavo)", tag: "encaixe", msg: "Consegue encaixar o Gustavo hoje à tarde? A agenda do Diego não tem vaga." },
+  { id: "fl1", alvo: "cv2", titulo: "Larissa (mãe do Gustavo)", tag: "encaixe", msg: "Consegue encaixar o Gustavo hoje à tarde? A tarde parece cheia." },
   { id: "fl2", alvo: "cv1", titulo: "Thiago Barros", tag: "remarcar", msg: "Quer trocar as 13:30 de hoje por quinta às 10h." },
   { id: "fl3", alvo: "ag5", titulo: "Thiago Barros", tag: "confirmar", msg: "13:30 ainda não confirmado — a MAISA já cobrou duas vezes." },
   { id: "fl4", alvo: "ag8", titulo: "Anderson Reis", tag: "confirmar", msg: "17:00 sem confirmação desde ontem." },
@@ -551,7 +571,9 @@ export const NUMEROS_MES = {
   periodo: "Julho de 2026",
   resultado: [
     ["Faturamento", "R$ 18.240,00"],
-    ["Atendimentos", "407"],
+    // 168 e não 407: 407 era a soma dos quatro profissionais, e a tela de Equipe
+    // agora mostra 168. Dois números para a mesma coisa, discordando.
+    ["Atendimentos", "168"],
     ["Ocupação média", "78%"],
     ["Novos clientes", "37"],
   ] as [string, string][],

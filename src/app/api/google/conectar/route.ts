@@ -90,8 +90,14 @@ export async function DELETE(request: Request) {
   const user = await usuario();
   if (!user) return NextResponse.json({ ok: false, status: "nao_autenticado" }, { status: 401 });
 
+  // Allowlist MAIS FROUXA que a do GET, de propósito. `COLUNAS_AGENDA` encolheu para
+  // ["pr1"] quando a equipe virou uma pessoa só, e uma conexão gravada antes disso
+  // (pr2, pr3) ficaria impossível de desconectar: a UI não a lista, e esta rota a
+  // recusaria — um refresh token vivo, invisível e permanente. Desconectar não precisa
+  // de allowlist para ser seguro: o RLS garante que cada um só apaga a própria linha, e
+  // a revogação usa o token daquela mesma linha.
   const profissionalId = new URL(request.url).searchParams.get("pid") ?? "";
-  if (!D.COLUNAS_AGENDA.includes(profissionalId)) {
+  if (!/^pr\d+$/.test(profissionalId)) {
     return NextResponse.json({ ok: false, status: "profissional_invalido" }, { status: 400 });
   }
 
