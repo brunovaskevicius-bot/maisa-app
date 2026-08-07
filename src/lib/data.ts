@@ -217,11 +217,19 @@ export const NOTAS_INICIAIS: Record<string, Nota> = {
 /** Primeiro número que a emissão simulada usa (continua de onde as iniciais param). */
 export const PROXIMO_NUMERO = 117;
 
-/* ───────────────────────────── agendamentos de hoje ─────────────────────────────
- * UMA lista só alimenta o Fluxo de hoje (kanban) E a Agenda (grade). No design
- * original eram dois mocks com pessoas diferentes, o que fazia arrastar num lugar
- * não aparecer no outro. Aqui a etapa do kanban e a posição na grade são estados
- * do MESMO agendamento, então as duas telas contam a mesma história. */
+/* ───────────────────────────── atendimentos ─────────────────────────────
+ * Aqui ficam só o TIPO e as etapas — os atendimentos em si saíram deste arquivo.
+ *
+ * Eram ~150 exemplos gerados para um julho/2026 que nunca aconteceu. Enquanto a
+ * agenda era ficção, serviam; a partir do momento em que a agenda do Google virou a
+ * fonte da verdade, eles passaram a ser uma SEGUNDA agenda desenhada por cima da
+ * primeira, e nenhuma tela conseguia dizer qual das duas era a real.
+ *
+ * De onde vem um atendimento agora: de um clique num horário vago, e ele vive no
+ * localStorage (store.novosAgendamentos). Os compromissos que já estão no Google
+ * entram pela LEITURA, em cinza e só leitura (store.bloqueios). Fluxo de hoje e
+ * Agenda continuam lendo a MESMA lista — é isso que faz arrastar num lugar aparecer
+ * no outro. */
 
 /** Etapa do dia — as três colunas do kanban. */
 export type Etapa = "chegando" | "atendendo" | "feito";
@@ -241,23 +249,6 @@ export type Agendamento = {
   confirmado: boolean;
   etapaInicial: Etapa;
 };
-
-/* Os nove eram repartidos entre pr1, pr2 e pr3, e três pares se sobrepunham no
- * relógio — o que era normal quando eram três pessoas em colunas diferentes.
- * Com uma só, foram REESCALONADOS em fila: uma pessoa não atende dois às 9:30.
- * `escalonar()` na Agenda até desenharia os dois lado a lado, mas o dado estaria
- * mentindo. Tudo cabe em 09–19, que é o expediente do pr1. */
-export const AGENDAMENTOS: Agendamento[] = [
-  { id: "ag1", inicio: 9, profissionalId: "pr1", servicoId: "sv1", clienteId: "cl6", confirmado: true, etapaInicial: "feito" },
-  { id: "ag2", inicio: 10, profissionalId: "pr1", servicoId: "sv2", clienteId: "cl2", confirmado: true, etapaInicial: "feito" },
-  { id: "ag3", inicio: 11, profissionalId: "pr1", servicoId: "sv3", clienteId: "cl9", confirmado: true, etapaInicial: "atendendo" },
-  { id: "ag4", inicio: 13, profissionalId: "pr1", servicoId: "sv4", clienteId: "cl4", confirmado: true, etapaInicial: "chegando" },
-  { id: "ag5", inicio: 14, profissionalId: "pr1", servicoId: "sv1", clienteId: "cl11", confirmado: false, etapaInicial: "chegando" },
-  { id: "ag6", inicio: 15, profissionalId: "pr1", servicoId: "sv2", clienteId: "cl7", confirmado: true, etapaInicial: "chegando" },
-  { id: "ag7", inicio: 15.5, profissionalId: "pr1", servicoId: "sv3", clienteId: "cl3", confirmado: true, etapaInicial: "chegando" },
-  { id: "ag8", inicio: 16.5, profissionalId: "pr1", servicoId: "sv6", clienteId: "cl13", confirmado: false, etapaInicial: "chegando" },
-  { id: "ag9", inicio: 17.5, profissionalId: "pr1", servicoId: "sv5", clienteId: "cl12", confirmado: true, etapaInicial: "chegando" },
-];
 
 /* ───────────────────────────── calendário ─────────────────────────────
  * DATAS REAIS, em "YYYY-MM-DD".
@@ -393,26 +384,6 @@ export function janelaDoMes(anoMes: string): { de: string; ate: string } {
   return { de: c[0].data, ate: c[c.length - 1].data };
 }
 
-/** Horários que a casa costuma encher, na ordem.
- *
- *  Espaçados de HORA EM HORA de propósito. O gerador de AGENDA_MES escolhe um
- *  subconjunto diferente a cada dia (`salto`), e com três profissionais dois picks
- *  vizinhos podiam se sobrepor sem problema — eram colunas diferentes. Com um
- *  profissional só, qualquer sobreposição vira a mesma pessoa em dois lugares.
- *  Como a maior duração do catálogo é 60 min (sv3), passo de 60 min garante que
- *  NENHUM subconjunto colida, sem o gerador precisar saber disso. */
-const PAUTA: { inicio: number; servicoId: string; profissionalId: string }[] = [
-  { inicio: 9, servicoId: "sv1", profissionalId: "pr1" },
-  { inicio: 10, servicoId: "sv2", profissionalId: "pr1" },
-  { inicio: 11, servicoId: "sv3", profissionalId: "pr1" },
-  { inicio: 13, servicoId: "sv4", profissionalId: "pr1" },
-  { inicio: 14, servicoId: "sv1", profissionalId: "pr1" },
-  { inicio: 15, servicoId: "sv2", profissionalId: "pr1" },
-  { inicio: 16, servicoId: "sv5", profissionalId: "pr1" },
-  { inicio: 17, servicoId: "sv6", profissionalId: "pr1" },
-  { inicio: 18, servicoId: "sv2", profissionalId: "pr1" },
-];
-
 /** Quando cada profissional atende, em dado ESTRUTURADO.
  *  EQUIPE[].horario e EQUIPE[].folga são frases para o dono ler ("Seg–Sáb 09–19", "folga
  *  domingo"); o calendário precisa do número. Sem isto a Agenda marcava gente em dia de folga
@@ -434,67 +405,17 @@ export const podeComecar = (profissionalId: string, data: string, inicio: number
   return !!e && atende(profissionalId, data) && inicio >= e.de && inicio < e.ate;
 };
 
-/** …e o atendimento inteiro cabe antes de ele ir embora. */
-export const cabeNoExpediente = (profissionalId: string, data: string, inicio: number, duracaoMin: number) => {
-  const e = EXPEDIENTE[profissionalId];
-  return !!e && podeComecar(profissionalId, data, inicio) && inicio + duracaoMin / 60 <= e.ate;
-};
-
-const CLI_AGENDA = ["cl1", "cl2", "cl3", "cl4", "cl5", "cl6", "cl7", "cl8", "cl9", "cl10", "cl11", "cl12", "cl13"];
-
-/**
- * Os atendimentos de exemplo de UM dia.
+/* Aqui morava o GERADOR de atendimentos de exemplo — `agendaDoDia`/`agendaDaJanela`,
+ * mais a PAUTA de horários e a lista de clientes que ele sorteava. Ele inventava de
+ * quatro a sete atendimentos por dia útil, determinísticos a partir da data.
  *
- * ⚠️ TEMPORÁRIO. Isto morre na fatia 3, quando a agenda do Google passa a ser a única
- * fonte. Existe agora por um motivo de depuração: com dados de exemplo ainda na tela, um
- * bloco no dia da semana errado acusa erro de DATA; sem eles, uma tela vazia poderia ser
- * erro de data, de fetch, de filtro ou de permissão, e não haveria como saber qual.
+ * Saiu porque a agenda passou a ser real. Um exemplo bem-feito é indistinguível do
+ * dado verdadeiro — que é exatamente o que se quer de um protótipo e exatamente o que
+ * não se pode ter quando a tela vira ferramenta: o dono não teria como saber se aquele
+ * 14:00 é um cliente que vem ou uma invenção nossa.
  *
- * Determinístico de propósito — nada de Math.random nem de Date.now aqui dentro. A grade
- * do mês pergunta por 42 dias a cada render e o hover re-renderiza; um gerador aleatório
- * embaralharia o calendário debaixo do mouse.
- *
- * Hoje fica FORA do gerador: hoje são exatamente os nove agendamentos acima, que são o
- * que o Fluxo de hoje mostra. Mexer neles mudaria o kanban.
- */
-export function agendaDoDia(data: string): Agendamento[] {
-  if (data === HOJE.iso) return AGENDAMENTOS.map((a) => ({ ...a, data }));
-  if (fechado(data)) return [];
-
-  // Só os horários que cabem no expediente de quem atende — folga E hora de saída.
-  const livres = PAUTA.filter((p) =>
-    cabeNoExpediente(p.profissionalId, data, p.inicio, SERVICOS.find((s) => s.id === p.servicoId)!.duracao));
-  if (!livres.length) return [];
-
-  // Semente derivada da própria data: o mesmo dia sempre produz os mesmos atendimentos,
-  // em qualquer sessão e em qualquer máquina.
-  const semente = Number(data.slice(5, 7)) * 31 + diaDoMes(data);
-  const passado = data < HOJE.iso; // ISO ordena cronologicamente como string
-  const qtd = Math.min(4 + ((semente * 3) % 4), livres.length);
-  const salto = (semente * 3) % livres.length;
-
-  return Array.from({ length: qtd }, (_, i) => {
-    const slot = livres[(salto + i) % livres.length];
-    return {
-      id: `ag-${data}-${i}`,
-      data,
-      inicio: slot.inicio,
-      profissionalId: slot.profissionalId,
-      servicoId: slot.servicoId,
-      clienteId: CLI_AGENDA[(semente * 7 + i * 3) % CLI_AGENDA.length],
-      // dia que já passou está fechado; à frente, um em cada seis ainda não respondeu
-      confirmado: passado || (semente + i) % 6 !== 0,
-      etapaInicial: passado ? "feito" : ("chegando" as Etapa),
-    };
-  });
-}
-
-/** Os atendimentos de exemplo de uma janela de datas, inclusive nas duas pontas. */
-export function agendaDaJanela(de: string, ate: string): Agendamento[] {
-  const out: Agendamento[] = [];
-  for (let d = de; d <= ate; d = somarDias(d, 1)) out.push(...agendaDoDia(d));
-  return out;
-}
+ * `cabeNoExpediente` saiu junto: o gerador era seu único chamador. Volta em quatro
+ * linhas quando alguém precisar validar o destino de um arrasto. */
 
 /* ───────────────────────────── conversas ─────────────────────────────
  * `estado` é a situação de origem; assumir/devolver no app sobrepõe isso.
@@ -566,16 +487,27 @@ export const SUGESTOES: Record<string, string[]> = {
 };
 
 /* ───────────────────────────── fila "Precisa de você" ─────────────────────────────
- * O que o dia tem de decisão pendente. `alvo` é o id que a Gaveta abre — pode ser
- * uma conversa (cv…) ou um agendamento (ag…). */
+ * O que o dia tem de decisão pendente. `alvo` é o id que a Gaveta abre. */
 
 export type ItemFila = { id: string; alvo: string; titulo: string; tag: string; msg: string };
 
-export const FILA: ItemFila[] = [
-  { id: "fl1", alvo: "cv2", titulo: "Larissa (mãe do Gustavo)", tag: "encaixe", msg: "Consegue encaixar o Gustavo hoje à tarde? A tarde parece cheia." },
-  { id: "fl2", alvo: "cv1", titulo: "Thiago Barros", tag: "remarcar", msg: "Quer trocar as 13:30 de hoje por quinta às 10h." },
-  { id: "fl3", alvo: "ag5", titulo: "Thiago Barros", tag: "confirmar", msg: "13:30 ainda não confirmado — a MAISA já cobrou duas vezes." },
-  { id: "fl4", alvo: "ag8", titulo: "Anderson Reis", tag: "confirmar", msg: "17:00 sem confirmação desde ontem." },
+/**
+ * A METADE da fila que vem das conversas. A outra metade — as cobranças de confirmação —
+ * é DERIVADA dos atendimentos de hoje, no store.
+ *
+ * Antes as quatro eram escritas à mão, e duas apontavam para `ag5` e `ag8`. Com os
+ * atendimentos de exemplo fora, elas virariam cliques mortos: a gaveta abriria sem
+ * encontrar nada. Pior que sumir seria continuar ali dizendo "17:00 sem confirmação"
+ * sobre um horário que não existe em agenda nenhuma.
+ *
+ * Estas duas sobrevivem porque falam de CONVERSAS, e as conversas continuam sendo
+ * demonstração — o WhatsApp não está integrado. Por isso também perderam a referência
+ * a horários concretos: a conversa é fictícia, a agenda não é mais, e a fictícia não
+ * pode afirmar nada sobre a real.
+ */
+export const FILA_CONVERSAS: ItemFila[] = [
+  { id: "fl1", alvo: "cv2", titulo: "Larissa (mãe do Gustavo)", tag: "encaixe", msg: "Consegue encaixar o Gustavo hoje à tarde?" },
+  { id: "fl2", alvo: "cv1", titulo: "Thiago Barros", tag: "remarcar", msg: "Quer trocar o horário de hoje por quinta às 10h." },
 ];
 
 /* ───────────────────────────── ajustes da MAISA ───────────────────────────── */
@@ -707,20 +639,10 @@ export const FATURAS = [
 export const profissional = (id: string) => EQUIPE.find((p) => p.id === id);
 export const servico = (id: string) => SERVICOS.find((s) => s.id === id);
 export const cliente = (id: string) => CLIENTES.find((c) => c.id === id);
-/**
- * Um agendamento de exemplo pelo id.
- *
- * Já foi uma busca em dois arrays. Com o mês gerado sob demanda não existe mais array
- * para varrer, então o id CARREGA a data (`ag-2026-08-11-2`) e a regeneramos. Sem isto,
- * arrastar um bloco de outro dia acontecia calado — sem toast e sem "Desfazer" — porque
- * o registro de origem simplesmente não era encontrado.
- */
-export function agendamento(id: string): Agendamento | undefined {
-  const fixo = AGENDAMENTOS.find((a) => a.id === id);
-  if (fixo) return { ...fixo, data: HOJE.iso };
-  const m = /^ag-(\d{4}-\d{2}-\d{2})-\d+$/.exec(id);
-  return m ? agendaDoDia(m[1]).find((a) => a.id === id) : undefined;
-}
+/* Não há mais `agendamento(id)` aqui. Enquanto existiam exemplos, este arquivo sabia
+ * responder "quem é o ag5?"; agora todo atendimento nasce no navegador ou no Google, e
+ * quem sabe responder é o store. Deixar um lookup que devolve `undefined` para todo id
+ * seria pior que não ter: cada `?? D.agendamento(id)` viraria um fallback que nunca cai. */
 export const conversa = (id: string) => CONVERSAS.find((c) => c.id === id);
 
 export const nomeProfissional = (id: string) => profissional(id)?.nome ?? "—";

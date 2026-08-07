@@ -9,10 +9,16 @@
  * está fazendo o trabalho. Por isso o estado vazio é comemorativo, não neutro.
  *
  * Arrastar e o botão de avançar mexem no MESMO estado que a Agenda lê — não são
- * duas listas paralelas. Ver src/lib/data.ts → AGENDAMENTOS. */
+ * duas listas paralelas. Ver store.agendamentos.
+ *
+ * ⚠️ Este quadro é dos ATENDIMENTOS DE CLIENTE, e só deles. Os compromissos lidos da
+ * agenda do Google (dentista, almoço, reunião) aparecem na Agenda, em cinza, e não aqui:
+ * "Chegando → Em atendimento → Feito" não é uma frase que se possa dizer sobre eles. Por
+ * isso o estado vazio menciona quantos são — sem essa linha, um quadro vazio num dia de
+ * agenda cheia lê como "a MAISA não está enxergando meu calendário". */
 
 import React from "react";
-import { s, Icon, Monogram, EmptyState } from "@/lib/ui";
+import { s, Icon, Monogram, Btn, EmptyState } from "@/lib/ui";
 import { useIsMobile } from "@/lib/useIsMobile";
 import * as D from "@/lib/data";
 import { useStore, type AgendamentoVivo } from "@/lib/store";
@@ -154,6 +160,26 @@ export default function FluxoHoje() {
   const doDia = st.agendamentosDoDia(D.HOJE.iso);
   const porEtapa = (e: D.Etapa) => doDia.filter((a) => a.etapa === e);
 
+  /* O dia sem nenhum atendimento deixou de ser exceção quando os ~150 de exemplo saíram —
+   * passou a ser o estado NORMAL de um app recém-aberto. E esta é a tela de entrada.
+   *
+   * Três colunas tracejadas pedindo "arraste alguém para cá" sem ninguém para arrastar
+   * não é um estado vazio, é um app que parece quebrado. Aqui o vazio diz o que está
+   * acontecendo, quantos compromissos o Google tem hoje, e para onde ir. */
+  const bloqHoje = st.bloqueiosDoDia(D.HOJE.iso);
+  const vazio = (
+    <EmptyState
+      icon="flow"
+      title="Nenhum atendimento marcado para hoje"
+      sub={
+        bloqHoje.length
+          ? `Sua agenda do Google tem ${bloqHoje.length} ${bloqHoje.length === 1 ? "compromisso" : "compromissos"} hoje — ${bloqHoje.length === 1 ? "ele aparece" : "eles aparecem"} na Agenda, em cinza, ocupando o horário. Este quadro acompanha os atendimentos de cliente: marque um na Agenda e ele entra aqui.`
+          : "Marque um horário na Agenda e o atendimento aparece aqui, para você acompanhar da chegada até a conclusão."
+      }
+      action={<Btn icon="calendar" onClick={() => st.irPara("agenda")}>Abrir a Agenda</Btn>}
+    />
+  );
+
   /* ── mobile: sem arrastar (não funciona no toque). A fila vem primeiro porque
         é o que exige decisão; depois o dia em lista, com o botão de avançar. ── */
   if (mobile) {
@@ -178,9 +204,7 @@ export default function FluxoHoje() {
             </div>
           );
         })}
-        {doDia.length === 0 && (
-          <EmptyState icon="flow" title="Dia livre" sub="Nenhum atendimento marcado para hoje." />
-        )}
+        {doDia.length === 0 && vazio}
       </div>
     );
   }
@@ -188,6 +212,9 @@ export default function FluxoHoje() {
   /* ── desktop: quadro arrastável + painel fixo ── */
   return (
     <div className="m-enter" style={s("flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 330px;height:100%")}>
+      {doDia.length === 0 ? (
+        <div style={s("display:flex;align-items:center;justify-content:center;min-height:0;padding:22px")}>{vazio}</div>
+      ) : (
       <div style={s("padding:22px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;min-height:0")}>
         {COLUNAS.map((col) => {
           const itens = porEtapa(col.id);
@@ -221,6 +248,7 @@ export default function FluxoHoje() {
           );
         })}
       </div>
+      )}
 
       <div style={s("border-left:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-height:0")}>
         <PrecisaDeVoce />

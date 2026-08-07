@@ -5,7 +5,7 @@
  * agenda, quem conduz cada conversa, toggles do catálogo/equipe, ajustes da MAISA
  * e o ciclo de vida das notas fiscais.
  *
- * Persistência: localStorage, chave "maisa.app.v2". Só o que é DECISÃO do usuário
+ * Persistência: localStorage, chave "maisa.app.v3". Só o que é DECISÃO do usuário
  * persiste — estado de navegação (tela, gaveta aberta, filtro, drag) é volátil de
  * propósito: recarregar cai no Fluxo de hoje limpo, não no meio de um arrasto.
  *
@@ -46,10 +46,13 @@ export type AgendamentoVivo = {
 /** Evento criado no Google Calendar para um agendamento.
  *
  *  Mora no localStorage, junto do resto: o Supabase guarda só os TOKENS. Os
- *  agendamentos deste app são mock em src/lib/data.ts + o que o usuário marca no
- *  navegador — não existe tabela de agendamentos para pendurar um google_event_id.
- *  Manter o vínculo aqui é o que permite a integração ser real sem transformar o
- *  protótipo inteiro num app com banco. */
+ *  agendamentos deste app são o que o usuário marca no navegador — não existe tabela
+ *  de agendamentos para pendurar um google_event_id. Manter o vínculo aqui é o que
+ *  permite a integração ser real sem transformar o protótipo inteiro num app com banco.
+ *
+ *  ⚠️ Vínculo é o que ele é, e vínculo pressupõe DOIS lados. Na fatia 4 o atendimento
+ *  passa a NASCER no Google (com `extendedProperties.private`) e deixa de haver um par
+ *  para ligar — este tipo some junto. */
 export type EventoGoogle = {
   eventId: string;
   meetLink?: string;
@@ -92,16 +95,23 @@ type Persistido = {
    *  estranho na tela, não como incompatibilidade. */
   __v: number;
   etapas: Record<string, D.Etapa>;
-  /** Resultado de arrastar na Agenda. `data` é opcional: o fallback é a data de origem
-   *  do agendamento. */
-  posicoes: Record<string, { profissionalId: string; inicio: number; data?: string }>;
   profAtivo: Record<string, boolean>;
   svcAtivo: Record<string, boolean>;
   /** Edições de serviço por id (nome/preço/duração/categoria). D.SERVICOS é catálogo de partida. */
   svcEdit: Record<string, Partial<D.Servico>>;
   /** Serviços criados pelo usuário — não existem em D.SERVICOS. */
   svcNovos: D.Servico[];
-  /** Atendimentos marcados pelo usuário na Agenda — D.AGENDAMENTOS é o dia de partida. */
+  /** Os atendimentos. Não "os novos" — com os exemplos fora, esta lista é a única que o
+   *  app tem. O nome fica até a fatia 4, quando marcar passar a criar direto no Google.
+   *
+   *  Aqui do lado morava um `posicoes`, um mapa que guardava o resultado de cada arrasto
+   *  POR FORA do agendamento. Ele existia por um motivo que deixou de valer: os exemplos
+   *  eram regerados por função pura, não havia registro para editar, só uma camada de
+   *  correções por cima. Agora há registro — arrastar edita o próprio atendimento.
+   *
+   *  E a camada precisava SUMIR, não só ficar sem uso. No dia em que o Google mandar nas
+   *  datas, uma posição local velha ganharia da real: o Bruno moveria o evento no Google
+   *  Calendar e o app o moveria de volta, sozinho, sem nada na tela explicando por quê. */
   novosAgendamentos: D.Agendamento[];
   cliAtivo: Record<string, boolean>;
   assumidas: Record<string, boolean>;
@@ -164,7 +174,6 @@ const PID_AGENDA = D.COLUNAS_AGENDA[0];
 const INICIAL: Persistido = {
   __v: 3,
   etapas: {},
-  posicoes: {},
   profAtivo: {},
   svcAtivo: {},
   svcEdit: {},
@@ -211,7 +220,9 @@ function migrarDaV2(): string | null {
   const velho = localStorage.getItem(CHAVE_ANTIGA);
   if (!velho) return null;
   try {
-    const v2 = JSON.parse(velho) as Partial<Persistido>;
+    // `posicoes` já não existe no formato de hoje, mas existia no v2 e é justamente um dos
+    // campos a DESCARTAR — o tipo precisa admiti-lo para o destructuring poder recusá-lo.
+    const v2 = JSON.parse(velho) as Partial<Persistido> & { posicoes?: Record<string, unknown> };
     const { posicoes, novosAgendamentos, etapas, ...atravessa } = v2;
     const novo = JSON.stringify({ ...atravessa, __v: 3 });
     localStorage.setItem(CHAVE, novo);
@@ -427,7 +438,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       const cru = localStorage.getItem(CHAVE) ?? migrarDaV2();
       if (cru) {
-        const p = JSON.parse(cru) as Partial<Persistido>;
+        // `posicoes` saiu do formato (ver Persistido). Um v3 gravado antes disso ainda o
+        // traz, e o spread abaixo o devolveria ao disco a cada gravação — dado morto se
+        // reescrevendo em silêncio. Não vale uma v4: nada mais mudou de forma.
+        const { posicoes: _saiuDoFormato, ...p } =
+          JSON.parse(cru) as Partial<Persistido> & { posicoes?: unknown };
         setDb((prev) => ({
           ...prev,
           ...p,
@@ -492,23 +507,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [sel]);
 
-  /* ── agendamentos da janela ── */
+  /* ── os atendimentos ──
+   *
+   * Uma origem só: o que o usuário marcou. Eram três — os nove de hoje escritos à mão, o
+   * mês inteiro gerado sob demanda, e estes. Some junto o recorte por janela: o gerador
+   * precisava saber qual mês desenhar, e por isso o Fluxo de hoje esvaziava quando a
+   * Agenda navegava para setembro (hoje entrava "fora da janela" e tinha que ser
+   * reinjetado à mão). Uma lista que já existe inteira não tem esse problema. */
   const agendamentos = useMemo<AgendamentoVivo[]>(() => {
-    // Os de exemplo (gerados sob demanda para a janela — ver data.ts) mais os que o
-    // usuário marcou na Agenda. ⚠️ Os de exemplo somem na fatia 3.
-    //
-    // HOJE entra sempre, mesmo fora da janela: o Fluxo de hoje pergunta por hoje, e ele
-    // não sabe nem deveria saber que a Agenda está aberta em setembro. Sem esta linha,
-    // navegar para outro mês esvaziava o kanban da tela de entrada.
-    const foraDaJanela = D.HOJE.iso < janela.de || D.HOJE.iso > janela.ate;
-    return [
-      ...D.agendaDaJanela(janela.de, janela.ate),
-      ...(foraDaJanela ? D.agendaDoDia(D.HOJE.iso) : []),
-      ...db.novosAgendamentos,
-    ].flatMap((a) => {
-      const pos = db.posicoes[a.id];
-      const profissionalId = pos?.profissionalId ?? a.profissionalId;
-      const inicio = pos?.inicio ?? a.inicio;
+    return db.novosAgendamentos.flatMap((a) => {
+      const profissionalId = a.profissionalId;
+      const inicio = a.inicio;
       const sv = D.servico(a.servicoId) ?? db.svcNovos.find((s) => s.id === a.servicoId);
       const pf = D.profissional(profissionalId);
       const cl = D.cliente(a.clienteId);
@@ -532,7 +541,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       return [{
         id: a.id,
-        data: pos?.data ?? a.data ?? D.HOJE.iso,
+        data: a.data ?? D.HOJE.iso,
         inicio,
         duracao: sv.duracao,
         fim: inicio + sv.duracao / 60,
@@ -548,7 +557,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }).sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : x.inicio - y.inicio));
     // novosAgendamentos e svcNovos entram nas deps: sem elas o memo ficava preso na lista antiga e
     // um atendimento recém-marcado era gravado no localStorage sem NUNCA aparecer na grade.
-  }, [janela.de, janela.ate, db.posicoes, db.etapas, db.novosAgendamentos, db.svcNovos]);
+  }, [db.etapas, db.novosAgendamentos, db.svcNovos]);
 
   /** Índice por data. A grade de mês pergunta 42 vezes por render (uma por célula, e o hover
    *  re-renderiza a cada célula que o mouse cruza); com `.filter()` cada pergunta varria o mês
@@ -573,10 +582,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [agendamentos],
   );
 
+  /** O registro CRU de um atendimento — o objeto gravado, antes de resolver profissional,
+   *  serviço e cliente. Um lugar só agora; eram três, e esquecer o terceiro fazia os toasts
+   *  caírem no genérico "Atendimento →" justo para os que o próprio usuário tinha marcado. */
+  const registroDe = useCallback(
+    (id: string) => db.novosAgendamentos.find((a) => a.id === id),
+    [db.novosAgendamentos],
+  );
+
   /** Etapa atual de um agendamento, com o default do dado de origem. */
   const etapaDe = useCallback(
-    (id: string): D.Etapa => db.etapas[id] ?? D.agendamento(id)?.etapaInicial ?? "chegando",
-    [db.etapas],
+    (id: string): D.Etapa => db.etapas[id] ?? registroDe(id)?.etapaInicial ?? "chegando",
+    [db.etapas, registroDe],
   );
 
   /* As três ações abaixo eram IRREVERSÍVEIS E SILENCIOSAS: arrastar um cartão para "Feito hoje"
@@ -586,14 +603,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const ROTULO_ETAPA: Record<D.Etapa, string> = {
     chegando: "Chegando", atendendo: "Em atendimento", feito: "Feito hoje",
   };
-
-  /** O registro CRU de um agendamento — o do dado de partida, o do mês gerado, ou o que o usuário
-   *  criou. D.agendamento() sozinho não conhece o terceiro, e por isso os toasts caíam no genérico
-   *  "Atendimento →" justo para os atendimentos que o próprio usuário tinha marcado. */
-  const registroDe = useCallback(
-    (id: string) => D.agendamento(id) ?? db.novosAgendamentos.find((a) => a.id === id),
-    [db.novosAgendamentos],
-  );
 
   const moverEtapa = useCallback((id: string, etapa: D.Etapa) => {
     const antes = etapaDe(id);
@@ -621,42 +630,72 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     );
   }, [patch, etapaDe, registroDe]);
 
-  /** Remarca: muda hora, profissional e — desde a visão de Semana — o DIA.
-   *  `data` é opcional e o fallback é a data atual do agendamento. */
+  /**
+   * Remarca: muda hora, profissional e — desde a visão de Semana — o DIA.
+   * `data` é opcional e o fallback é a data atual do agendamento.
+   *
+   * Agora EDITA o atendimento. Antes gravava num mapa `posicoes` paralelo, porque o
+   * atendimento de exemplo era regerado por função pura e não havia objeto para mexer —
+   * o mapa era uma camada de correções por cima de um dado imutável. Com os exemplos
+   * fora, a correção e o corrigido viraram a mesma coisa, e "Desfazer" reescreve os
+   * mesmos três campos.
+   *
+   * ⚠️ Só mexe no que vive no app. Compromisso lido do Google é `bloq:…`, não é
+   * arrastável (ver BlocoBloqueio na Agenda) e não chega aqui — um PATCH disparado por
+   * engano mexeria no compromisso pessoal de alguém.
+   */
   const reposicionar = useCallback((id: string, profissionalId: string, inicio: number, data?: string) => {
-    // registroDe e não D.agendamento(): sem os atendimentos que o USUÁRIO marcou, arrastar um
-    // recém-criado saía pelo `if (!orig) return` lá embaixo — ele mudava de lugar sem toast e,
-    // pior, sem "Desfazer".
     const orig = registroDe(id);
-    const dataAtual = db.posicoes[id]?.data ?? orig?.data ?? D.HOJE.iso;
-    const destino = data ?? dataAtual;
-    // guarda a posição anterior REAL (a de origem, se nunca foi movido) para poder voltar
-    const antes = db.posicoes[id] ?? (orig ? { profissionalId: orig.profissionalId, inicio: orig.inicio, data: dataAtual } : null);
-    patch((d) => ({ posicoes: { ...d.posicoes, [id]: { profissionalId, inicio, data: destino } } }));
+    // Solta e não faz nada, mas encerra o arrasto: deixar `arrastando` setado congelaria o
+    // cartão translúcido e a coluna destacada até o próximo clique.
     setArrastando(null);
     setAlvoSolta(null);
-    if (!orig) return;
+    if (!orig) {
+      console.warn(`[store] reposicionar(${id}) ignorado — não é um atendimento deste app`);
+      return;
+    }
+
+    const antes = { profissionalId: orig.profissionalId, inicio: orig.inicio, data: orig.data };
+    const destino = data ?? orig.data ?? D.HOJE.iso;
+    const mover = (p: Partial<D.Agendamento>) => patch((d) => ({
+      novosAgendamentos: d.novosAgendamentos.map((a) => (a.id === id ? { ...a, ...p } : a)),
+    }));
+
+    mover({ profissionalId, inicio, data: destino });
     const quando = destino === D.HOJE.iso ? D.hhmm(inicio) : `${D.rotuloDia(destino)}, ${D.hhmm(inicio)}`;
     toast(
       `${D.nomeCliente(orig.clienteId)} → ${quando} com ${D.primeiroNome(D.nomeProfissional(profissionalId))}`,
-      antes
-        ? { label: "Desfazer", onClick: () => patch((d) => ({ posicoes: { ...d.posicoes, [id]: antes } })) }
-        : undefined,
+      { label: "Desfazer", onClick: () => mover(antes) },
     );
-  }, [patch, db.posicoes, registroDe]);
+  }, [patch, registroDe]);
 
   /* ── fila "precisa de você" ──
-   * A fila esvazia sozinha conforme você age em qualquer lugar do app: assumir a
-   * conversa resolve o item dela, e dar chegada resolve a cobrança de confirmação
-   * daquele horário. Sem isso o painel viraria uma lista que nunca zera. */
-  const fila = useMemo(() => D.FILA.filter((f) => {
-    if (db.resolvidos[f.alvo] || db.assumidas[f.alvo]) return false;
-    if (f.alvo.startsWith("ag")) {
-      const etapa = db.etapas[f.alvo] ?? D.agendamento(f.alvo)?.etapaInicial;
-      return etapa === "chegando";
-    }
-    return true;
-  }), [db.resolvidos, db.assumidas, db.etapas]);
+   *
+   * DUAS origens. As conversas vêm escritas (D.FILA_CONVERSAS, ainda demonstração — o
+   * WhatsApp não está integrado); as cobranças de confirmação são DERIVADAS dos
+   * atendimentos de hoje.
+   *
+   * Eram quatro linhas fixas, e duas delas apontavam para `ag5` e `ag8`. Sem os exemplos
+   * elas não dariam erro: o filtro simplesmente não as encontraria e a fila encolheria de
+   * quatro para dois, calada. Derivar troca isso por uma regra — "quem é de hoje, ainda
+   * não confirmou e ainda não chegou" —, que continua valendo quando o atendimento for
+   * real.
+   *
+   * A fila esvazia sozinha conforme você age em qualquer lugar do app: assumir a conversa
+   * resolve o item dela, e dar chegada tira a cobrança daquele horário (a etapa deixa de
+   * ser "chegando"). Sem isso o painel viraria uma lista que nunca zera. */
+  const fila = useMemo<D.ItemFila[]>(() => [
+    ...D.FILA_CONVERSAS.filter((f) => !db.resolvidos[f.alvo] && !db.assumidas[f.alvo]),
+    ...agendamentosDoDia(D.HOJE.iso)
+      .filter((a) => !a.confirmado && a.etapa === "chegando" && !db.resolvidos[a.id])
+      .map((a) => ({
+        id: `fl:${a.id}`,
+        alvo: a.id,
+        titulo: a.cliente.nome,
+        tag: "confirmar",
+        msg: `${D.hhmm(a.inicio)} ainda não confirmado — a MAISA já cobrou.`,
+      })),
+  ], [db.resolvidos, db.assumidas, agendamentosDoDia]);
   const resolverFila = useCallback((alvo: string) => {
     patch((d) => ({ resolvidos: { ...d.resolvidos, [alvo]: true } }));
     // "Já resolvi" gravava em localStorage para sempre e não existia função inversa: era a única

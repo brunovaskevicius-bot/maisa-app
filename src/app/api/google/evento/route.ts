@@ -65,26 +65,27 @@ export async function POST(request: Request) {
   // pelo Google (e "cancelar" depois manda um segundo). Por isso segue opt-in.
   const convidarCliente = body?.convidarCliente === true;
 
-  // A POSIÇÃO (dia, hora, profissional) vem do CLIENTE, e isso é proposital.
+  // A POSIÇÃO (dia, hora, profissional) vem do CLIENTE, e agora vem SÓ dele.
   //
-  // Arrastar na grade é a forma nº 1 de remarcar neste app, e o resultado do arrasto
-  // mora no localStorage (store.posicoes) — o servidor não tem como saber dele. A
-  // primeira versão desta rota preferia D.agendamento() ao corpo, e o efeito era o
-  // pior possível: a gaveta mostrava "15:00", o evento nascia às 10:00, e a mensagem
-  // de WhatsApp anunciava um horário que não existia na agenda de ninguém. Pior ainda
-  // com a coluna: um atendimento arrastado do Diego para o Rafael era criado na agenda
-  // do Diego, porque a UI olhava um profissional e o servidor, outro.
+  // O atendimento mora no localStorage do navegador; o servidor nunca teve como
+  // conhecê-lo. Havia um `D.agendamento(agId)` aqui como padrão para o que o corpo não
+  // mandasse — resto da época em que data.ts guardava uma agenda de exemplo. Com ela
+  // fora, esse fallback devolveria `undefined` para todo id: um padrão que nunca cai é
+  // pior que padrão nenhum, porque esconde a ausência do campo até o erro aparecer
+  // longe daqui. Faltou campo, é `payload_invalido` — a validação abaixo cobre todos.
+  //
+  // (A prioridade já era essa e continua sendo. A primeira versão preferia o catálogo ao
+  // corpo, e o efeito era o pior possível: a gaveta mostrava "15:00" e o evento nascia
+  // às 10:00, porque o arrasto do usuário só existia no navegador.)
   //
   // Não é furo de segurança: o usuário está autenticado e escrevendo na PRÓPRIA agenda
   // conectada (acessoValido é escopado à sessão) — ele poderia criar o mesmo evento
   // direto no Google. A validação abaixo é sanidade de dado, não fronteira de acesso.
-  // O catálogo entra só como PADRÃO para o que o cliente não mandou.
-  const base = D.agendamento(agId);
-  const data = String(body?.data ?? base?.data ?? D.HOJE.iso);
-  const inicio = Number(body?.inicio ?? base?.inicio);
-  const profissionalId = String(body?.profissionalId ?? base?.profissionalId ?? "");
-  const servicoId = String(body?.servicoId ?? base?.servicoId ?? "");
-  const clienteId = String(body?.clienteId ?? base?.clienteId ?? "");
+  const data = String(body?.data ?? "");
+  const inicio = Number(body?.inicio);
+  const profissionalId = String(body?.profissionalId ?? "");
+  const servicoId = String(body?.servicoId ?? "");
+  const clienteId = String(body?.clienteId ?? "");
 
   const profissional = D.profissional(profissionalId);
   const cliente = D.cliente(clienteId);
@@ -120,12 +121,19 @@ export async function POST(request: Request) {
   }
 
   const inicioISO = instanteISO(data, inicio);
-  // Criar evento no passado não ajuda ninguém — e agora que as datas são reais, esta
-  // recusa passou a significar o que diz. Antes ela era um artefato: o calendário fixo
-  // era empurrado por semanas inteiras, e o dia 1 podia cair exatamente em hoje.
-  if (new Date(inicioISO).getTime() < Date.now()) {
+  // Criar no PASSADO deixou de ser recusado — a recusa é que estava errada.
+  //
+  // Enquanto o calendário era fictício, "já passou" pegava um artefato: o mês fixo era
+  // empurrado por semanas inteiras, então clicar em quase qualquer dia anterior batia
+  // aqui e voltava 400. Com datas reais o clique é legítimo: registrar às 15h o encaixe
+  // que entrou às 14h é uso normal de agenda, e o Google cria sem reclamar.
+  //
+  // Fica a sanidade de faixa. Uma data corrompida não deve plantar evento em 1998 nem em
+  // 2200 — lá ninguém olha, e o dono levaria meses para descobrir que tem lixo na agenda.
+  const distanciaDias = (Date.parse(inicioISO) - Date.now()) / 86_400_000;
+  if (Math.abs(distanciaDias) > 366) {
     return NextResponse.json(
-      { ok: false, status: "payload_invalido", info: "Esse horário já passou." },
+      { ok: false, status: "payload_invalido", info: "Data a mais de um ano daqui." },
       { status: 400 },
     );
   }
