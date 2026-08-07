@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   // direto no Google. A validação abaixo é sanidade de dado, não fronteira de acesso.
   // O catálogo entra só como PADRÃO para o que o cliente não mandou.
   const base = D.agendamento(agId);
-  const dia = Number(body?.dia ?? base?.dia ?? D.HOJE.num);
+  const data = String(body?.data ?? base?.data ?? D.HOJE.iso);
   const inicio = Number(body?.inicio ?? base?.inicio);
   const profissionalId = String(body?.profissionalId ?? base?.profissionalId ?? "");
   const servicoId = String(body?.servicoId ?? base?.servicoId ?? "");
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
   const duracao = Number(body?.duracao ?? doCatalogo?.duracao);
   const nomeServico = String(body?.servicoNome ?? doCatalogo?.nome ?? "Atendimento").slice(0, 120);
 
-  if (!agId || !profissional || !Number.isFinite(dia) || !Number.isFinite(inicio) || !Number.isFinite(duracao)) {
+  if (!agId || !profissional || !Number.isFinite(inicio) || !Number.isFinite(duracao)) {
     return NextResponse.json({ ok: false, status: "payload_invalido" }, { status: 400 });
   }
   // Só profissional que é coluna da Agenda — as três rotas usam o mesmo critério.
@@ -105,8 +105,10 @@ export async function POST(request: Request) {
   if (!D.COLUNAS_AGENDA.includes(profissionalId)) {
     return NextResponse.json({ ok: false, status: "profissional_invalido" }, { status: 400 });
   }
-  if (dia < 1 || dia > D.MES_AGENDA.dias) {
-    return NextResponse.json({ ok: false, status: "payload_invalido", info: "Dia fora do mês." }, { status: 400 });
+  // Formato E validade: "2026-02-31" passa no regex e é um dia que não existe. Sem o
+  // Date.parse, ele viraria um ISO que o Google aceitaria deslocando para 3 de março.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(`${data}T00:00:00Z`))) {
+    return NextResponse.json({ ok: false, status: "payload_invalido", info: "Data inválida." }, { status: 400 });
   }
   // `inicio` é hora decimal. Sem limite, um valor forjado (999) viraria um ISO
   // inválido — "T999:00:00-03:00" — e o erro só apareceria como recusa crua do Google.
@@ -117,9 +119,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, status: "payload_invalido", info: "Duração fora do razoável." }, { status: 400 });
   }
 
-  const inicioISO = instanteISO(dia, inicio);
-  // O deslocamento ancora no dia 1, então dia 1 pode cair EXATAMENTE em hoje — e aí
-  // um horário da manhã já passou. Criar evento no passado não ajuda ninguém.
+  const inicioISO = instanteISO(data, inicio);
+  // Criar evento no passado não ajuda ninguém — e agora que as datas são reais, esta
+  // recusa passou a significar o que diz. Antes ela era um artefato: o calendário fixo
+  // era empurrado por semanas inteiras, e o dia 1 podia cair exatamente em hoje.
   if (new Date(inicioISO).getTime() < Date.now()) {
     return NextResponse.json(
       { ok: false, status: "payload_invalido", info: "Esse horário já passou." },
@@ -135,7 +138,7 @@ export async function POST(request: Request) {
       token,
       chave: `maisa-${agId}`, // estável ⇒ retry não duplica a conferência
       inicio: inicioISO,
-      fim: instanteISO(dia, inicio + duracao / 60),
+      fim: instanteISO(data, inicio + duracao / 60),
       // Etiqueta de dono no TÍTULO, não só na descrição.
       //
       // Nada impede que a mesma conta Google seja conectada para mais de um

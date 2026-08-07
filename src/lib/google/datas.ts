@@ -1,116 +1,77 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Do calendário do protótipo para uma data REAL.
+// A fronteira entre a DATA CIVIL do app e o INSTANTE do Google.
 //
-// O problema: a Agenda é um julho/2026 fixo (D.MES_AGENDA), com hora em decimal
-// (14.5 = 14:30). O Google Calendar quer um instante de verdade. E julho/2026 já
-// passou — criar o evento na data literal o enterraria no passado da agenda de
-// quem está testando, sem servir para demo nem para testar o Meet.
+// O app fala em data civil ("2026-08-06") mais hora decimal (14.5). O Google fala
+// em instante com fuso ("2026-08-06T14:30:00-03:00"). Este módulo traduz nos dois
+// sentidos, e é o único lugar do código que precisa saber que existe fuso horário.
 //
-// A solução: deslocar por SEMANAS INTEIRAS até cair em hoje ou depois. Somar
-// múltiplo de 7 preserva o dia da semana, e o dia da semana é estrutural aqui —
-// a grade é seg–sáb, cada profissional tem folga em dias fixos (D.EXPEDIENTE) e
-// domingo é fechado. Deslocar por dias corridos embaralharia tudo isso; deslocar
-// por semanas mantém "sexta 17" como uma sexta.
+// Este arquivo já foi três vezes maior. Ele guardava um deslocamento por SEMANAS
+// INTEIRAS que empurrava o julho/2026 fixo do protótipo para a frente até cair no
+// futuro — e junto vinha `rotuloReal`, uma PREVISÃO que se movia sozinha: uma vez
+// por semana ela saltava 7 dias, e um evento criado no dia 21 passava a ser
+// anunciado ao cliente como dia 28, com um link do Meet que funcionava e uma data
+// que não. Nada disso existe mais porque o app passou a usar datas reais.
 //
-// Este módulo é PURO e client-safe de propósito: a gaveta mostra a data real
-// antes de criar o evento, então cliente e servidor precisam calcular igual.
+// É PURO e client-safe de propósito: a gaveta mostra a data do evento antes de
+// criá-lo, então cliente e servidor precisam calcular igual.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import * as D from "../data";
 
-/** Brasil não usa mais horário de verão desde 2019, então o offset é fixo. */
-const FUSO = "-03:00";
-const OFFSET_MIN = -180;
-const DIA_MS = 86_400_000;
-
-const MESES = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-];
-
-/** Índice do mês do protótipo (0 = janeiro), derivado do nome em D.MES_AGENDA.
- *  Falha alto e cedo: com indexOf() devolvendo -1, todas as datas silenciosamente
- *  escorregariam um mês para trás, e o sintoma apareceria só no evento criado. */
-const MES_INDICE = (() => {
-  const i = MESES.indexOf(D.MES_AGENDA.nome);
-  if (i < 0) throw new Error(`MES_AGENDA.nome ("${D.MES_AGENDA.nome}") não é um mês conhecido.`);
-  return i;
-})();
-
 export const TZ = "America/Sao_Paulo";
 
-/**
- * "Hoje" em São Paulo como {ano, mes, dia}, independente do fuso de quem roda o
- * código — o navegador está em BRT, a Vercel em UTC. Deslocamos o instante pelo
- * offset e lemos com os getters UTC: assim os dois chegam ao mesmo dia civil.
- */
-function hojeSP(agora: number) {
-  const t = new Date(agora + OFFSET_MIN * 60_000);
-  return Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate());
-}
-
-/** Quantas semanas o calendário do protótipo precisa andar para não cair no passado. */
-export function semanasDeslocadas(agora = Date.now()): number {
-  // Ancora no primeiro dia do mês do protótipo: o deslocamento é do MÊS, não de cada
-  // dia. Se fosse por dia, dias diferentes ganhariam deslocamentos diferentes e a
-  // semana da tela deixaria de ser uma semana no Google.
-  const primeiro = Date.UTC(D.MES_AGENDA.ano, MES_INDICE, 1);
-  const hoje = hojeSP(agora);
-  if (primeiro >= hoje) return 0;
-  return Math.ceil((hoje - primeiro) / (7 * DIA_MS));
-}
+/** Brasil não usa mais horário de verão desde 2019, então o offset é fixo. */
+const FUSO = "-03:00";
 
 const p2 = (n: number) => String(n).padStart(2, "0");
 
-/** Data real (ano/mês/dia já deslocados) correspondente a um dia do protótipo. */
-export function diaReal(dia: number, agora = Date.now()): Date {
-  const base = Date.UTC(D.MES_AGENDA.ano, MES_INDICE, dia);
-  return new Date(base + semanasDeslocadas(agora) * 7 * DIA_MS);
-}
-
 /**
- * Instante ISO com offset explícito de São Paulo — ex.: "2026-08-07T14:30:00-03:00".
- * Montado como string em vez de via Date.toISOString() de propósito: assim o horário
- * é exatamente o que está escrito na tela, sem depender do fuso do processo.
+ * Data civil + hora decimal → instante ISO com offset explícito de São Paulo.
+ * Ex.: ("2026-08-07", 14.5) → "2026-08-07T14:30:00-03:00".
+ *
+ * Montado como string, e não via `Date.toISOString()`: assim o horário é exatamente
+ * o que está escrito na tela, sem depender do fuso do processo que gerou.
  */
-export function instanteISO(dia: number, horaDecimal: number, agora = Date.now()): string {
-  const d = diaReal(dia, agora);
+export function instanteISO(data: string, horaDecimal: number): string {
   const h = Math.floor(horaDecimal);
   const m = Math.round((horaDecimal - h) * 60);
-  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}T${p2(h)}:${p2(m)}:00${FUSO}`;
-}
-
-/** "sexta, 7 de agosto" — PREVISÃO, para a gaveta mostrar antes de criar o evento. */
-export function rotuloReal(dia: number, agora = Date.now()): string {
-  return rotulo(diaReal(dia, agora));
+  return `${data}T${p2(h)}:${p2(m)}:00${FUSO}`;
 }
 
 /**
- * Rótulo a partir do instante que foi REALMENTE usado no evento.
+ * O caminho de volta: instante do Google → data civil e hora decimal de São Paulo.
  *
- * Existe porque `rotuloReal` é uma previsão que se move: `semanasDeslocadas` depende
- * de `Date.now()`, então uma vez por semana ela salta 7 dias. Um evento criado em 21
- * de agosto passaria a ser exibido — e anunciado ao cliente no WhatsApp — como 28 de
- * agosto, com um link do Meet que funciona e uma data que não. Depois de criado, a
- * verdade é o ISO gravado, nunca mais o cálculo.
- *
- * Lê os campos do próprio texto ("2026-08-21T14:30:00-03:00") em vez de usar
- * `new Date()`, para o rótulo não escorregar conforme o fuso de quem renderiza.
+ * Via `Intl`, e não por regex no texto. O Google devolve o `dateTime` no fuso que
+ * quiser — o da agenda, UTC (`…17:30:00Z`), o de quem criou o evento — e ler os
+ * dígitos depois do "T" trataria 17:30Z como 17:30, três horas de deslocamento em
+ * silêncio. Pedimos `timeZone=America/Sao_Paulo` na listagem, mas isso é um pedido;
+ * esta função é a garantia.
  */
+const RELOGIO = new Intl.DateTimeFormat("en-CA", {
+  timeZone: TZ,
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+});
+
+export function civilSP(iso: string): { data: string; hora: number } | null {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  const p: Record<string, string> = {};
+  for (const parte of RELOGIO.formatToParts(new Date(ms))) p[parte.type] = parte.value;
+  // `% 24` porque com hour12:false o ICU escreve meia-noite como "24" em algumas
+  // versões — e "24:00" viraria uma hora decimal fora do dia.
+  const hora = (Number(p.hour) % 24) + Number(p.minute) / 60;
+  return { data: `${p.year}-${p.month}-${p.day}`, hora };
+}
+
+/** "quinta, 6 de agosto" a partir do instante gravado. */
 export function rotuloDeISO(iso: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
-  if (!m) return "data indisponível";
-  const [, a, mes, d] = m;
-  return rotulo(new Date(Date.UTC(Number(a), Number(mes) - 1, Number(d))));
+  const c = civilSP(iso);
+  return c ? D.rotuloLongo(c.data) : "data indisponível";
 }
 
-function rotulo(d: Date): string {
-  // getUTCDay(): 0 = domingo. D.DOW_LONGO começa na segunda.
-  const dow = D.DOW_LONGO[(d.getUTCDay() + 6) % 7];
-  return `${dow}, ${d.getUTCDate()} de ${MESES[d.getUTCMonth()]}`;
-}
-
-/** "14:30" a partir do ISO gravado — mesma razão de rotuloDeISO. */
+/** "14:30" a partir do instante gravado, já em horário de São Paulo. */
 export function horaDeISO(iso: string): string {
-  return /T(\d{2}:\d{2})/.exec(iso ?? "")?.[1] ?? "--:--";
+  const c = civilSP(iso);
+  return c ? D.hhmm(c.hora) : "--:--";
 }

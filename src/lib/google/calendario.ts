@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Google Calendar v3 — criar, remarcar e cancelar evento (com Google Meet).
+// Google Calendar v3 — listar, criar, remarcar e cancelar evento (com Google Meet).
 // ⚠️ SÓ SERVIDOR.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { PrecisaReconectar } from "./oauth";
-import { TZ } from "./datas";
+import { TZ, civilSP, instanteISO } from "./datas";
 
 const BASE = "https://www.googleapis.com/calendar/v3";
 
@@ -49,12 +49,35 @@ async function chamar(token: string, caminho: string, init: RequestInit = {}) {
   return r;
 }
 
+/**
+ * Cota estourada — erro TRANSITÓRIO, e por isso tem tipo próprio.
+ *
+ * A leitura da agenda roda sozinha (troca de mês, volta o foco na aba), então ela é a
+ * primeira candidata a bater no limite. Um limite não é "deu erro": é "pergunte de novo
+ * daqui a pouco". Sem distinguir, a tela mostraria uma falha vermelha para uma condição
+ * que se resolve sozinha em segundos.
+ */
+export class LimiteDoGoogle extends Error {
+  constructor(msg = "O Google está limitando as requisições. Tente de novo em instantes.") {
+    super(msg);
+    this.name = "LimiteDoGoogle";
+  }
+}
+
 /** Erro legível a partir do corpo de erro do Google. */
 async function erroDe(r: Response, quando: string): Promise<Error> {
   const d = await r.json().catch(() => ({} as any));
   const msg = d?.error?.message ?? `HTTP ${r.status}`;
-  if (r.status === 403) return new Error(`Sem permissão no Google Calendar (${msg}).`);
-  if (r.status === 429) return new Error("O Google está limitando as requisições. Tente de novo em instantes.");
+  if (r.status === 429) return new LimiteDoGoogle();
+  if (r.status === 403) {
+    // 403 no Calendar é ambíguo: pode ser falta de escopo (definitivo, precisa reconectar)
+    // ou cota (transitório). Só o `reason` de dentro do corpo separa os dois — pelo código
+    // HTTP os dois são iguais, e tratá-los igual significa ou desistir cedo demais ou
+    // insistir para sempre.
+    const razao = String(d?.error?.errors?.[0]?.reason ?? "");
+    if (/rateLimitExceeded|userRateLimitExceeded|quotaExceeded/i.test(razao)) return new LimiteDoGoogle();
+    return new Error(`Sem permissão no Google Calendar (${msg}).`);
+  }
   return new Error(`${quando}: ${msg}`);
 }
 
@@ -77,6 +100,124 @@ function meetDe(ev: any): string | undefined {
 
 /** O Google às vezes devolve a conferência ainda "pending" — só o statusCode diz. */
 const meetPendente = (ev: any) => ev?.conferenceData?.createRequest?.status?.statusCode === "pending";
+
+/* ───────────────────────────── listar ─────────────────────────────
+ * A leitura que transforma a Agenda do app numa vista da agenda REAL. */
+
+/** Um evento já traduzido para a língua da grade: data civil + hora decimal. */
+export type EventoLido = {
+  eventId: string;
+  /** "2026-08-06" em horário de São Paulo. */
+  data: string;
+  /** Hora decimal: 14.5 = 14:30. */
+  inicio: number;
+  fim: number;
+  /** Minutos. */
+  duracao: number;
+  titulo: string;
+  meetLink?: string;
+  htmlLink?: string;
+  /** Instância de evento recorrente. Renderiza, mas não se arrasta (ver fatia 5). */
+  recorrente: boolean;
+};
+
+/** Teto de páginas. Um mês numa agenda humana não passa de uma; o laço existe para
+ *  não travar caso passe, e o teto existe para um bug do outro lado não virar laço
+ *  infinito consumindo cota. */
+const MAX_PAGINAS = 10;
+
+/**
+ * Os eventos de uma janela de datas, prontos para a grade.
+ *
+ * `singleEvents=true` é o que faz uma reunião semanal virar uma ocorrência por semana
+ * em vez de um único registro com regra de recorrência que teríamos que interpretar
+ * aqui. Com ele, `orderBy=startTime` passa a ser aceito.
+ */
+export async function listar(p: { token: string; de: string; ate: string }): Promise<EventoLido[]> {
+  const out: EventoLido[] = [];
+  let pagina: string | undefined;
+
+  for (let i = 0; i < MAX_PAGINAS; i++) {
+    const q = new URLSearchParams({
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+      timeMin: instanteISO(p.de, 0),
+      // O fim do último dia, inclusive. `timeMax` é exclusivo no Google, então usamos
+      // a meia-noite do dia SEGUINTE em vez de 23:59 — senão um evento marcado para
+      // 23:59 do último dia da janela sumiria sem deixar rastro.
+      timeMax: instanteISO(proximoDia(p.ate), 0),
+      // Sem isto o Google devolve os horários no fuso padrão da AGENDA, que não é
+      // necessariamente o nosso. `civilSP` corrige de qualquer forma, mas pedir o fuso
+      // certo evita depender disso.
+      timeZone: TZ,
+      ...(pagina ? { pageToken: pagina } : {}),
+    });
+
+    const r = await chamar(p.token, `/calendars/${CALENDARIO}/events?${q}`);
+    if (!r.ok) throw await erroDe(r, "Não foi possível ler a agenda");
+    const d = await r.json();
+
+    for (const ev of d.items ?? []) {
+      const lido = traduzir(ev);
+      if (lido) out.push(lido);
+    }
+
+    pagina = d.nextPageToken;
+    if (!pagina) break;
+  }
+
+  return out;
+}
+
+const proximoDia = (data: string) =>
+  new Date(new Date(`${data}T00:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * Um item da resposta vira `EventoLido` — ou `null`, e cada `null` tem um motivo.
+ *
+ * `cancelled`: com `singleEvents` o Google inclui ocorrências canceladas de séries
+ * recorrentes. Pintá-las seria mostrar compromisso que não existe mais.
+ *
+ * `workingLocation`: o marcador "trabalhando de casa". É um evento de dia inteiro que a
+ * própria UI do Google não desenha na grade; aqui viraria um bloqueio falso todo dia útil.
+ *
+ * Recusado por você: se você respondeu "não vou", o horário está livre — bloquear a
+ * agenda por causa dele faria a MAISA recusar um cliente por um compromisso declinado.
+ *
+ * Dia inteiro: fica de fora da GRADE nesta fatia, e é a omissão mais visível. Um "Férias"
+ * mapeado para hora 0 renderizaria com `top` negativo e altura de 24h, cobrindo a coluna
+ * inteira e cascateando o escalonamento de todos os outros blocos. Uma faixa própria no
+ * topo é o lugar certo, e é trabalho de outra fatia.
+ */
+function traduzir(ev: any): EventoLido | null {
+  if (ev?.status === "cancelled") return null;
+  if (ev?.eventType === "workingLocation") return null;
+  if (!ev?.start?.dateTime || !ev?.end?.dateTime) return null;
+  if ((ev.attendees ?? []).some((a: any) => a?.self && a?.responseStatus === "declined")) return null;
+
+  const ini = civilSP(ev.start.dateTime);
+  const fim = civilSP(ev.end.dateTime);
+  if (!ini || !fim) return null;
+
+  // Um evento que atravessa a meia-noite não cabe numa coluna de um dia. Cortamos no
+  // fim do dia de início em vez de descartar: o horário está de fato ocupado, e sumir
+  // com ele afirmaria que a noite está livre.
+  const fimNoDia = fim.data === ini.data ? fim.hora : 24;
+
+  return {
+    eventId: String(ev.id),
+    data: ini.data,
+    inicio: ini.hora,
+    fim: fimNoDia,
+    duracao: Math.max(Math.round((fimNoDia - ini.hora) * 60), 15),
+    // Evento sem título existe e é comum. "(sem título)" é o que o próprio Google mostra.
+    titulo: String(ev.summary ?? "").trim() || "(sem título)",
+    meetLink: meetDe(ev),
+    htmlLink: ev.htmlLink,
+    recorrente: Boolean(ev.recurringEventId),
+  };
+}
 
 /* ───────────────────────────── operações ───────────────────────────── */
 

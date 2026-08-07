@@ -148,9 +148,10 @@ export default function FluxoHoje() {
   const st = useStore();
   const mobile = useIsMobile();
 
-  // `st.agendamentos` passou a ser o MÊS inteiro (a Agenda ganhou Semana e Mês). O Fluxo é de hoje
-  // e continua sendo: sem este recorte o kanban encheria com trinta dias.
-  const doDia = st.agendamentosDoDia(D.HOJE.num);
+  // `st.agendamentos` é a JANELA visível da Agenda (a Agenda ganhou Semana e Mês). O Fluxo é de
+  // hoje e continua sendo: sem este recorte o kanban encheria com trinta dias.
+  // O store garante que hoje está sempre na lista, mesmo com a Agenda aberta em outro mês.
+  const doDia = st.agendamentosDoDia(D.HOJE.iso);
   const porEtapa = (e: D.Etapa) => doDia.filter((a) => a.etapa === e);
 
   /* ── mobile: sem arrastar (não funciona no toque). A fila vem primeiro porque

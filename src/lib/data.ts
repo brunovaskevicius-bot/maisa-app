@@ -31,16 +31,18 @@ export const PRESTADOR = {
 /** Competência do fechamento que a tela de Faturamento mostra. */
 export const PERIODO = "Junho de 2026";
 
-/** "Hoje" do protótipo — o dia que o Fluxo e a Agenda exibem. */
-export const HOJE = { label: "Sexta, 17 de julho", dow: "SEX", num: 17, data: "17/07/2026" };
-
 /* A antiga const SEMANA (seg 13 … sáb 18, escrita à mão) saiu: a semana agora é DERIVADA do dia
    visível por semanaDoDia(), lá embaixo, junto com o resto do calendário. Duas verdades sobre
    qual semana é essa era uma a mais. */
 
-/** Janela da grade da Agenda: 09:00 → 19:00, linha de 1h. */
-export const AGENDA_INICIO = 9;
-export const AGENDA_HORAS = 10;
+/** Janela DESENHADA na grade da Agenda: 07:00 → 22:00, linha de 1h.
+ *
+ *  Era 09–19, a faixa do expediente. Deixou de servir quando a agenda passou a mostrar
+ *  a agenda REAL do Google: um compromisso pessoal às 08:00 renderizava com `top`
+ *  negativo, ou seja, por cima do cabeçalho das colunas. A grade agora desenha mais do
+ *  que o expediente e marca visualmente o que está fora dele (ver `Vagos`). */
+export const AGENDA_INICIO = 7;
+export const AGENDA_HORAS = 15;
 
 /* ───────────────────────────── equipe ───────────────────────────── */
 
@@ -79,8 +81,8 @@ export const EQUIPE: Profissional[] = [
  *  Nasce com horário e profissional (vieram do clique no vago); cliente e serviço faltam. */
 export type RascunhoAgendamento = {
   id: string;
-  /** Dia do mês em que o clique caiu — com Semana e Mês na tela, o vago já não é sempre hoje. */
-  dia: number;
+  /** Data ISO em que o clique caiu — com Semana e Mês na tela, o vago já não é sempre hoje. */
+  data: string;
   profissionalId: string;
   inicio: number;
   clienteId: string;
@@ -228,8 +230,8 @@ export const ETAPAS: Etapa[] = ["chegando", "atendendo", "feito"];
 
 export type Agendamento = {
   id: string;
-  /** Dia do mês em MES_AGENDA. Ausente ⇒ HOJE, o dia de partida do protótipo. */
-  dia?: number;
+  /** Data ISO, "YYYY-MM-DD". Ausente ⇒ hoje. */
+  data?: string;
   /** Início em hora decimal: 9.5 = 09:30. */
   inicio: number;
   profissionalId: string;
@@ -257,52 +259,138 @@ export const AGENDAMENTOS: Agendamento[] = [
   { id: "ag9", inicio: 17.5, profissionalId: "pr1", servicoId: "sv5", clienteId: "cl12", confirmado: true, etapaInicial: "chegando" },
 ];
 
-/* ───────────────────────────── o mês da agenda ─────────────────────────────
- * A Agenda passou a ter visão de Semana e de Mês, e essas duas visões não têm o
- * que mostrar com um dia só de dado. A tela anterior contornava isso dizendo a
- * verdade — todo dia que não fosse 17 virava estado vazio —, e isso estava certo
- * enquanto só existia a visão de Dia. Numa grade de mês, porém, trinta células
- * vazias não são honestas: são a tela quebrada.
+/* ───────────────────────────── calendário ─────────────────────────────
+ * DATAS REAIS, em "YYYY-MM-DD".
  *
- * Então o resto do mês é GERADO, e gerado de forma DETERMINÍSTICA: nada de
- * Math.random nem de Date.now, porque o calendário mudaria a cada render e
- * arrastar um bloco embaralharia a tela inteira. O mesmo dia sempre produz os
- * mesmos atendimentos.
+ * Antes isto era um julho/2026 fixo: `dia: number` (dia do mês) e um `primeiroDow`
+ * calculado à mão. Funcionava enquanto a agenda era ficção. Deixou de funcionar no
+ * dia em que a agenda do Google virou a fonte da verdade — o Google fala em
+ * instantes reais, e não existe mapa honesto de "6 de agosto de 2026" para um dia
+ * de um julho que nunca aconteceu.
  *
- * O dia 17 fica FORA do gerador de propósito: ele continua sendo exatamente os
- * nove agendamentos acima, que são o que o Fluxo de hoje mostra. Mexer neles
- * mudaria o kanban, e o kanban não é assunto desta tela. */
+ * Por que string ISO e não Date: uma `Date` é um INSTANTE, e instante carrega fuso.
+ * `new Date("2026-08-06")` é meia-noite UTC, que em São Paulo é dia 5 às 21h — o
+ * clássico erro de um dia. "2026-08-06" é uma DATA CIVIL e não tem esse problema.
+ * De quebra, comparar duas datas ISO com `<` já é comparação cronológica, e elas
+ * servem de chave de Map e de key de React sem conversão.
+ *
+ * `inicio` continua sendo hora DECIMAL (14.5 = 14:30): toda a matemática da grade
+ * depende disso e não tinha nada de errado. */
 
-/** Mês que a Agenda exibe. 1/7/2026 caiu numa quarta ⇒ primeiroDow = 2. */
-export const MES_AGENDA = { nome: "julho", ano: 2026, dias: 31, primeiroDow: 2 };
+const p2 = (n: number) => String(n).padStart(2, "0");
+
+export const MESES = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
 
 /** Semana começando na segunda — convenção pt-BR. Domingo é a última coluna. */
 export const DOW_CURTO = ["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"];
 export const DOW_LONGO = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
 
-/** Dia do mês → índice do dia da semana (0 = segunda … 6 = domingo). */
-export const dowDoDia = (dia: number) => (MES_AGENDA.primeiroDow + dia - 1) % 7;
+/* A aritmética toda roda em UTC, e isso é proposital: UTC não tem horário de verão,
+   então somar 86.400.000 ms é somar exatamente um dia — sempre. Com data local, um
+   país com DST faria "somar 1 dia" cair no mesmo dia ou pular dois, duas vezes por ano. */
+const emUTC = (data: string) => new Date(`${data}T00:00:00Z`);
+const paraISO = (d: Date) => d.toISOString().slice(0, 10);
+
+export const somarDias = (data: string, n: number) =>
+  paraISO(new Date(emUTC(data).getTime() + n * 86_400_000));
+
+/** Índice do dia da semana: 0 = segunda … 6 = domingo. */
+export const dowDoDia = (data: string) => (emUTC(data).getUTCDay() + 6) % 7;
 
 /** Domingo a casa não abre. A coluna existe só para o mês ter sete colunas. */
-export const fechado = (dia: number) => dowDoDia(dia) === 6;
+export const fechado = (data: string) => dowDoDia(data) === 6;
 
-/** Os seis dias úteis (seg–sáb) da semana de um dia, sem transbordar o mês. */
-export function semanaDoDia(dia: number): number[] {
-  const segunda = dia - dowDoDia(dia);
-  return Array.from({ length: 6 }, (_, i) => segunda + i).filter((d) => d >= 1 && d <= MES_AGENDA.dias);
+export const diaDoMes = (data: string) => Number(data.slice(8, 10));
+/** "2026-08-06" → "2026-08". */
+export const mesDe = (data: string) => data.slice(0, 7);
+export const nomeMes = (anoMes: string) => MESES[Number(anoMes.slice(5, 7)) - 1];
+export const anoDe = (anoMes: string) => anoMes.slice(0, 4);
+
+/** Dia 0 do mês SEGUINTE é o último do mês pedido — a forma sem tabela de bissexto. */
+export const diasNoMes = (anoMes: string) =>
+  new Date(Date.UTC(Number(anoMes.slice(0, 4)), Number(anoMes.slice(5, 7)), 0)).getUTCDate();
+
+export function somarMeses(anoMes: string, n: number): string {
+  const total = Number(anoMes.slice(0, 4)) * 12 + Number(anoMes.slice(5, 7)) - 1 + n;
+  return `${Math.floor(total / 12)}-${p2((total % 12) + 1)}`;
 }
 
-/** Célula da grade de mês. `dia: null` é o preenchimento antes do dia 1 / depois do 31. */
-export type CelulaMes = { chave: string; dia: number | null };
+/** "6 de agosto" */
+export const rotuloDia = (data: string) => `${diaDoMes(data)} de ${nomeMes(mesDe(data))}`;
+/** "quinta, 6 de agosto" */
+export const rotuloLongo = (data: string) => `${DOW_LONGO[dowDoDia(data)]}, ${rotuloDia(data)}`;
+/** "06/08/2026" — formato de documento (a nota fiscal usa este). */
+export const rotuloBR = (data: string) => `${data.slice(8, 10)}/${data.slice(5, 7)}/${data.slice(0, 4)}`;
 
-/** A grade inteira, em múltiplos de 7 — 35 células em julho de 2026. */
-export function celulasDoMes(): CelulaMes[] {
-  const antes = MES_AGENDA.primeiroDow;
-  const total = Math.ceil((antes + MES_AGENDA.dias) / 7) * 7;
+/**
+ * Hoje em São Paulo, "YYYY-MM-DD".
+ *
+ * O navegador roda em BRT e a Vercel em UTC; sem correção os dois discordariam sobre
+ * qual é o dia entre 21h e meia-noite — e discordar do fuso é justamente o que quebra
+ * a hidratação do React. Deslocamos o instante e lemos com getters UTC, então os dois
+ * chegam ao mesmo dia civil. Brasil não usa horário de verão desde 2019 ⇒ -3 fixo.
+ */
+export function hojeISO(agora = Date.now()): string {
+  return new Date(agora - 3 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/**
+ * "Hoje".
+ *
+ * GETTERS, não valores. Um `const HOJE = {...}` é avaliado uma vez, na carga do
+ * módulo — e no servidor o módulo fica em memória entre requisições, então "hoje"
+ * congelaria na data do deploy e a agenda destacaria o dia errado para sempre. Com
+ * getter, cada leitura pergunta de novo.
+ */
+export const HOJE = {
+  /** "2026-08-06" — a identidade do dia em todo o app. */
+  get iso() { return hojeISO(); },
+  /** "quinta, 6 de agosto" */
+  get label() { return rotuloLongo(hojeISO()); },
+  /** "QUI" */
+  get dow() { return DOW_CURTO[dowDoDia(hojeISO())]; },
+  /** "06/08/2026" */
+  get data() { return rotuloBR(hojeISO()); },
+};
+
+/** Os seis dias úteis (seg–sáb) da semana de uma data. Atravessa a virada de mês. */
+export function semanaDoDia(data: string): string[] {
+  const segunda = somarDias(data, -dowDoDia(data));
+  return Array.from({ length: 6 }, (_, i) => somarDias(segunda, i));
+}
+
+/** Célula da grade de mês. `noMes: false` são os dias vizinhos que fecham as semanas. */
+export type CelulaMes = { chave: string; data: string; noMes: boolean };
+
+/** A grade inteira, em múltiplos de 7 — sempre semanas completas, de segunda a domingo. */
+export function celulasDoMes(anoMes: string): CelulaMes[] {
+  const primeiro = `${anoMes}-01`;
+  const antes = dowDoDia(primeiro);
+  const inicio = somarDias(primeiro, -antes);
+  const total = Math.ceil((antes + diasNoMes(anoMes)) / 7) * 7;
   return Array.from({ length: total }, (_, i) => {
-    const d = i - antes + 1;
-    return { chave: `c${i}`, dia: d >= 1 && d <= MES_AGENDA.dias ? d : null };
+    const data = somarDias(inicio, i);
+    // chave = a própria data: `c${i}` fazia o React reaproveitar o nó da célula 12 de
+    // agosto como célula 12 de setembro, e a animação do contador vazava entre meses.
+    return { chave: data, data, noMes: mesDe(data) === anoMes };
   });
+}
+
+/**
+ * Primeira e última data DESENHADAS na grade de um mês — os vizinhos que completam as
+ * semanas entram.
+ *
+ * É também a janela que a Agenda busca no Google, e uma janela só serve às três visões.
+ * O motivo é geométrico: a grade cobre semanas inteiras, então a semana de QUALQUER dia
+ * do mês cabe dentro dela — inclusive a que atravessa a virada. Trocar de visão não
+ * dispara request nenhum.
+ */
+export function janelaDoMes(anoMes: string): { de: string; ate: string } {
+  const c = celulasDoMes(anoMes);
+  return { de: c[0].data, ate: c[c.length - 1].data };
 }
 
 /** Horários que a casa costuma encher, na ordem.
@@ -335,54 +423,78 @@ export const EXPEDIENTE: Record<string, { folga: number[]; de: number; ate: numb
 };
 
 /** Esse profissional trabalha nesse dia? */
-export const atende = (profissionalId: string, dia: number) => {
+export const atende = (profissionalId: string, data: string) => {
   const e = EXPEDIENTE[profissionalId];
-  return !!e && !e.folga.includes(dowDoDia(dia));
+  return !!e && !e.folga.includes(dowDoDia(data));
 };
 
 /** Esse profissional pode começar um atendimento aí — dia de trabalho e hora dentro do expediente. */
-export const podeComecar = (profissionalId: string, dia: number, inicio: number) => {
+export const podeComecar = (profissionalId: string, data: string, inicio: number) => {
   const e = EXPEDIENTE[profissionalId];
-  return !!e && atende(profissionalId, dia) && inicio >= e.de && inicio < e.ate;
+  return !!e && atende(profissionalId, data) && inicio >= e.de && inicio < e.ate;
 };
 
 /** …e o atendimento inteiro cabe antes de ele ir embora. */
-export const cabeNoExpediente = (profissionalId: string, dia: number, inicio: number, duracaoMin: number) => {
+export const cabeNoExpediente = (profissionalId: string, data: string, inicio: number, duracaoMin: number) => {
   const e = EXPEDIENTE[profissionalId];
-  return !!e && podeComecar(profissionalId, dia, inicio) && inicio + duracaoMin / 60 <= e.ate;
+  return !!e && podeComecar(profissionalId, data, inicio) && inicio + duracaoMin / 60 <= e.ate;
 };
 
 const CLI_AGENDA = ["cl1", "cl2", "cl3", "cl4", "cl5", "cl6", "cl7", "cl8", "cl9", "cl10", "cl11", "cl12", "cl13"];
 
-/** O resto do mês. Ver o bloco acima para por que isto existe e por que é determinístico. */
-export const AGENDA_MES: Agendamento[] = (() => {
+/**
+ * Os atendimentos de exemplo de UM dia.
+ *
+ * ⚠️ TEMPORÁRIO. Isto morre na fatia 3, quando a agenda do Google passa a ser a única
+ * fonte. Existe agora por um motivo de depuração: com dados de exemplo ainda na tela, um
+ * bloco no dia da semana errado acusa erro de DATA; sem eles, uma tela vazia poderia ser
+ * erro de data, de fetch, de filtro ou de permissão, e não haveria como saber qual.
+ *
+ * Determinístico de propósito — nada de Math.random nem de Date.now aqui dentro. A grade
+ * do mês pergunta por 42 dias a cada render e o hover re-renderiza; um gerador aleatório
+ * embaralharia o calendário debaixo do mouse.
+ *
+ * Hoje fica FORA do gerador: hoje são exatamente os nove agendamentos acima, que são o
+ * que o Fluxo de hoje mostra. Mexer neles mudaria o kanban.
+ */
+export function agendaDoDia(data: string): Agendamento[] {
+  if (data === HOJE.iso) return AGENDAMENTOS.map((a) => ({ ...a, data }));
+  if (fechado(data)) return [];
+
+  // Só os horários que cabem no expediente de quem atende — folga E hora de saída.
+  const livres = PAUTA.filter((p) =>
+    cabeNoExpediente(p.profissionalId, data, p.inicio, SERVICOS.find((s) => s.id === p.servicoId)!.duracao));
+  if (!livres.length) return [];
+
+  // Semente derivada da própria data: o mesmo dia sempre produz os mesmos atendimentos,
+  // em qualquer sessão e em qualquer máquina.
+  const semente = Number(data.slice(5, 7)) * 31 + diaDoMes(data);
+  const passado = data < HOJE.iso; // ISO ordena cronologicamente como string
+  const qtd = Math.min(4 + ((semente * 3) % 4), livres.length);
+  const salto = (semente * 3) % livres.length;
+
+  return Array.from({ length: qtd }, (_, i) => {
+    const slot = livres[(salto + i) % livres.length];
+    return {
+      id: `ag-${data}-${i}`,
+      data,
+      inicio: slot.inicio,
+      profissionalId: slot.profissionalId,
+      servicoId: slot.servicoId,
+      clienteId: CLI_AGENDA[(semente * 7 + i * 3) % CLI_AGENDA.length],
+      // dia que já passou está fechado; à frente, um em cada seis ainda não respondeu
+      confirmado: passado || (semente + i) % 6 !== 0,
+      etapaInicial: passado ? "feito" : ("chegando" as Etapa),
+    };
+  });
+}
+
+/** Os atendimentos de exemplo de uma janela de datas, inclusive nas duas pontas. */
+export function agendaDaJanela(de: string, ate: string): Agendamento[] {
   const out: Agendamento[] = [];
-  for (let dia = 1; dia <= MES_AGENDA.dias; dia++) {
-    if (fechado(dia) || dia === HOJE.num) continue;
-    // Só os horários que cabem no expediente de quem atende — folga E hora de saída.
-    // SERVICOS.find e não o helper servico(): ele é declarado lá embaixo, e esta IIFE roda na
-    // avaliação do módulo — chamá-lo aqui cairia na temporal dead zone.
-    const livres = PAUTA.filter((p) => cabeNoExpediente(p.profissionalId, dia, p.inicio, SERVICOS.find((s) => s.id === p.servicoId)!.duracao));
-    const qtd = Math.min(4 + ((dia * 3) % 4), livres.length);
-    const salto = (dia * 3) % livres.length;
-    for (let i = 0; i < qtd; i++) {
-      const slot = livres[(salto + i) % livres.length];
-      const passado = dia < HOJE.num;
-      out.push({
-        id: `ag-${dia}-${i}`,
-        dia,
-        inicio: slot.inicio,
-        profissionalId: slot.profissionalId,
-        servicoId: slot.servicoId,
-        clienteId: CLI_AGENDA[(dia * 7 + i * 3) % CLI_AGENDA.length],
-        // dia que já passou está fechado; à frente, um em cada seis ainda não respondeu
-        confirmado: passado || (dia + i) % 6 !== 0,
-        etapaInicial: passado ? "feito" : "chegando",
-      });
-    }
-  }
+  for (let d = de; d <= ate; d = somarDias(d, 1)) out.push(...agendaDoDia(d));
   return out;
-})();
+}
 
 /* ───────────────────────────── conversas ─────────────────────────────
  * `estado` é a situação de origem; assumir/devolver no app sobrepõe isso.
@@ -595,10 +707,20 @@ export const FATURAS = [
 export const profissional = (id: string) => EQUIPE.find((p) => p.id === id);
 export const servico = (id: string) => SERVICOS.find((s) => s.id === id);
 export const cliente = (id: string) => CLIENTES.find((c) => c.id === id);
-/** Procura nos dois lados: o dia de partida E o mês gerado. Olhar só AGENDAMENTOS deixava
- *  arrastar um bloco de outro dia sem toast e sem "Desfazer" — a ação acontecia calada. */
-export const agendamento = (id: string) =>
-  AGENDAMENTOS.find((a) => a.id === id) ?? AGENDA_MES.find((a) => a.id === id);
+/**
+ * Um agendamento de exemplo pelo id.
+ *
+ * Já foi uma busca em dois arrays. Com o mês gerado sob demanda não existe mais array
+ * para varrer, então o id CARREGA a data (`ag-2026-08-11-2`) e a regeneramos. Sem isto,
+ * arrastar um bloco de outro dia acontecia calado — sem toast e sem "Desfazer" — porque
+ * o registro de origem simplesmente não era encontrado.
+ */
+export function agendamento(id: string): Agendamento | undefined {
+  const fixo = AGENDAMENTOS.find((a) => a.id === id);
+  if (fixo) return { ...fixo, data: HOJE.iso };
+  const m = /^ag-(\d{4}-\d{2}-\d{2})-\d+$/.exec(id);
+  return m ? agendaDoDia(m[1]).find((a) => a.id === id) : undefined;
+}
 export const conversa = (id: string) => CONVERSAS.find((c) => c.id === id);
 
 export const nomeProfissional = (id: string) => profissional(id)?.nome ?? "—";

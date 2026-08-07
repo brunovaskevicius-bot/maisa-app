@@ -17,7 +17,7 @@
 import * as D from "./data";
 import { fmt } from "./ui";
 import { useStore } from "./store";
-import { rotuloReal, rotuloDeISO, horaDeISO } from "./google/datas";
+import { rotuloDeISO, horaDeISO } from "./google/datas";
 
 /* ───────────────────────────── tipos de bloco ───────────────────────────── */
 
@@ -94,6 +94,46 @@ export function useDetalhe(id: string | null): Detalhe | null {
   /* Abre a conversa do cliente na tela de Conversas, se existir uma. */
   const conversaDoCliente = (clienteId: string) => D.CONVERSAS.find((c) => c.clienteId === clienteId);
   const irParaConversa = (cvId: string) => () => { st.selecionarConversa(cvId); st.irPara("conversas"); };
+
+  /* ── um compromisso da agenda do Google que não é atendimento ──
+   * Vem ANTES de todo o resto por causa do prefixo: `bloq:` é o único id do app com
+   * dois-pontos, e a cascata abaixo despacha por "tenta até dar verdadeiro". Um
+   * `bloq:abc` cairia lá embaixo em `agendamentoPorId`, não acharia nada e abriria a
+   * gaveta vazia. Prefixo explícito, decidido no topo. */
+  if (id.startsWith("bloq:")) {
+    const b = st.bloqueioPorId(id);
+    if (!b) return null;
+    return {
+      titulo: b.titulo,
+      sub: `${D.rotuloLongo(b.data)}, ${D.hhmm(b.inicio)} – ${D.hhmm(b.fim)}`,
+      blocos: [
+        {
+          tipo: "stats", key: "d", label: "Compromisso",
+          linhas: [
+            ["Quando", `${D.rotuloDia(b.data)}, ${D.hhmm(b.inicio)} – ${D.hhmm(b.fim)}`],
+            ["Duração", `${b.duracao} min`],
+            ["Origem", "sua agenda do Google"],
+            ...(b.recorrente ? ([["Repetição", "evento que se repete"]] as [string, string][]) : []),
+          ],
+        },
+        {
+          tipo: "texto", key: "o", label: "Por que está aqui",
+          // O usuário precisa entender por que um bloco que ele não criou ocupa a agenda,
+          // e por que ele não consegue arrastar. Sem esta frase, "não mexe" lê como bug.
+          texto: "Este horário está ocupado na sua agenda do Google, então a MAISA não o oferece a nenhum cliente. Ele é só leitura aqui — para mudar ou apagar, use o Google Calendar.",
+        },
+      ],
+      acoes: [
+        ...(b.meetLink
+          ? [{ label: "Entrar no Meet", primaria: true, onClick: () => window.open(b.meetLink!, "_blank", "noopener") } as Acao]
+          : []),
+        ...(b.htmlLink
+          ? [{ label: "Abrir no Google Calendar", primaria: !b.meetLink, onClick: () => window.open(b.htmlLink!, "_blank", "noopener") } as Acao]
+          : []),
+        { label: "Fechar", onClick: st.fechar },
+      ],
+    };
+  }
 
   /* ── nota fiscal ── */
   if (id.startsWith("nf-")) {
@@ -351,7 +391,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
     const completo = !!r.clienteId && !!r.servicoId;
     return {
       titulo: "Novo atendimento",
-      sub: `${r.dia === D.HOJE.num ? "hoje" : `${r.dia} de ${D.MES_AGENDA.nome}`}, ${D.hhmm(r.inicio)}, com ${D.primeiroNome(D.nomeProfissional(r.profissionalId))}`,
+      sub: `${r.data === D.HOJE.iso ? "hoje" : D.rotuloLongo(r.data)}, ${D.hhmm(r.inicio)}, com ${D.primeiroNome(D.nomeProfissional(r.profissionalId))}`,
       blocos: [
         {
           tipo: "campos", key: "quem", label: "Quem e o quê",
@@ -495,8 +535,8 @@ export function useDetalhe(id: string | null): Detalhe | null {
   const ag = st.agendamentoPorId(id);
   if (ag) {
     const cvAg = conversaDoCliente(ag.cliente.id);
-    const ehHoje = ag.dia === D.HOJE.num;
-    const passado = ag.dia < D.HOJE.num;
+    const ehHoje = ag.data === D.HOJE.iso;
+    const passado = ag.data < D.HOJE.iso;
     const rotulo: Record<D.Etapa, string> = {
       chegando: "Dar chegada",
       atendendo: "Concluir atendimento",
@@ -521,10 +561,11 @@ export function useDetalhe(id: string | null): Detalhe | null {
     const conexaoAg = st.googleDe(ag.profissionalId);
     const ocupadoAg = st.googleOcupado(ag.id);
 
-    /* Depois de criado, a data vem do ISO GRAVADO, nunca mais do cálculo: a previsão
-     * anda 7 dias por semana (ver rotuloDeISO), e um cliente recebendo a data errada
-     * junto de um link que funciona é o pior desfecho possível aqui. */
-    const quandoGoogle = evento?.inicioISO ? rotuloDeISO(evento.inicioISO) : rotuloReal(ag.dia);
+    /* Depois de criado, a data vem do ISO GRAVADO. Antes isso era essencial porque a
+     * previsão andava 7 dias por semana; hoje as datas são reais e as duas coincidem.
+     * Continua lendo do ISO mesmo assim: o que está no Google é a verdade sobre o que
+     * está no Google, e um evento arrastado por fora do app diverge da tela. */
+    const quandoGoogle = evento?.inicioISO ? rotuloDeISO(evento.inicioISO) : D.rotuloLongo(ag.data);
     const horaGoogle = evento?.inicioISO ? horaDeISO(evento.inicioISO) : D.hhmm(ag.inicio);
 
     if (evento) {
@@ -559,12 +600,11 @@ export function useDetalhe(id: string | null): Detalhe | null {
     if (cvAg) acoes.push({ label: "Abrir conversa", onClick: irParaConversa(cvAg.id), primaria: !ehHoje && !acoes.length });
     else if (!acoes.length) acoes.push({ label: "Fechar", onClick: st.fechar });
 
-    const quando = ehHoje ? "hoje" : `${ag.dia} de ${D.MES_AGENDA.nome}`;
+    const quando = ehHoje ? "hoje" : D.rotuloDia(ag.data);
 
-    /* Bloco do Google. Mostra a data REAL do evento, que não é a da tela: o calendário
-     * do protótipo é um julho/2026 fixo e já passado, então o evento é criado deslocado
-     * em semanas inteiras para a frente (ver src/lib/google/datas.ts). Esconder isso
-     * faria o usuário procurar na agenda um evento que está em outra data. */
+    /* Bloco do Google. A data que ele mostra é a do evento que está LÁ — que hoje
+     * coincide com a da tela, mas pode divergir se alguém remarcar direto no Google
+     * Calendar. Quando divergir, o certo é acreditar no Google. */
     const blocoGoogle: Bloco | null = evento
       ? {
         tipo: "stats", key: "gcal", label: "No Google Calendar",
@@ -577,7 +617,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
       : conexaoAg && !passado
         ? {
           tipo: "texto", key: "gcal", label: "Google Calendar",
-          texto: `A agenda de ${D.primeiroNome(ag.profissional.nome)} está conectada (${conexaoAg.googleEmail}). O evento seria criado em ${rotuloReal(ag.dia)}, às ${D.hhmm(ag.inicio)}, com link do Meet.`,
+          texto: `A agenda de ${D.primeiroNome(ag.profissional.nome)} está conectada (${conexaoAg.googleEmail}). O evento seria criado em ${D.rotuloLongo(ag.data)}, às ${D.hhmm(ag.inicio)}, com link do Meet.`,
         }
         : !conexaoAg && !passado && st.google.status === "ok"
           ? {
@@ -593,7 +633,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
         {
           tipo: "stats", key: "d", label: "Atendimento",
           linhas: [
-            ["Dia", `${ag.dia} de ${D.MES_AGENDA.nome}${ehHoje ? " (hoje)" : ""}`],
+            ["Dia", `${D.rotuloLongo(ag.data)}${ehHoje ? " (hoje)" : ""}`],
             ["Horário", `${D.hhmm(ag.inicio)} – ${D.hhmm(ag.fim)}`],
             ["Duração", `${ag.duracao} min`],
             ["Profissional", ag.profissional.nome],

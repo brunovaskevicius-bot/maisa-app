@@ -36,7 +36,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { s, Icon, Monogram, Btn, IconBtn, Badge, EmptyState } from "@/lib/ui";
 import { useIsMobile } from "@/lib/useIsMobile";
 import * as D from "@/lib/data";
-import { useStore, type AgendamentoVivo } from "@/lib/store";
+import { useStore, type AgendamentoVivo, type Bloqueio } from "@/lib/store";
 
 const LINHA = 64;   // altura de 1 hora, em px
 const PASSO = 0.5;  // granularidade de remarcação, em horas
@@ -63,19 +63,27 @@ function tomDoBloco(ag: AgendamentoVivo): { bg: string; ac: string; fg: string }
 
 /** O primeiro horário do dia em que ALGUÉM está de expediente, e quem é.
  *  `null` num dia em que a casa não abre. */
-function primeiroVago(dia: number): { pid: string; inicio: number } | null {
+function primeiroVago(data: string): { pid: string; inicio: number } | null {
   for (let i = 0; i < D.AGENDA_HORAS / PASSO; i++) {
     const inicio = D.AGENDA_INICIO + i * PASSO;
-    const pid = D.COLUNAS_AGENDA.find((p) => D.podeComecar(p, dia, inicio));
+    const pid = D.COLUNAS_AGENDA.find((p) => D.podeComecar(p, data, inicio));
     if (pid) return { pid, inicio };
   }
   return null;
 }
 
-/** Quantos blocos anteriores da coluna ainda estão em curso — define o recuo. */
-function escalonar(blocos: AgendamentoVivo[]): Map<string, number> {
+/** Só o que a grade precisa saber para empilhar: quando começa e quando acaba. */
+type Ocupa = { id: string; inicio: number; fim: number };
+
+/** Quantos blocos anteriores da coluna ainda estão em curso — define o recuo.
+ *
+ *  Recebe atendimentos E bloqueios juntos, de propósito: o dentista das 15h e o cliente
+ *  das 15h são a MESMA pessoa em dois lugares, e escalonar cada lista por conta própria
+ *  desenharia os dois no mesmo x, um cobrindo o outro. É justamente o conflito que a
+ *  agenda existe para mostrar. */
+function escalonar(blocos: Ocupa[]): Map<string, number> {
   const ordem = new Map<string, number>();
-  const anteriores: AgendamentoVivo[] = [];
+  const anteriores: Ocupa[] = [];
   for (const b of [...blocos].sort((x, y) => x.inicio - y.inicio)) {
     ordem.set(b.id, anteriores.filter((a) => a.fim > b.inicio).length);
     anteriores.push(b);
@@ -104,7 +112,7 @@ function Regua() {
  *  nº1 de uma agenda — não existia em lugar nenhum do app. Clicar num vago abre a gaveta com dia,
  *  hora e profissional já resolvidos pelo próprio clique. Como <button>, também entram na ordem de
  *  Tab: é o único caminho de teclado que esta grade tem. */
-function Vagos({ dia, profissionalId, chaveCol }: { dia: number; profissionalId?: string; chaveCol: string }) {
+function Vagos({ data, profissionalId, chaveCol }: { data: string; profissionalId?: string; chaveCol: string }) {
   const st = useStore();
   const fatias = D.AGENDA_HORAS / PASSO;
   return (
@@ -118,13 +126,18 @@ function Vagos({ dia, profissionalId, chaveCol }: { dia: number; profissionalId?
         // (visão de Semana) o clique tem que ESCOLHER alguém — antes caía sempre em
         // COLUNAS_AGENDA[0], então toda marcação da semana ia para o Rafael, inclusive num
         // horário em que ele já tinha ido embora, e Diego e Léo eram inagendáveis por ali.
-        const dono = profissionalId ?? D.COLUNAS_AGENDA.find((pid) => D.podeComecar(pid, dia, inicio));
-        const livre = !!dono && D.podeComecar(dono, dia, inicio);
+        const dono = profissionalId ?? D.COLUNAS_AGENDA.find((pid) => D.podeComecar(pid, data, inicio));
+        const livre = !!dono && D.podeComecar(dono, data, inicio);
         const risco = s(`width:100%;height:${LINHA * PASSO}px;padding:0;border:none;border-bottom:1px ${horaCheia ? "dotted" : "solid"} var(--line)`);
 
         // Fora do expediente de todo mundo: continua aceitando SOLTURA (arrastar é uma decisão
         // consciente sua, e encaixe fora de hora existe), mas não convida com um clique que
         // criaria um atendimento sem ninguém para atender.
+        //
+        // A faixa é maior desde que a grade abriu para 07–22 para caber a agenda real: as
+        // duas horas antes das 9 e as três depois das 19 ficam nesse cinza. É o desenho do
+        // expediente aparecendo, e é o que impede o compromisso das 8h de renderizar fora
+        // da grade.
         if (!livre) {
           return (
             <div
@@ -134,7 +147,7 @@ function Vagos({ dia, profissionalId, chaveCol }: { dia: number; profissionalId?
                 e.preventDefault();
                 const id = e.dataTransfer.getData("text/plain") || st.arrastando;
                 const prof = profissionalId ?? (id ? st.agendamentoPorId(id)?.profissionalId : undefined);
-                if (id && prof) st.reposicionar(id, prof, inicio, dia);
+                if (id && prof) st.reposicionar(id, prof, inicio, data);
               }}
               style={{ ...risco, background: alvo ? "var(--primary-soft)" : "var(--surface-2)", opacity: alvo ? 1 : 0.5, transition: "background-color var(--dur-fast) var(--ease-out)" }}
             />
@@ -151,10 +164,10 @@ function Vagos({ dia, profissionalId, chaveCol }: { dia: number; profissionalId?
               if (!id) return;
               // Quem foi arrastado mantém o profissional dele quando a coluna é um dia.
               const prof = profissionalId ?? st.agendamentoPorId(id)?.profissionalId;
-              if (prof) st.reposicionar(id, prof, inicio, dia);
+              if (prof) st.reposicionar(id, prof, inicio, data);
             }}
-            onClick={() => st.novoAgendamento(dono, inicio, dia)}
-            aria-label={`Marcar atendimento dia ${dia} às ${D.hhmm(inicio)} com ${D.primeiroNome(D.nomeProfissional(dono))}`}
+            onClick={() => st.novoAgendamento(dono, inicio, data)}
+            aria-label={`Marcar atendimento em ${D.rotuloDia(data)} às ${D.hhmm(inicio)} com ${D.primeiroNome(D.nomeProfissional(dono))}`}
             className="m-focus"
             style={{ ...risco, background: alvo ? "var(--primary-soft)" : "transparent", cursor: "pointer", transition: "background-color var(--dur-fast) var(--ease-out)" }}
           />
@@ -207,20 +220,68 @@ function Bloco({ ag, recuo, mostrarProf }: { ag: AgendamentoVivo; recuo: number;
   );
 }
 
+/**
+ * Um compromisso do Google que não é atendimento da MAISA.
+ *
+ * Cinza, hachurado e SEM `draggable`. As três coisas dizem o mesmo: isto veio de fora e
+ * não se mexe daqui. Arrastar faria PATCH no compromisso pessoal de alguém — o dentista,
+ * o almoço, a reunião de outra empresa —, e um app de agenda de clientes não tem esse
+ * direito. Ele ocupa o horário porque o horário está de fato ocupado; a MAISA precisa
+ * saber disso para não oferecer as 15h que já têm dono.
+ */
+function BlocoBloqueio({ b, recuo }: { b: Bloqueio; recuo: number }) {
+  const st = useStore();
+  const alto = b.duracao >= 40;
+  return (
+    <div
+      onClick={() => st.abrir(b.id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); st.abrir(b.id); } }}
+      aria-label={`${b.titulo}, ${D.hhmm(b.inicio)}, compromisso da sua agenda do Google`}
+      className="m-focus"
+      style={{
+        ...s("position:absolute;border-radius:12px;padding:8px 11px;overflow:hidden;cursor:pointer;border:1px dashed var(--border);color:var(--muted)"),
+        // Hachura diagonal em vez de cor cheia. A paleta do app já gasta cinza cheio em
+        // "fora do expediente" e em "pausado"; a listra é a única marca que diz "de outra
+        // fonte" sem inventar uma sétima cor de estado.
+        background:
+          "repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 6px, var(--bg) 6px, var(--bg) 12px)",
+        top: (b.inicio - D.AGENDA_INICIO) * LINHA + 3,
+        height: Math.max((b.duracao / 60) * LINHA - 6, 36),
+        left: 6 + recuo * 12,
+        right: 6,
+        zIndex: 4 + recuo,
+      }}
+    >
+      <div style={s("display:flex;align-items:center;gap:5px;font-size:var(--t-sm);font-weight:var(--w-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25")}>
+        <Icon name="pin" size={12} sw={2} />
+        <span style={s("overflow:hidden;text-overflow:ellipsis")}>{b.titulo}</span>
+      </div>
+      {alto && (
+        <div className="n" style={s("font-size:var(--t-micro);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85;margin-top:1px")}>
+          {D.hhmm(b.inicio)} · sua agenda
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Cabeçalho de uma coluna-dia (Semana). */
-function CabecalhoDia({ dia, onClick }: { dia: number; onClick: () => void }) {
-  const hoje = dia === D.HOJE.num;
+function CabecalhoDia({ data, onClick }: { data: string; onClick: () => void }) {
+  const hoje = data === D.HOJE.iso;
+  const dow = D.dowDoDia(data);
   return (
     <button
       onClick={onClick}
-      aria-label={`Ver ${D.DOW_LONGO[D.dowDoDia(dia)]} ${dia}`}
+      aria-label={`Ver ${D.rotuloLongo(data)}`}
       className="m-hov-bg m-focus"
       style={s(`display:flex;flex-direction:column;align-items:center;gap:1px;padding:9px 4px;border:none;border-left:1px solid var(--line);background:${hoje ? "var(--primary-soft)" : "transparent"};cursor:pointer`)}
     >
       <span style={s(`font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);color:${hoje ? "var(--primary-dark)" : "var(--muted)"}`)}>
-        {D.DOW_CURTO[D.dowDoDia(dia)]}
+        {D.DOW_CURTO[dow]}
       </span>
-      <span className="n" style={s(`font-size:var(--t-lg);font-weight:var(--w-emph);letter-spacing:var(--ls-lg);color:${hoje ? "var(--primary)" : "var(--ink)"}`)}>{dia}</span>
+      <span className="n" style={s(`font-size:var(--t-lg);font-weight:var(--w-emph);letter-spacing:var(--ls-lg);color:${hoje ? "var(--primary)" : "var(--ink)"}`)}>{D.diaDoMes(data)}</span>
     </button>
   );
 }
@@ -229,9 +290,10 @@ function CabecalhoDia({ dia, onClick }: { dia: number; onClick: () => void }) {
  * Hora × profissional, que é a pergunta que o dono faz olhando o dia de hoje:
  * quem está livre agora. */
 
-function GradeDia({ dia }: { dia: number }) {
+function GradeDia({ data }: { data: string }) {
   const st = useStore();
-  const doDia = st.agendamentosDoDia(dia);
+  const doDia = st.agendamentosDoDia(data);
+  const bloqueios = st.bloqueiosDoDia(data);
   const colunas = `58px repeat(${D.COLUNAS_AGENDA.length},minmax(0,1fr))`;
 
   return (
@@ -247,7 +309,7 @@ function GradeDia({ dia }: { dia: number }) {
           // Folga do dia visível — coisa diferente de "pausado", que é você ter desligado a pessoa
           // no app. Sem esta marca uma coluna em dia de folga lia como o horário mais vazio da
           // casa, e a tela de Equipe, na mesma sessão, dizia que era folga.
-          const folga = !D.atende(pid, dia);
+          const folga = !D.atende(pid, data);
           return (
             <div key={pid} style={s(`display:flex;align-items:center;gap:9px;padding:0 10px 12px;opacity:${on && !folga ? "1" : "0.55"}`)}>
               <Monogram name={p.nome} id={pid} size={28} radius={9} />
@@ -264,10 +326,15 @@ function GradeDia({ dia }: { dia: number }) {
         <Regua />
         {D.COLUNAS_AGENDA.map((pid) => {
           const blocos = doDia.filter((a) => a.profissionalId === pid);
-          const recuo = escalonar(blocos);
+          // Escalonamento sobre a lista JUNTA — ver o comentário de `escalonar`.
+          const recuo = escalonar([...blocos, ...bloqueios]);
           return (
-            <div key={pid} style={s("position:relative;border-left:1px solid var(--line)")}>
-              <Vagos dia={dia} profissionalId={pid} chaveCol={`${dia}:${pid}`} />
+            // `overflow:hidden` é rede de segurança: a grade desenha 07–22, mas nada impede
+            // um evento às 05:00 na agenda real, e um bloco com `top` negativo escaparia
+            // por cima do cabeçalho fixo das colunas.
+            <div key={pid} style={s("position:relative;border-left:1px solid var(--line);overflow:hidden")}>
+              <Vagos data={data} profissionalId={pid} chaveCol={`${data}:${pid}`} />
+              {bloqueios.map((b) => <BlocoBloqueio key={b.id} b={b} recuo={recuo.get(b.id) ?? 0} />)}
               {blocos.map((ag) => <Bloco key={ag.id} ag={ag} recuo={recuo.get(ag.id) ?? 0} />)}
             </div>
           );
@@ -283,27 +350,29 @@ function GradeDia({ dia }: { dia: number }) {
  * Aqui a coluna é o DIA, então o bloco mostra o profissional no lugar do
  * serviço — é a informação que muda de coluna para coluna. */
 
-function GradeSemana({ dia, onAbrirDia }: { dia: number; onAbrirDia: (d: number) => void }) {
+function GradeSemana({ data, onAbrirDia }: { data: string; onAbrirDia: (d: string) => void }) {
   const st = useStore();
-  const dias = D.semanaDoDia(dia);
+  const dias = D.semanaDoDia(data);
   const colunas = `52px repeat(${dias.length},minmax(0,1fr))`;
 
   return (
     <div style={s("flex:1;min-height:0;overflow-y:auto;padding:0 16px 16px")}>
       <div style={s(`display:grid;grid-template-columns:${colunas};position:sticky;top:0;background:var(--surface);z-index:8;padding-top:6px;border-bottom:1px solid var(--line)`)}>
         <div />
-        {dias.map((d) => <CabecalhoDia key={d} dia={d} onClick={() => onAbrirDia(d)} />)}
+        {dias.map((d) => <CabecalhoDia key={d} data={d} onClick={() => onAbrirDia(d)} />)}
       </div>
 
       <div style={s(`display:grid;grid-template-columns:${colunas}`)}>
         <Regua />
         {dias.map((d) => {
           const blocos = st.agendamentosDoDia(d);
-          const recuo = escalonar(blocos);
-          const hoje = d === D.HOJE.num;
+          const bloqueios = st.bloqueiosDoDia(d);
+          const recuo = escalonar([...blocos, ...bloqueios]);
+          const hoje = d === D.HOJE.iso;
           return (
-            <div key={d} style={s(`position:relative;border-left:1px solid var(--line);background:${hoje ? "var(--primary-soft)" : "transparent"}`)}>
-              <Vagos dia={d} chaveCol={`sem:${d}`} />
+            <div key={d} style={s(`position:relative;border-left:1px solid var(--line);overflow:hidden;background:${hoje ? "var(--primary-soft)" : "transparent"}`)}>
+              <Vagos data={d} chaveCol={`sem:${d}`} />
+              {bloqueios.map((b) => <BlocoBloqueio key={b.id} b={b} recuo={recuo.get(b.id) ?? 0} />)}
               {blocos.map((ag) => <Bloco key={ag.id} ag={ag} recuo={recuo.get(ag.id) ?? 0} mostrarProf />)}
             </div>
           );
@@ -321,24 +390,33 @@ function GradeSemana({ dia, onAbrirDia }: { dia: number; onAbrirDia: (d: number)
  * grade de números numa coisa que responde. */
 
 function CelulaMes({
-  dia, qtd, aberto, onHover, onAbrir, reduzido,
+  data, noMes, qtd, aberto, onHover, onAbrir, reduzido,
 }: {
-  dia: number | null;
+  data: string;
+  /** Dia de outro mês, ali só para a semana fechar em sete colunas. */
+  noMes: boolean;
   qtd: number;
   aberto: boolean;
-  onHover: (d: number | null) => void;
+  onHover: (d: string | null) => void;
   onAbrir: () => void;
   reduzido: boolean;
 }) {
-  // Preenchimento antes do dia 1 / depois do 31: existe para a grade fechar em sete colunas,
-  // e não recebe número nem foco. É o '-3'/'+1' do componente de origem.
-  if (dia === null) {
-    return <div aria-hidden style={s("height:100%;border-radius:12px;background:var(--surface-2);opacity:.45")} />;
+  const dia = D.diaDoMes(data);
+
+  // Vizinho de outro mês: existe para a grade fechar em sete colunas, e não recebe foco.
+  // Continua mostrando o número — sem ele a última semana de agosto ficava com três
+  // quadrados anônimos e dava para achar que o mês tinha buraco.
+  if (!noMes) {
+    return (
+      <div aria-hidden style={s("height:100%;border-radius:12px;background:var(--surface-2);opacity:.4;padding:8px")}>
+        <span className="n" style={s("font-size:var(--t-label);color:var(--muted)")}>{dia}</span>
+      </div>
+    );
   }
 
-  const domingo = D.fechado(dia);
-  const hoje = dia === D.HOJE.num;
-  const passado = dia < D.HOJE.num;
+  const domingo = D.fechado(data);
+  const hoje = data === D.HOJE.iso;
+  const passado = data < D.HOJE.iso;
 
   if (domingo) {
     return (
@@ -351,12 +429,14 @@ function CelulaMes({
 
   return (
     <motion.button
-      onMouseEnter={() => onHover(dia)}
+      onMouseEnter={() => onHover(data)}
       onMouseLeave={() => onHover(null)}
-      onFocus={() => onHover(dia)}
+      onFocus={() => onHover(data)}
       onBlur={() => onHover(null)}
       onClick={onAbrir}
-      aria-label={`${D.DOW_LONGO[D.dowDoDia(dia)]} ${dia}: ${qtd === 1 ? "1 atendimento" : `${qtd} atendimentos`}`}
+      // "compromissos" e não "atendimentos": a contagem soma os bloqueios do Google, e
+      // chamar o dentista de atendimento seria o rótulo mentindo sobre o próprio número.
+      aria-label={`${D.rotuloLongo(data)}: ${qtd === 1 ? "1 compromisso" : `${qtd} compromissos`}`}
       // `.m-lift` em vez de um `whileHover` com sombra escrita à mão: a classe já existe em
       // globals.css com esses valores, e um `border:1px` acompanhado de sombra larga inventada
       // aqui seria o "ghost-card" que o próprio arquivo bane.
@@ -374,7 +454,7 @@ function CelulaMes({
 
       {qtd > 0 && !aberto && (
         <motion.span
-          layoutId={`dia-${dia}-contagem`}
+          layoutId={`dia-${data}-contagem`}
           className="n"
           style={{
             ...s("position:absolute;right:8px;bottom:8px;display:flex;align-items:center;justify-content:center;font-weight:var(--w-title);color:var(--on-primary);background:var(--primary)"),
@@ -393,7 +473,7 @@ function CelulaMes({
       {qtd > 0 && aberto && (
         <span style={s("position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none")}>
           <motion.span
-            layoutId={`dia-${dia}-contagem`}
+            layoutId={`dia-${data}-contagem`}
             className="n"
             style={{
               ...s("display:flex;align-items:center;justify-content:center;font-weight:var(--w-title);color:var(--on-primary);background:var(--primary)"),
@@ -413,11 +493,13 @@ function CelulaMes({
   );
 }
 
-function GradeMes({ onHover, aberto, onAbrirDia }: { onHover: (d: number | null) => void; aberto: number | null; onAbrirDia: (d: number) => void }) {
+function GradeMes({ mes, onHover, aberto, onAbrirDia }: { mes: string; onHover: (d: string | null) => void; aberto: string | null; onAbrirDia: (d: string) => void }) {
   const st = useStore();
   const reduzido = !!useReducedMotion();
-  // A grade do mês é a mesma 35 células sempre; recalcular a lista a cada hover era lixo puro.
-  const celulas = React.useMemo(() => D.celulasDoMes(), []);
+  // Recalcular a lista a cada hover seria lixo puro — mas as deps precisam ter o MÊS.
+  // Estavam vazias, e o efeito era mudo: navegar de mês repintava o mês velho, com os
+  // números certos do mês novo por cima. Só apareceu quando passou a existir navegação.
+  const celulas = React.useMemo(() => D.celulasDoMes(mes), [mes]);
 
   return (
     // As linhas dividem a altura disponível (`grid-auto-rows: minmax(84px,1fr)`) em vez de terem
@@ -433,11 +515,14 @@ function GradeMes({ onHover, aberto, onAbrirDia }: { onHover: (d: number | null)
         {celulas.map((c) => (
           <CelulaMes
             key={c.chave}
-            dia={c.dia}
-            qtd={c.dia === null ? 0 : st.agendamentosDoDia(c.dia).length}
-            aberto={c.dia !== null && c.dia === aberto}
+            data={c.data}
+            noMes={c.noMes}
+            // Bloqueio do Google conta junto: o número da célula responde "quão cheio está
+            // esse dia", e um dia com quatro compromissos pessoais não está livre.
+            qtd={st.agendamentosDoDia(c.data).length + st.bloqueiosDoDia(c.data).length}
+            aberto={c.data === aberto}
             onHover={onHover}
-            onAbrir={() => { if (c.dia !== null) onAbrirDia(c.dia); }}
+            onAbrir={() => onAbrirDia(c.data)}
             reduzido={reduzido}
           />
         ))}
@@ -451,7 +536,7 @@ function GradeMes({ onHover, aberto, onAbrirDia }: { onHover: (d: number | null)
  * topo, e as linhas reordenam por `layout` em vez de sumir e reaparecer. Sem
  * isso a lista seria só um resumo; com isso ela é a segunda vista do mesmo hover. */
 
-function Trilho({ dias, destaque, rotulo }: { dias: number[]; destaque: number | null; rotulo: string }) {
+function Trilho({ dias, destaque, rotulo }: { dias: string[]; destaque: string | null; rotulo: string }) {
   const st = useStore();
   const reduzido = !!useReducedMotion();
   // A dependência é a FUNÇÃO, não o `st` inteiro: `st` troca de identidade a cada aba, filtro,
@@ -498,8 +583,8 @@ function Trilho({ dias, destaque, rotulo }: { dias: number[]; destaque: number |
                 <span style={s(`font-size:var(--t-micro);font-weight:var(--w-title);letter-spacing:var(--ls-caps);color:${marcado ? "var(--primary)" : "var(--muted)"}`)}>
                   {D.DOW_CURTO[D.dowDoDia(g.dia)]}
                 </span>
-                <span className="n" style={s(`font-size:var(--t-sm);font-weight:var(--w-data);color:${marcado ? "var(--primary)" : "var(--ink)"}`)}>{g.dia}</span>
-                {g.dia === D.HOJE.num && <span style={s("font-size:var(--t-micro);font-weight:var(--w-title);color:var(--primary-dark);background:var(--primary-soft);padding:2px 8px;border-radius:999px")}>hoje</span>}
+                <span className="n" style={s(`font-size:var(--t-sm);font-weight:var(--w-data);color:${marcado ? "var(--primary)" : "var(--ink)"}`)}>{D.diaDoMes(g.dia)}</span>
+                {g.dia === D.HOJE.iso && <span style={s("font-size:var(--t-micro);font-weight:var(--w-title);color:var(--primary-dark);background:var(--primary-soft);padding:2px 8px;border-radius:999px")}>hoje</span>}
                 <span className="n" style={s("font-size:var(--t-micro);color:var(--muted);margin-left:auto")}>{g.itens.length}</span>
               </div>
 
@@ -509,7 +594,7 @@ function Trilho({ dias, destaque, rotulo }: { dias: number[]; destaque: number |
                   onClick={() => st.abrir(ag.id)}
                   // O nome acessível não sai sozinho do conteúdo: o Monogram vem antes e o leitor
                   // anunciava as iniciais. Escrito, o item diz quem, quando e com quem.
-                  aria-label={`${ag.cliente.nome}, dia ${g.dia} às ${D.hhmm(ag.inicio)}, ${ag.servico.nome}, ${D.primeiroNome(ag.profissional.nome)}`}
+                  aria-label={`${ag.cliente.nome}, ${D.rotuloDia(g.dia)} às ${D.hhmm(ag.inicio)}, ${ag.servico.nome}, ${D.primeiroNome(ag.profissional.nome)}`}
                   className="m-hov-bg m-press m-focus"
                   style={s("display:flex;align-items:center;gap:10px;text-align:left;padding:7px 8px;border:none;border-radius:12px;background:transparent;cursor:pointer;width:100%")}
                 >
@@ -574,20 +659,39 @@ function Seletor({ visoes, visao, onTrocar, reduzido }: { visoes: [Visao, string
  * A grade sai: arrastar não existe no toque e seis colunas num celular são
  * ilegíveis. Vira linha do tempo do dia escolhido. */
 
-function LinhaDoTempo({ dia }: { dia: number }) {
+function LinhaDoTempo({ data }: { data: string }) {
   const st = useStore();
-  const itens = st.agendamentosDoDia(dia);
-  if (!itens.length) {
+  const itens = st.agendamentosDoDia(data);
+  const bloqueios = st.bloqueiosDoDia(data);
+  if (!itens.length && !bloqueios.length) {
     return (
       <EmptyState
         icon="calendar"
-        title={dia === D.HOJE.num ? "Dia livre" : `Nada no dia ${dia}`}
+        title={data === D.HOJE.iso ? "Dia livre" : `Nada em ${D.rotuloDia(data)}`}
         sub="A MAISA marca sozinha pelo WhatsApp — quando entrar algo, aparece aqui."
       />
     );
   }
   return (
     <div style={s("display:flex;flex-direction:column;gap:10px;padding:16px")}>
+      {bloqueios.map((b) => (
+        <button
+          key={b.id}
+          onClick={() => st.abrir(b.id)}
+          className="m-press m-focus"
+          style={s("display:flex;align-items:center;gap:12px;text-align:left;padding:14px;border-radius:16px;background:var(--surface-2);border:1px dashed var(--border);color:var(--muted);cursor:pointer")}
+        >
+          <span style={s("flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;width:44px")}>
+            <span className="n" style={s("font-size:var(--t-sm);font-weight:var(--w-data)")}>{D.hhmm(b.inicio)}</span>
+            <span className="n" style={s("font-size:var(--t-micro)")}>{b.duracao}min</span>
+          </span>
+          <span style={s("flex:1;min-width:0")}>
+            <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{b.titulo}</span>
+            <span style={s("display:block;font-size:var(--t-label);margin-top:2px")}>sua agenda do Google</span>
+          </span>
+          <Icon name="pin" size={16} sw={2} />
+        </button>
+      ))}
       {itens.map((ag) => {
         const tom = tomDoBloco(ag);
         return (
@@ -618,14 +722,75 @@ function LinhaDoTempo({ dia }: { dia: number }) {
   );
 }
 
+/* ───────────────────────────── o estado da leitura ─────────────────────────────
+ * Uma faixa DENTRO do cartão, entre a barra e a grade — nunca um toast.
+ *
+ * Toast é para uma ação sua que terminou; ele aparece por três segundos num canto e
+ * some. Aqui o problema é a grade inteira, ele persiste enquanto persistir, e o
+ * usuário precisa poder lê-lo depois de ter olhado para outra coisa. Uma grade vazia
+ * calada AFIRMA "você não tem nada" — e essa afirmação pode ser falsa. */
+
+function AvisoAgenda() {
+  const st = useStore();
+  const a = st.agendaGoogle;
+
+  // Google nem configurado no ambiente: não há o que avisar, a agenda é só local.
+  if (st.google.status !== "ok") return null;
+  // "carregando" e "limite" não ganham faixa: a primeira é passageira e a segunda se
+  // resolve sozinha. Faixa é para o que exige uma decisão de quem está olhando.
+  if (a.status === "ok" || a.status === "limite" || a.status === "carregando") return null;
+
+  const faixa = (tom: "warn" | "muted", texto: string, acao?: { label: string; onClick: () => void }) => (
+    <div style={s(`flex-shrink:0;display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);background:${tom === "warn" ? "var(--warn-soft)" : "var(--surface-2)"};font-size:var(--t-label);color:${tom === "warn" ? "var(--warn)" : "var(--muted)"}`)}>
+      <Icon name={tom === "warn" ? "alert" : "calendar"} size={15} sw={1.9} />
+      <span style={s("flex:1;min-width:0")}>{texto}</span>
+      {acao && (
+        <Btn variant="secondary" size="sm" onClick={acao.onClick} style={{ height: 28, padding: "0 11px", borderRadius: 8 }}>
+          {acao.label}
+        </Btn>
+      )}
+    </div>
+  );
+
+  if (a.status === "nao_conectado") {
+    return faixa(
+      "muted",
+      "Esta agenda ainda não está ligada ao Google. Os atendimentos abaixo são de exemplo.",
+      { label: "Conectar", onClick: () => st.conectarGoogle(D.COLUNAS_AGENDA[0]) },
+    );
+  }
+
+  if (a.status === "reconectar") {
+    // O que já foi lido CONTINUA na tela. Apagar a grade porque o token venceu somaria
+    // um segundo problema — "sumiu tudo" — ao primeiro, que era só uma reautorização.
+    return faixa(
+      "warn",
+      "O acesso à agenda do Google expirou. O que está na tela pode estar desatualizado.",
+      { label: "Reconectar", onClick: () => st.conectarGoogle(D.COLUNAS_AGENDA[0]) },
+    );
+  }
+
+  return faixa("warn", a.info ?? "Não foi possível ler a agenda do Google.", {
+    label: "Tentar de novo",
+    onClick: st.recarregarAgenda,
+  });
+}
+
 /* ───────────────────────────── tela ───────────────────────────── */
+
+/** Título das setas por visão — [anterior, próximo]. */
+const PASSO_ROTULO: Record<Visao, [string, string]> = {
+  dia: ["Dia anterior", "Próximo dia"],
+  semana: ["Semana anterior", "Próxima semana"],
+  mes: ["Mês anterior", "Próximo mês"],
+};
 
 export default function Agenda() {
   const mobile = useIsMobile();
   const reduzido = !!useReducedMotion();
   const st = useStore();
   const [escolhida, setVisao] = React.useState<Visao>("dia");
-  const [destaque, setDestaque] = React.useState<number | null>(null);
+  const [destaque, setDestaque] = React.useState<string | null>(null);
 
   // No celular a Semana sai do seletor: seis colunas de blocos posicionados a 375px não se leem,
   // e um controle que troca a visão para outra coisa ilegível é um controle morto. Mês FICA — a
@@ -636,61 +801,65 @@ export default function Agenda() {
   const visao: Visao = mobile && escolhida === "semana" ? "dia" : escolhida;
 
   const dia = st.diaSel;
-  const hoje = dia === D.HOJE.num;
+  const hoje = dia === D.HOJE.iso;
+  const mes = D.mesDe(dia);
 
   // Os dias que a visão atual cobre. É a mesma lista para a grade e para o trilho — o resumo da
   // direita não pode falar de um período diferente do que está desenhado à esquerda.
-  const visiveis = React.useMemo<number[]>(() => {
+  const visiveis = React.useMemo<string[]>(() => {
     if (visao === "dia") return [dia];
     if (visao === "semana") return D.semanaDoDia(dia);
-    return Array.from({ length: D.MES_AGENDA.dias }, (_, i) => i + 1).filter((d) => !D.fechado(d));
-  }, [visao, dia]);
+    return D.celulasDoMes(mes).filter((c) => c.noMes && !D.fechado(c.data)).map((c) => c.data);
+  }, [visao, dia, mes]);
 
   const rotulo =
-    visao === "dia" ? `${dia} de ${D.MES_AGENDA.nome} de ${D.MES_AGENDA.ano}`
-    : visao === "semana" ? `${visiveis[0]} – ${visiveis[visiveis.length - 1]} de ${D.MES_AGENDA.nome}`
-    : `${D.MES_AGENDA.nome} de ${D.MES_AGENDA.ano}`;
+    visao === "dia" ? `${D.rotuloDia(dia)} de ${D.anoDe(mes)}`
+    : visao === "semana" ? `${D.rotuloDia(visiveis[0])} – ${D.rotuloDia(visiveis[visiveis.length - 1])}`
+    : `${D.nomeMes(mes)} de ${D.anoDe(mes)}`;
 
   /** Abre um dia específico. Trocar `diaSel` NÃO basta: em Semana e em Mês nada na tela é
    *  desenhado a partir do dia selecionado, então clicar numa célula do mês mudava o estado e não
    *  mudava um pixel — um controle que promete "quinta 23: 5 atendimentos" e não abre nada.
    *  Clicar num dia agora desce para ele. */
-  const abrirDia = (d: number) => { st.verDia(d); setVisao("dia"); };
+  const abrirDia = (d: string) => { st.verDia(d); setVisao("dia"); };
 
-  /** ‹ e › andam no PASSO DA VISÃO: um dia ou uma semana. O mês não tem para onde ir — só existe
-   *  julho no protótipo —, então ali os botões desabilitam em vez de fingir que navegam. */
+  /** ‹ e › andam no PASSO DA VISÃO: um dia, uma semana ou um mês.
+   *
+   *  O mês agora NAVEGA. Ele desabilitava porque só existia julho/2026 no protótipo — com
+   *  datas reais, um par de setas mortas seria só um controle quebrado. E as três visões
+   *  atravessam a virada de mês sem caso especial: a aritmética é de calendário, não de
+   *  "dia do mês entre 1 e 31". */
   const navegar = (dir: number) => {
-    if (visao === "semana") {
-      // Ancorado na SEMANA, não no dia. Com `dia + 7` a semana 27–31 era inalcançável a partir de
-      // sábado 25 (32 estoura o mês e a seta não fazia nada), e a semana 1–4 era inalcançável a
-      // partir de segunda 6. Agora ando de segunda a segunda e só recuso quando a semana inteira
-      // cai fora do mês.
-      const proximaSegunda = dia - D.dowDoDia(dia) + dir * 7;
-      const primeiro = Math.max(proximaSegunda, 1);
-      const ultimo = Math.min(proximaSegunda + 5, D.MES_AGENDA.dias); // seg..sáb
-      if (primeiro > ultimo) return;
-      st.verDia(primeiro);
+    if (visao === "mes") {
+      const outro = D.somarMeses(mes, dir);
+      // Cai no dia 1 do mês vizinho; se for domingo, anda até o próximo dia aberto.
+      let alvo = `${outro}-01`;
+      while (D.fechado(alvo)) alvo = D.somarDias(alvo, 1);
+      st.verDia(alvo);
       return;
     }
-    let alvo = dia + dir;
+    if (visao === "semana") {
+      // Ancorado na SEMANA, não no dia: senão andar a partir de um sábado pularia dias.
+      st.verDia(D.somarDias(dia, -D.dowDoDia(dia) + dir * 7));
+      return;
+    }
     // pula domingo: clicar › no sábado tem que cair na segunda, não numa tela "fechado"
-    while (alvo >= 1 && alvo <= D.MES_AGENDA.dias && D.fechado(alvo)) alvo += dir;
-    if (alvo < 1 || alvo > D.MES_AGENDA.dias) return;
+    let alvo = D.somarDias(dia, dir);
+    while (D.fechado(alvo)) alvo = D.somarDias(alvo, dir);
     st.verDia(alvo);
   };
-  const podeNavegar = visao !== "mes";
 
   const calendario = (
     <section style={s("background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden;display:flex;flex-direction:column;min-height:0")}>
       <div style={s("flex-shrink:0;display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap")}>
         <div style={s("display:flex;align-items:center;gap:4px")}>
-          <IconBtn icon="chevron-left" size="sm" disabled={!podeNavegar} onClick={() => navegar(-1)} title={visao === "semana" ? "Semana anterior" : "Dia anterior"} />
-          <Btn variant="secondary" size="sm" onClick={() => abrirDia(D.HOJE.num)} style={{ height: 30, padding: "0 12px", borderRadius: 8 }}>Hoje</Btn>
-          <IconBtn icon="chevron-right" size="sm" disabled={!podeNavegar} onClick={() => navegar(1)} title={visao === "semana" ? "Próxima semana" : "Próximo dia"} />
+          <IconBtn icon="chevron-left" size="sm" onClick={() => navegar(-1)} title={PASSO_ROTULO[visao][0]} />
+          <Btn variant="secondary" size="sm" onClick={() => abrirDia(D.HOJE.iso)} style={{ height: 30, padding: "0 12px", borderRadius: 8 }}>Hoje</Btn>
+          <IconBtn icon="chevron-right" size="sm" onClick={() => navegar(1)} title={PASSO_ROTULO[visao][1]} />
         </div>
 
         <span style={s("font-size:var(--t-body);font-weight:var(--w-title);letter-spacing:var(--ls-body)")}>{rotulo}</span>
-        {!hoje && visao !== "mes" && <Badge>hoje é {D.HOJE.num}</Badge>}
+        {!hoje && visao !== "mes" && <Badge>hoje é {D.rotuloDia(D.HOJE.iso)}</Badge>}
 
         <div style={s("margin-left:auto;display:flex;align-items:center;gap:10px")}>
           <Seletor visoes={visoes} visao={visao} onTrocar={setVisao} reduzido={reduzido} />
@@ -704,16 +873,18 @@ export default function Agenda() {
         </div>
       </div>
 
+      <AvisoAgenda />
+
       {visao === "mes" ? (
-        <GradeMes onHover={setDestaque} aberto={destaque} onAbrirDia={abrirDia} />
+        <GradeMes mes={mes} onHover={setDestaque} aberto={destaque} onAbrirDia={abrirDia} />
       ) : mobile ? (
         // Sem `overflow-y` próprio: no celular quem rola é a PÁGINA. Com scroll interno o cartão
         // ficava preso na altura da viewport e cortava o terceiro atendimento no meio.
-        <LinhaDoTempo dia={dia} />
+        <LinhaDoTempo data={dia} />
       ) : visao === "dia" ? (
-        <GradeDia dia={dia} />
+        <GradeDia data={dia} />
       ) : (
-        <GradeSemana dia={dia} onAbrirDia={abrirDia} />
+        <GradeSemana data={dia} onAbrirDia={abrirDia} />
       )}
 
       {!mobile && visao !== "mes" && (

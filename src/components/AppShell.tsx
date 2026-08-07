@@ -30,7 +30,15 @@ import { Clientes, Faturamento, Equipe, Servicos, Mais } from "./screens/Grades"
 /* ───────────────────────────── mapa de telas ───────────────────────────── */
 
 const TELA: Record<TelaId, { rotulo: string; titulo: string; sub: string; icone: string; Comp: React.ComponentType }> = {
-  fluxo: { rotulo: "Fluxo de hoje", titulo: "Fluxo de hoje", sub: `${D.HOJE.label} · arraste entre as colunas`, icone: "flow", Comp: FluxoHoje },
+  // `sub` é GETTER e não string montada. `TELA` é um const de módulo: no servidor o módulo
+  // fica em memória entre requisições, então uma string montada aqui congelaria "hoje" na
+  // data em que o processo subiu — e o subtítulo passaria a mentir a partir do dia seguinte,
+  // em silêncio, com o resto do app já mostrando a data certa.
+  fluxo: {
+    rotulo: "Fluxo de hoje", titulo: "Fluxo de hoje",
+    get sub() { return `${D.HOJE.label} · arraste entre as colunas`; },
+    icone: "flow", Comp: FluxoHoje,
+  },
   conversas: { rotulo: "Conversas", titulo: "Conversas", sub: "A MAISA responde; você entra quando precisa", icone: "chat", Comp: Conversas },
   // Sem data e sem dica de gesto, de propósito. A Agenda deixou de mostrar só o dia 17: agora ela
   // navega e troca entre dia, semana e mês, então uma data cravada aqui contradiz o cartão logo
