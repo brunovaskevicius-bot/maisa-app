@@ -1,0 +1,1144 @@
+/* ============================================================================
+ * /barbeiros/v3 — a dobra e o desenrolar. Tudo escopado em `.lp-v3`, que a
+ * page.tsx põe no <World>. Nada aqui vaza para as outras LPs nem para o produto.
+ *
+ * O ARQUIVO INTEIRO É UMA GEOMETRIA COM UMA VARIÁVEL. `--o-r0` é o raio do anel
+ * de dentro; TODO o resto (largura do cartão, altura, raio do anel de fora,
+ * tamanho do oco, corpo do texto) é derivado dele por multiplicação. Não há um
+ * segundo número livre, e é isso que faz a peça caber de 320px a 1920px sem uma
+ * única media query de layout — só uma, no fim, para trocar a regra de
+ * dimensionamento do próprio `--o-r0` no celular.
+ *
+ * E ELA É ESCRITA UMA VEZ SÓ. O `--o-r0` é registrado com `@property` logo
+ * abaixo, o que o faz computar para px de verdade; o <Morph> então LÊ esse valor
+ * em vez de repetir o `clamp` em JavaScript. Não existe cópia da regra do raio no
+ * geometria.ts — só a derivação do resto a partir dele.
+ * ========================================================================== */
+
+/* Número: o progresso do desenrolar, escrito pelo <Morph> uma vez por quadro no
+   palco. REGISTRADO de propósito — sem `@property` a variável seria uma string,
+   e cada escrita viraria recálculo de estilo em vez de um número interpolável. */
+@property --lp3-p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+/* O raio do anel de dentro. REGISTRADO como comprimento porque o <Morph> precisa
+   LÊ-LO — e `getComputedStyle` só devolve um valor resolvido em px se a
+   propriedade for registrada; sem isto ele devolveria a string
+   "clamp(180px, min(24vw, 27.5svh), 300px)" e o cliente teria de repetir a conta.
+   É esse registro que permite o `clamp` abaixo ser a ÚNICA definição do raio no
+   projeto, servindo ao mesmo tempo o desenho sem JS e o cálculo com JS. */
+@property --o-r0 {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 240px;
+}
+
+/* ============================================================================
+ * O CLIMA CLARO — a v3 sai do modo escuro.
+ *
+ * O `.mundo-barbeiros` do marketing.css é navy profundo, e as outras cinco LPs
+ * dependem dele. Então NADA é editado lá: os tokens são REDECLARADOS aqui, dentro
+ * de `.lp-v3`, que fica MAIS PERTO na árvore — a herança de custom property pega o
+ * valor do ancestral mais próximo, sem disputa de especificidade e sem
+ * `!important`. O mundo escuro continua intacto para quem ainda o usa.
+ *
+ * DE ONDE VÊM OS NÚMEROS: da LP em produção, maisasecretary.com.br, amostrada no
+ * navegador em vez de estimada de um print. Ela é branca com tinta slate-900 e
+ * azul-600 como primário; o dourado sobrevive lá só dentro de uma pílula escura,
+ * que esta página não tem. Os OKLCH abaixo são a conversão exata dos hexes
+ * medidos (a fração serve para o valor VOLTAR ao hex de origem, e é por isso que
+ * não estão arredondados a duas casas como no resto do projeto).
+ *
+ * ── O DOURADO SAI, E ISSO É UMA REGRA DA CASA SENDO CUMPRIDA, NÃO QUEBRADA.
+ * `--mk-accent` dourado dá 1,9:1 sobre branco. O mundo terapeutas já resolveu
+ * isto do mesmo jeito ("dourado sobre off-white não passa AA", marketing.css:147)
+ * e é o precedente que se segue: o acento vira azul e o wordmark vira `--mk-brand`.
+ * A observação do Ato2.tsx ("a única superfície dourada da dobra é o botão")
+ * deixa de ter objeto — não sobrou dourado nenhum na página.
+ *
+ * ── O QUE ESTA TROCA ARRASTA JUNTO, e está anotado em cada lugar:
+ *   · a figura do ato 2 troca `screen` por `multiply` (v3.css, ".lp3-figura");
+ *   · a foto precisa de fundo BRANCO, não preto (imagens.ts, `figuraAto2`);
+ *   · a trilha da dobra desenha em `multiply`, não em `lighter` (trilha.ts).
+ * As três são a MESMA troca de sinal: sobre escuro só se pode clarear, sobre
+ * claro só se pode escurecer.
+ * ========================================================================== */
+.lp-v3.mkt-world {
+  /* fundo e degraus */
+  --mk-bg: oklch(1 0 0); /* branco */
+  --mk-bg-deep: oklch(0.9705 0.0142 254.8); /* blue-50 #EFF6FF — o degrau do ato 2 */
+  --mk-panel: oklch(0.9683 0.0068 248.2); /* slate-100 #F1F5F9 */
+  --mk-panel-2: oklch(0.9288 0.0126 255.7); /* slate-200 #E2E8F0 */
+  --mk-surface: oklch(1 0 0);
+
+  /* tinta — os três degraus. Medidos no navegador, não estimados:
+     17,85:1 · 7,58:1 · 5,19:1 sobre branco. */
+  --mk-ink: oklch(0.2077 0.0398 265.8); /* slate-900 #0F172A */
+  --mk-ink-soft: oklch(0.4455 0.0374 257.3); /* slate-600 #475569 */
+  /* ⚠️ NÃO É O slate-500 DA REFERÊNCIA, e a diferença tem motivo medido.
+     O slate-500 (#64748B) dá 4,76:1 sobre branco — passa — mas o ato 2 não é
+     branco: é `--mk-bg-deep` (blue-50), e ali o mesmo cinza cai para **4,37:1**,
+     abaixo do piso de 4,5. E é justamente lá que `--mk-muted` carrega os dois
+     textos mais frágeis da página: o microrrótulo de 11px e a nota de honestidade
+     de 12,8px — nenhum dos dois se qualifica como "texto grande", então os dois
+     precisam de 4,5 de verdade. Escurecido até L 0.535 (#5E6E85), ele dá 5,19:1 no
+     branco e 4,77:1 no blue-50: folga nos DOIS substratos, que é o que um token
+     usado em duas seções precisa ter. */
+  --mk-muted: oklch(0.535 0.0407 257.4); /* #5E6E85 — entre slate-500 e slate-600 */
+  --mk-border: oklch(0.8823 0.0570 254.2); /* blue-200 #BFDBFE */
+  --mk-line: oklch(0.9288 0.0126 255.7); /* slate-200 #E2E8F0 */
+
+  /* o azul: `--mk-brand` é o azul que decide (botão, wordmark), `--mk-accent` é o
+     azul claro que só desenha (filete, halo, trilha) */
+  --mk-brand: oklch(0.5461 0.2152 262.9); /* blue-600 #2563EB */
+  --mk-accent: oklch(0.6231 0.1880 259.8); /* blue-500 #3B82F6 */
+  --mk-accent-strong: oklch(0.4882 0.2172 264.4); /* blue-700 #1D4ED8 */
+  --mk-accent-ink: oklch(0.4882 0.2172 264.4);
+  --mk-on-brand: oklch(1 0 0);
+
+  /* wordmark: azul, pelo mesmo motivo do mundo terapeutas */
+  --mk-wordmark: var(--mk-brand);
+  --mk-wordmark-shadow: transparent;
+
+  /* CTA = azul-600 com texto branco. 5,17:1 — AA para o corpo do botão, e o
+     botão é 1,1rem/700, então também passa como texto grande com folga. */
+  --mk-cta: oklch(0.5461 0.2152 262.9);
+  --mk-cta-hover: oklch(0.4882 0.2172 264.4);
+  --mk-cta-ink: oklch(1 0 0);
+  --mk-ring: oklch(0.5461 0.2152 262.9);
+  --mk-cta-glow: oklch(0.5461 0.2152 262.9 / 0.28);
+
+  /* sombras: sobre branco, sombra preta com 0,6 de alpha é sujeira. Azul-acinzentada
+     e rasa, no molde do mundo terapeutas. */
+  --mk-shadow: 0 24px 55px oklch(0.45 0.06 260 / 0.16);
+  --mk-shadow-soft: 0 12px 32px oklch(0.45 0.06 260 / 0.10);
+}
+
+/* O `body:has(.mundo-barbeiros)` do marketing.css pinta o BODY de navy para não
+   respirar o creme do produto atrás da LP. Aqui ele deixaria uma moldura escura em
+   volta de uma página branca (e uma barra escura no overscroll do iOS).
+   `:has(.lp-v3.mundo-barbeiros)` tem especificidade 0-2-1 contra 0-1-1 do original
+   — vence por especificidade, e não por ordem de importação, que num bundler não é
+   coisa em que se apostar. */
+body:has(.lp-v3.mundo-barbeiros) {
+  background-color: #ffffff;
+}
+
+/* ======================= A PISTA E O PALCO =======================
+ * A pista é a régua de rolagem; o palco é o que fica preso nela. A conta que faz
+ * a costura cair no lugar certo:
+ *
+ *     pista 200svh − palco 100svh = 100svh de pin
+ *
+ * e o <Morph> lê o progresso com offset ["start start", "end end"] NA PISTA, o
+ * que dá exatamente o mesmo intervalo: p=0 no primeiro quadro do pin, p=1 no
+ * último. A barra de rostos termina de se formar no pixel em que o palco descola
+ * — que é a fronteira com o ato 2. Não é ajuste fino, é a mesma aritmética
+ * escrita nos dois lugares.
+ *
+ * `svh` NOS DOIS, e isto é aritmética e não estética: se a pista e o palco
+ * usassem unidades diferentes, a duração do pin deixaria de ser constante e o
+ * ponto onde p=1 escorregaria em relação à costura enquanto o dedo está na tela.
+ * `dvh` re-layouta quando a barra de URL do iOS recolhe (e isso conta para CLS);
+ * `vh` equivale ao viewport grande e esconderia o rodapé da dobra sob a barra na
+ * abertura. `svh` é constante pela sessão. */
+.lp-v3 .lp3-pista {
+  position: relative;
+  /* Acima do ato 2, que sobe 16svh por baixo dele. É metade da travessia: os
+     últimos 16svh do palco pinado — a barra de rostos e o filete — passam POR CIMA
+     da cabeça da figura do ato 2 enquanto ela entra. */
+  z-index: 2;
+  /* `height`, não `min-height`: com min-height a duração do pin passaria a
+     depender do conteúdo e a costura sairia do lugar. */
+  height: 200svh;
+  /* SEM `overflow` AQUI. Um ancestral com overflow diferente de `visible` vira o
+     "scrolling mechanism" mais próximo, e o palco passaria a grudar dentro de uma
+     caixa que não rola — o sintoma é "o sticky não funciona". O recorte lateral
+     desceu para o palco, onde é inofensivo.
+
+     SEM `background` AQUI TAMBÉM, e isso é a outra metade da travessia. Esta caixa
+     é opaca por 200svh e está por cima; se ela pintasse o fundo, cobriria justamente
+     os 16svh sobrepostos e a travessia simplesmente não apareceria. O fundo já vem
+     do `.mkt-world` (marketing.css), então nenhuma das duas precisava dele. */
+}
+
+.lp-v3 .lp3-palco {
+  position: sticky;
+  /* sem um inset não-`auto`, `sticky` se comporta como `relative` */
+  top: 0;
+  height: 100svh;
+
+  /* `clip` e não `hidden`: os dois recortam, mas só o `hidden` cria scroll
+     container. E o par misto é traiçoeiro — `overflow-x: hidden` faria o
+     `overflow-y: visible` COMPUTAR para `auto`, matando o sticky em silêncio.
+     `clip` é o único valor que preserva o `visible` do outro eixo.
+     O recorte lateral é necessário porque no celular o anel é de propósito mais
+     largo que a tela, e porque a barra formada é 14% mais larga que a viewport. */
+  overflow-x: clip;
+  overflow-y: visible;
+
+  /* o centramento desceu da pista para cá: um grid item esticado por 200svh nunca
+     teria folga para grudar */
+  display: grid;
+  place-items: center;
+
+  isolation: isolate;
+  /* transparente de propósito — ver a nota de `background` na pista */
+}
+
+/* ── O FILETE DIVISOR ──
+   A divisória permanente entre a dobra e o resto. Mora na borda de baixo do palco,
+   que é onde a barra de rostos pousa, então os dois são a mesma aresta.
+
+   Sem JS e sem movimento ele já está inteiro: `data-vivo` só é posto pelo <Morph>
+   quando o laço vai rodar, então os dois casos degradados caem no `scaleX(1)`
+   sozinhos — sem <noscript> e sem media query. */
+.lp-v3 .lp3-palco::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  z-index: 4;
+  pointer-events: none;
+  background: var(--mk-accent);
+  transform-origin: left;
+  transform: scaleX(1);
+}
+
+/* Com JS: ele se desenha no fim do morph e TERMINA ANTES DE O PIN SOLTAR — quando
+   a pessoa recupera o controle da rolagem, a divisão já está lá. Puro CSS lendo o
+   `--lp3-p` que o <Morph> já escreve; nenhum MotionValue a mais. */
+.lp-v3 .lp3-palco[data-vivo]::after {
+  transform: scaleX(clamp(0, (var(--lp3-p) - 0.78) / 0.18, 1));
+}
+
+/* ─────────────────────────── a trilha ───────────────────────────
+   O canvas do traçado que varre o vazio em volta da roda. Quem desenha é
+   trilha.ts, chamado pelo laço do <Morph>; aqui só mora a caixa.
+
+   NADA DE `mix-blend-mode` NESTE ELEMENTO, e a tentação é grande: o instinto num
+   tema claro é pedir `multiply` para o traço nunca clarear a página. Só que o
+   palco é `isolation: isolate` e é TRANSPARENTE, e o canvas é o primeiro filho —
+   ou seja, o backdrop dele dentro do grupo isolado é vazio. Pela fórmula
+   Cr = (1−αb)·Cs + αb·B(Cb,Cs) com αb = 0, o resultado é Cs: `multiply` ali seria
+   uma declaração que não faz absolutamente nada, e mais tarde alguém gastaria uma
+   tarde tentando entender por que mudá-la não muda nada. O azul já é escuro o
+   bastante para só escurecer sobre branco; composição normal basta.
+
+   Sem `--lp3-p` aqui: quem apaga a trilha durante o desenrolar é o próprio
+   trilha.ts, que ao mesmo tempo PARA de desenhar. Fazer o sumiço por opacidade de
+   CSS deixaria o laço trabalhando em cima de um canvas invisível justo no trecho
+   mais caro da página. */
+.lp-v3 .lp3-trilha {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ─────────────────────────── assinatura ───────────────────────────
+   Uma dobra que é uma roda não tem barra de navegação: não há seção para
+   ancorar, e uma nav roubaria a moldura da peça. O wordmark fica no canto como
+   ASSINATURA — um <p>, sem href —, do jeito que se assina uma fotografia. Vive
+   FORA do elemento mascarado abaixo, senão a máscara o apagaria junto com a
+   borda de cima. */
+.lp-v3 .lp3-assinatura {
+  position: absolute;
+  top: clamp(18px, 3.2vh, 34px);
+  left: var(--mk-gutter);
+  z-index: 3;
+  margin: 0;
+  font-size: clamp(1.15rem, 1.8vw, 1.5rem);
+  line-height: 1;
+}
+
+/* ============================ A RODA ============================ */
+
+.lp-v3 .lp3-roda {
+  /* ── O ÚNICO NÚMERO LIVRE ──────────────────────────────────────────────────
+     Preso pelas duas dimensões da tela ao mesmo tempo, e é isso que impede o
+     defeito da versão anterior (a roda virar uma fatia horizontal numa tela
+     larga e baixa). A conta que o `27.5svh` resolve:
+
+         extensão externa da roda = --o-r1 + meia-diagonal do cartão
+                                  = 1,46·r0 + 0,240·r0  =  1,700·r0
+
+     e isso precisa caber em meia tela COM FOLGA PARA A RAMPA DA MÁSCARA (6% de
+     H, ver adiante): 1,700 · 0,275 · H = 0,468·H, contra um orçamento de
+     0,5 − 0,06 = 0,44·H… que estoura em 2,8%.
+
+     Estourar aqui é DE PROPÓSITO, e o número foi calibrado medindo no navegador
+     em vez de deduzido: a roda encosta na rampa pelas pontas dos cartões mais
+     externos, uns 25px deles, e o que isso produz é a coroa se dissolvendo nas
+     12h e nas 6h em vez de terminar numa borda. Foi a versão com 29svh + rampa
+     de 12% que mostrou o limite: ali a rampa comia 110px de uma roda de 861px —
+     um oitavo da peça apagado de cada lado, e aí sim volta a parecer fatia. */
+  --o-r0: clamp(180px, min(24vw, 27.5svh), 300px);
+
+  /* `--o-r1`, `--o-w` e `--o-h` NÃO SÃO DECLARADOS AQUI. Eles chegam inline, do
+     Roda.tsx, derivados de RAZAO_ANEL/LARGURA_CARTAO/ALTURA_CARTAO no geometria.ts
+     — que são os mesmos números que decidem quantos cartões cabem em cada anel e
+     onde a barra pousa. Escritos nos dois lugares, eles divergiam em silêncio.
+     O raio fica aqui porque é o CSS que sabe de tela; as proporções ficam lá porque
+     é o JavaScript que faz conta com elas. */
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+/* Brilho por trás da roda. Fica NO NÍVEL DE BAIXO (z-index 0, sob o campo) por
+   um motivo que custou caro na tentativa anterior: lá havia uma vinheta radial
+   pintada POR CIMA dos cartões, e o raio dela alcançava a órbita — cada cartão
+   apagava ao cruzar as 12h e as 6h, que é um defeito que parece bug de imagem e
+   não de CSS. Embaixo, um gradiente não tem como comer nada.
+   Ele MORRE junto com o círculo: quando a roda vira reta não há mais um centro
+   para iluminar, e um halo redondo por trás de uma barra horizontal é um fantasma
+   da forma anterior. */
+.lp-v3 .lp3-roda::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: calc(var(--o-r1) * 2.6);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--mk-brand) 16%, transparent) 0%,
+    transparent 62%
+  );
+  opacity: calc(1 - var(--lp3-p));
+  pointer-events: none;
+}
+
+.lp-v3 .lp3-roda-campo {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+
+  /* A REDE DE SEGURANÇA, não o efeito principal — e a diferença entre as duas
+     coisas é o tamanho da rampa. Ela existe porque nas telas em que o piso de
+     180px do clamp ganha (viewport muito baixa) o anel de fora passa da borda, e
+     sem isto seria CORTADO em linha reta: um cartão cortado ao meio vira uma tira
+     opaca de rosto. 6% é o que se mede como "encosta e some" em vez de "apaga".
+
+     A RAMPA DE BAIXO FECHA CONFORME A RODA DESENROLA, e sem isso a peça teria um
+     defeito grave: a barra pousa com o pé no rodapé do palco, ou seja EXATAMENTE
+     dentro dos 6% de baixo — a máscara dissolveria justamente a coisa que o
+     desenrolar existe para construir (54px de uma barra de 92px numa tela de
+     900px). Em p=1 o corte de baixo vira uma aresta reta, que é o que uma
+     divisória quer ser. A rampa de CIMA fica: é por ela que os braços saem de
+     quadro durante o desenrolar, e sair dissolvendo é melhor que sair cortado. */
+  --lp3-fim: calc(94% + var(--lp3-p) * 6%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 6%, #000 var(--lp3-fim), transparent 100%);
+}
+
+/* ── o anel: existe para a opacidade ser DO GRUPO ──
+   Sem este envelope, o recuo de 62% iria em cada braço — e como os cartões se
+   sobrepõem uns 20%, cada um deixava ver o de baixo ATRAVÉS de si. O anel de
+   fora virava um borrão translúcido em vez de uma pilha de fotos. Num grupo, o
+   navegador compõe os cartões opacos primeiro e esmaece o resultado inteiro
+   depois. O <Morph> escreve opacidade por cartão, mas só o portão da costura
+   (0..1) — o recuo do anel continua sendo daqui. */
+.lp-v3 .lp3-anel {
+  position: absolute;
+  inset: 0;
+}
+
+.lp-v3 .lp3-anel[data-anel="1"] {
+  opacity: 0.62;
+}
+
+/* ── o braço: uma haste do centro até a órbita ──
+   `transform: rotate(--a) translateX(--r)` põe o cartão no ângulo inicial dele.
+   A keyframe anima a propriedade INDIVIDUAL `rotate`, que o navegador aplica
+   ANTES do `transform` e em volta da mesma origem — somar duas rotações no mesmo
+   ponto é somar ângulos, então o braço varre a circunferência. Sem JS, e no
+   compositor.
+
+   ISTO É O ESTADO SEM JAVASCRIPT. Quando o <Morph> monta, ele põe `data-vivo` no
+   palco e assume a escrita do `transform` (ver adiante). */
+.lp-v3 .lp3-braco {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--o-w);
+  height: var(--o-h);
+  margin-left: calc(var(--o-w) / -2);
+  margin-top: calc(var(--o-h) / -2);
+  transform: rotate(var(--a)) translateX(var(--r));
+  animation: lp3-gira var(--dur) linear infinite;
+}
+
+/* ── o cartão: gira ao contrário para ficar EM PÉ ──
+   `reverse` numa keyframe de 0→360° é 360→0, que é ≡ −360f (mod 360). Somado à
+   rotação do braço dá zero em todo instante, então sobra só o `--t` (a
+   inclinação). As duas animações têm a MESMA duração e nascem no mesmo instante,
+   o que torna o cancelamento exato e não aproximado. */
+.lp-v3 .lp3-cartao {
+  width: 100%;
+  height: 100%;
+  transform: rotate(calc(-1 * var(--a))) rotate(var(--t));
+  animation: lp3-gira var(--dur) linear infinite reverse;
+  border-radius: calc(var(--o-r0) * 0.03);
+  overflow: hidden;
+  /* Os cartões se SOBREPÕEM (~20% da largura). Sem um fundo opaco, a
+     transparência de um PNG ou o quadro de uma imagem ainda carregando deixaria
+     ver o cartão de baixo através dele, e a coroa viraria um borrão. */
+  background: var(--mk-bg-deep);
+  /* NO CLARO A SOMBRA DEIXA DE BASTAR. Sobre navy, uma foto sempre era mais clara
+     que o fundo e a borda aparecia sozinha; sobre branco, um retrato de fundo
+     claro encosta na página e o cartão perde o contorno bem onde a coroa é mais
+     densa. Daí o par: a sombra continua dando profundidade e o anel de 1px dá a
+     aresta. O anel é `inset` para não somar largura ao cartão — a geometria do
+     oco (v3.css, "O OCO") mede a meia-diagonal do retângulo, e uma borda de
+     verdade a aumentaria em 1px sem que a conta soubesse.
+
+     ⚠️ A SOMBRA FOI ESPECIFICADA OLHANDO UM CARTÃO, E A COROA EMPILHA VÁRIOS.
+     Era `0 10px 26px / 0.16`. Medido na página, amostrando a coroa em 360×14
+     pontos e contando quantas caixas de sombra (a caixa do cartão dilatada pelo
+     blur) cobrem cada ponto: a média é 2,7 sombras sobrepostas, metade da coroa
+     tem 3, e o pior ponto tem 6. Com 1−(1−0,16)^2,7 isso mostrava 0,37 de
+     opacidade — e 0,58 no pior ponto. Duas a quatro vezes o que a regra pedia.
+
+     Não é questão de gosto: 64 véus somados viram uma névoa cinza sob o anel, que
+     é literalmente o "peso" da dobra. Redimensionado PELO EMPILHAMENTO, não pelo
+     cartão isolado — resolvendo 1−(1−α)^n = 0,18 para o n medido:
+
+         blur 26px → empilha 2,7 → α = 0,072
+         blur 16px → empilha 2,1 → α = 0,092   ← aqui
+         blur 12px → empilha 1,8 → α = 0,103
+
+     O blur menor entra junto porque é ELE que dita o empilhamento (dilata cada
+     cartão de 80×98 em 26px por lado, ou seja mais que dobra a área que ele
+     escurece). Em 16px a sombra fica justa embaixo do cartão, o anel volta a ter
+     ar entre as fileiras, e o resultado composto é 0,18 — o que a linha sempre
+     quis mostrar. O `inset` NÃO muda: ele não empilha, mora dentro do cartão. */
+  box-shadow: 0 6px 16px oklch(0.45 0.06 260 / 0.092), inset 0 0 0 1px oklch(0.45 0.06 260 / 0.10);
+}
+
+.lp-v3 .lp3-cartao img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+@keyframes lp3-gira {
+  from {
+    rotate: 0deg;
+  }
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* ── COM JAVASCRIPT: o <Morph> assume ──
+   As duas keyframes morrem e o braço passa a receber um `translate3d` inline a
+   cada quadro. O cartão para de contra-girar porque não há mais rotação de braço
+   para cancelar: a posição vem em coordenadas cartesianas, e a única rotação que
+   sobra é a inclinação. Isto é mais simples que o estado sem JS, não mais
+   complicado — o truque das duas rotações só existia porque CSS não sabe calcular
+   uma posição. */
+.lp-v3 .lp3-palco[data-vivo] .lp3-braco {
+  animation: none;
+}
+
+.lp-v3 .lp3-palco[data-vivo] .lp3-cartao {
+  animation: none;
+  transform: rotate(var(--t));
+}
+
+/* ============================ O OCO ============================
+ * A GARANTIA DE QUE NENHUM CARTÃO ENCOSTA NO TEXTO, que é o que dispensa
+ * qualquer véu atrás dele (e véu sobre fundo chapado é o que arruinou a dobra
+ * anterior — três camadas de navy somando 92% de alpha sobre um fundo de 0,4%
+ * de luminância, ou seja um retângulo preto com letras):
+ *
+ *   · o ponto de um cartão mais próximo do centro é  r0 − ½·√(w² + h²).
+ *     Com w = 0,300·r0 e h = 0,375·r0 isso dá  r0 − 0,240·r0 = 0,760·r0.
+ *     Usar a meia-DIAGONAL e não a meia-largura é o que torna a conta imune ao
+ *     `--t`: a circunferência circunscrita a um retângulo não muda quando ele
+ *     roda, então a garantia vale em qualquer inclinação.
+ *   · o oco é um retângulo de 1,16·r0 × 0,84·r0, logo meia-diagonal
+ *     = r0·√(0,58² + 0,42²) = 0,716·r0.
+ *
+ * Folga = 0,760 − 0,716 = 4,4% de r0 em TODA viewport (≈11px num notebook).
+ *
+ * A conta vale em p=0. Durante o desenrolar ela deixa de ser necessária porque a
+ * roda ABRE — os cartões se afastam do centro, não se aproximam. O pior instante
+ * continua sendo o repouso. */
+.lp-v3 .lp3-miolo {
+  position: relative;
+  z-index: 2;
+  width: calc(var(--o-r0) * 1.16);
+  max-height: calc(var(--o-r0) * 0.84);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--o-r0) * 0.075);
+  text-align: center;
+
+  /* A FRASE NÃO SOME QUANDO A RODA DESENROLA — ela sobe um pouco e fica.
+     A tentação era esmaecê-la junto: o resultado medido é uma tela vazia entre
+     p≈0,4 e p≈0,9, um buraco morto bem no meio da rolagem. Ficando, a dobra
+     resolve numa composição inteira: assinatura no canto, a frase, o botão, e a
+     multidão que saiu de VOLTA dela para DEBAIXO dela. O "esses" da frase
+     continua tendo a quem se referir. */
+  transform: translateY(calc(var(--lp3-p) * var(--o-h) * -0.62));
+}
+
+.lp-v3 .lp3-frase {
+  margin: 0;
+  font-family: var(--mk-font-display);
+  font-weight: 800;
+  /* O corpo acompanha o raio porque é o raio que define a largura da caixa: um
+     `clamp` em vw deixaria o texto crescer enquanto o oco encolhe (é o que
+     acontece numa tela larga e baixa) e o texto estouraria o oco. */
+  font-size: clamp(1.05rem, calc(var(--o-r0) * 0.104), 2.2rem);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--mk-ink);
+  text-wrap: balance;
+
+  /* Cresce 18% enquanto a roda abre. `scale` e não `font-size`: a caixa de
+     layout não muda, então as quebras de linha ficam onde estão e não há refluxo
+     a cada quadro — só rasterização maior. 18% é o teto em que a frase mais longa
+     ainda não passa da largura do oco em 390px. */
+  transform: scale(calc(1 + var(--lp3-p) * 0.18));
+  transform-origin: center bottom;
+}
+
+/* ── o botão: um primário, azul-600, texto branco ──
+   5,17:1, medido. É a única superfície de cor CHEIA da dobra — o wordmark da
+   assinatura usa o mesmo azul, mas em tinta e a 1,3rem, num canto. No tema escuro
+   este par era dourado com texto navy; a troca é a mesma do resto da página. */
+.lp-v3 .lp3-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 14px vertical + line-height dá ~48px de alvo, acima do piso de toque de 44 */
+  padding: 14px clamp(20px, calc(var(--o-r0) * 0.11), 30px);
+  border-radius: var(--mk-btn-radius);
+  background: var(--mk-cta);
+  color: var(--mk-cta-ink);
+  font-family: var(--mk-font-body);
+  font-weight: 700;
+  font-size: clamp(0.95rem, calc(var(--o-r0) * 0.062), 1.1rem);
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--mk-dur) var(--mk-ease), box-shadow var(--mk-dur) var(--mk-ease);
+}
+
+.lp-v3 .lp3-btn:hover {
+  background: var(--mk-cta-hover);
+  box-shadow: 0 0 32px var(--mk-cta-glow);
+}
+
+/* ============================ CELULAR ============================
+ * A regra do `--o-r0` INVERTE aqui, e é de propósito.
+ *
+ * No desktop o raio é limitado pela tela para a roda caber inteira. Num aparelho
+ * de 390px isso daria r0 ≈ 94px e cartões de 28px — confete, não gente. Então no
+ * celular o anel de dentro passa a ser MAIS LARGO que a tela (58vw de raio =
+ * 116% da largura em diâmetro): os cartões das 3h e das 9h saem pela borda, e o
+ * que fica à vista são dois arcos densos, em cima e embaixo, com rostos de ~68px.
+ *
+ * 760px é o ponto em que as duas regras se cruzam (24vw = 182px ≈ o piso do
+ * clamp), então a troca não dá salto de tamanho. Nada disto precisa ser repetido
+ * em JavaScript: o <Morph> lê `--o-r0` já resolvido, então esta media query
+ * chega até ele sozinha. */
+@media (max-width: 759px) {
+  .lp-v3 .lp3-roda {
+    --o-r0: clamp(160px, 58vw, 280px);
+  }
+}
+
+/* ==================== A BARRA COMPARTILHADA DO CELULAR ====================
+ * O <World> monta a StickyMobileCta de graça em toda LP. Nesta ela é errada por
+ * dois motivos independentes: ela é um SEGUNDO primário na mesma tela (a dobra
+ * já tem o dela, no oco, a 48px de alvo), e o destino dela vem do nível de funil
+ * do pathname — numa rota de topo isso aponta para "Ver como funciona", ou seja
+ * para FORA da página, coberto por cima do único botão que interessa.
+ *
+ * Neutralizada por especificidade (0-2-0 contra o 0-1-0 do compartilhado), sem
+ * `!important` e sem editar o arquivo de que as outras 5 LPs dependem.
+ *
+ * A SEGUNDA METADE É A QUE SE ESQUECE: o marketing.css também reserva 72px de
+ * `padding-bottom` no `.mkt-world`. Sem zerar isso, a pista de 200svh passa a
+ * somar 200svh + 72px e sobra uma tira vazia depois da costura. */
+@media (max-width: 560px) {
+  .lp-v3 .mk-sticky-cta {
+    display: none;
+  }
+  .lp-v3.mkt-world {
+    padding-bottom: 0;
+  }
+}
+
+/* ============================ MOVIMENTO ============================
+ * SEM MOVIMENTO NÃO PODE VIRAR SEM CONTEÚDO — nem, pior, virar 100svh de rolagem
+ * vazia. A pista encolhe para a altura do palco, o palco para de grudar, e a
+ * dobra volta a ser o pôster que já era: a roda parada nos ângulos iniciais, que
+ * já são uma distribuição válida e completa dos dois anéis.
+ *
+ * Está em CSS, e não só no JS, de propósito: `useReducedMotion()` devolve `null`
+ * no servidor, então o primeiro paint sairia com 200svh e depois daria um salto.
+ * Aqui o layout já nasce certo. O <Morph> também não põe `data-vivo` neste caso,
+ * então as keyframes acima continuam valendo — e o kill-switch global do
+ * marketing.css as congela.
+ *
+ * O que se perde: a barra de rostos não se forma, e a divisória com o ato 2 passa
+ * a ser só a mudança de fundo. É uma perda real e assumida — a alternativa seria
+ * animar mesmo assim, que é exatamente o que a WCAG 2.3.3 pede para não fazer. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-v3 .lp3-pista {
+    height: auto;
+  }
+  .lp-v3 .lp3-palco {
+    position: static;
+    height: 100svh;
+  }
+  /* OBRIGATÓRIO, e a razão é que a travessia deixa de existir aqui. Sem a barra
+     passando por cima, uma margem negativa não é gesto nenhum — é o ato 2 subindo
+     por cima do rodapé de uma dobra estática, ou seja uma colisão. */
+  .lp-v3 .lp3-ato2 {
+    margin-top: 0;
+  }
+}
+
+/* ============================================================================
+ * ATO 2 — "um sai da fila"
+ *
+ * A disciplina do arquivo continua: UM número livre, e o resto derivado dele.
+ * Aqui o número é `--a2`, o corpo da manchete; dele saem o silêncio, os respiros e
+ * o recuo do bloco de honestidade.
+ * ========================================================================== */
+
+.lp-v3 .lp3-ato2 {
+  --a2: clamp(2.75rem, 8.2vw, 7rem); /* 44px → 112px */
+
+  /* ── AS MEDIDAS VERTICAIS DA BATIDA A, todas na MESMA RÉGUA: distância a partir
+     do TOPO DA SEÇÃO (que fica 16svh acima da costura, por causa da margem
+     negativa que faz a travessia). Estarem na mesma régua é o que permite escrever
+     a relação entre elas em vez de calibrá-la a olho — e hoje SÓ DUAS são livres:
+     onde a figura nasce e que altura tem. O topo do texto é derivado das duas, e a
+     `min-height` da caixa também. Mexer nas duas livres move o bloco inteiro com o
+     alinhamento das DUAS pontas preservado; não há terceira ponta para calibrar. */
+
+  /** A FRAÇÃO DO QUADRO DA FIGURA QUE É ESTÚDIO BRANCO acima da cabeça — e que sob
+      `multiply` sobre fundo claro é literalmente invisível. É a diferença entre
+      onde a figura COMEÇA e onde ela APARECE, e por isso vira uma medida do
+      layout em vez de um detalhe do arquivo.
+
+      MEDIDA, não estimada, e o método é reprodutível: desenhar a foto servida num
+      canvas com o mesmo recorte (`cover` + `object-position: 50% 46%`) e o mesmo
+      `filter`, e varrer linha a linha o desvio `α·(1−S)` que o `multiply` produz
+      contra o fundo. Deu ZERO nas primeiras 151 linhas de 720 e saltou para >10%
+      na linha 152 — a borda do cabelo é dura, não há degradê para arbitrar.
+
+      ⚠️ ELA MORRE SE A FOTO, O `object-position` OU O `aspect-ratio` MUDAREM, e
+      morre em silêncio: o texto simplesmente volta a começar antes da imagem. Os
+      três são vizinhos de propósito (`.lp3-figura` / `.lp3-foto` logo abaixo).
+      Trocar qualquer um ⇒ medir de novo. */
+  --a2-fig-vazio: 0.21;
+
+  /** topo da CAIXA do rótulo → topo das MAIÚSCULAS dele: meia-entrelinha +
+      (ascent da fonte − ascent real). 3,6px medidos na Hanken Grotesk a 11px/700.
+      Em px e não em svh porque o rótulo tem corpo fixo em toda largura — o que
+      alinha com a borda do cabelo é a maiúscula, não a caixa que a contém. */
+  --a2-cap: 3.6px;
+
+  /** onde o TEXTO começa. NÃO é mais um número livre: é onde a figura passa a
+      aparecer. Era 20svh, contra 30,4svh de primeira tinta da foto — o rótulo
+      nascia 97px acima do cabelo e os dois blocos não pareciam começar juntos.
+
+      O PÉ CONTINUA ALINHADO, e de graça: a `min-height` da caixa é
+      `fig-topo + fig-h − topo`, então descer o topo em Δ encolhe a caixa em Δ e
+      a borda de baixo não se move. As duas pontas ficam presas ao mesmo tempo,
+      sem nenhum valor a olho — ver a dedução em `.lp3-ato2-a .lp3-a2-caixa`. */
+  --a2-topo: calc(
+    var(--a2-fig-topo) + var(--a2-fig-vazio) * var(--a2-fig-h) - var(--a2-cap)
+  );
+
+  /** onde a FIGURA começa. Estava colada em `--a2-topo` (a figura subia o negativo
+      dele e nascia exatamente na borda da seção), o que punha a cabeça 16svh acima
+      da costura — a barra cruzava o rosto e o topo do quadro saía por cima da
+      dobra. Agora é número próprio: 14svh põe o alto do quadro 2svh acima da
+      costura, ou seja a barra passa RENTE ao cabelo em vez de cortá-lo, e a figura
+      inteira cabe dentro do ato 2.
+
+      Agora ele manda também em `--a2-topo`: descer a figura desce o texto junto. */
+  --a2-fig-topo: 14svh;
+
+  /** a altura da figura. É ELA que manda na altura do bloco de texto, e não o
+      contrário — ver `.lp3-ato2-a .lp3-a2-caixa` adiante. E manda nas DUAS pontas:
+      no pé pela `min-height`, e no topo porque o vazio de estúdio é uma FRAÇÃO
+      desta altura. Encolher a figura sobe o texto na mesma proporção. */
+  --a2-fig-h: 80svh;
+
+  /** o teto de escurecimento da figura sobre o fundo claro. A dedução está em
+      `.lp3-foto`; o número mora aqui porque é uma decisão de composição, não de
+      tratamento de imagem. */
+  --a2-fig-alfa: 0.7;
+
+  position: relative;
+  /* por baixo da pista: é assim que os últimos 16svh do palco passam por cima */
+  z-index: 1;
+  margin-top: -16svh; /* a travessia mora aqui */
+  background: var(--mk-bg-deep); /* degrau tonal contra o --mk-bg da dobra */
+  /* backdrop próprio para o mix-blend-mode da figura. Sem isto ela misturaria com
+     o que estiver mais acima na árvore, e o resultado muda conforme o ancestral. */
+  isolation: isolate;
+  /* SEM overflow, SEM transform, SEM filter, SEM contain — qualquer um deles cria
+     stacking context ou scroll container e quebra o blend ou o sticky da dobra.
+     Se um dia precisar recortar, é `clip`, nunca `hidden`. */
+}
+
+.lp-v3 .lp3-ato2-fusao {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 26svh;
+  z-index: 0;
+  /* dissolve o degrau tonal DENTRO da faixa sobreposta, para não sobrar uma aresta
+     horizontal 16svh acima da barra */
+  background: linear-gradient(var(--mk-bg), transparent);
+  pointer-events: none;
+}
+
+.lp-v3 .lp3-a2-caixa {
+  position: relative;
+  max-width: var(--mk-maxw-wide);
+  margin-inline: auto;
+  padding-inline: var(--mk-gutter);
+}
+
+.lp-v3 .lp3-ato2-a {
+  padding-top: var(--a2-topo);
+  /* fecha a batida A em 14+80+14 = 108svh, pouco mais de uma tela. Era
+     `min-height: 116svh`, um número solto que não sabia da figura: com a figura
+     terminando onde termina agora, sobravam ~30svh de fundo morto entre ela e o
+     silêncio. */
+  padding-bottom: 14svh;
+}
+
+/* ── A IMAGEM COMEÇA E TERMINA ONDE O TEXTO COMEÇA E TERMINA, e isso é construção,
+   não calibragem. A caixa é `flex` com altura mínima igual à da figura (descontado
+   o degrau entre os dois topos), e o corpo do texto tem `margin-top: auto`. Então:
+
+     · o pé da caixa  = --a2-fig-topo + --a2-fig-h − --a2-topo  (a `min-height`)
+     · o pé da figura = top + height = (--a2-fig-topo − --a2-topo) + --a2-fig-h
+
+   que é a MESMA expressão. As duas bordas coincidem em qualquer viewport, sem um
+   único valor ajustado a olho — mexer em `--a2-fig-h` move as duas juntas.
+
+   O TOPO FECHA PELO OUTRO LADO, e as duas amarrações não brigam: `--a2-topo` é
+   onde a foto passa a APARECER (ver a dedução lá em cima), e ele entra nas duas
+   expressões acima com o MESMO sinal. Descer o texto em Δ encolhe a `min-height`
+   em Δ e sobe o `top` da figura em Δ — o pé das duas não se move um pixel. É por
+   isso que dá para prender as duas pontas com uma variável só; se `--a2-topo`
+   aparecesse com sinais diferentes nas duas, prender o topo soltaria o pé.
+
+   E o `margin-top: auto` resolve o outro lado do mesmo problema: com o texto
+   compacto no alto e a figura descendo 80svh, a metade de baixo da tela ficava
+   vazia à esquerda. O corpo cai para o pé do bloco, o rótulo e a manchete ficam no
+   alto, e o intervalo entre eles vira respiro editorial em vez de sobra.
+
+   Se o texto for MAIS ALTO que a `min-height` (celular, fonte aumentada), a caixa
+   cresce e o `auto` deixa de ter folga para distribuir: degrada para o
+   empilhamento normal sozinho, sem media query. O TOPO continua preso nesse caso,
+   porque `--a2-topo` não depende da altura do texto; quem se solta é só o pé.
+
+   ⚠️ E ISSO ACONTECE DE VERDADE em `max-height: 560px` — 97px de divergência no pé,
+   medidos. A conta e o porquê de não ter conserto barato estão naquele bloco. Em
+   1440×900 sobram 178px de folga, então lá as duas pontas fecham. */
+.lp-v3 .lp3-ato2-a .lp3-a2-caixa {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(var(--a2-fig-topo) + var(--a2-fig-h) - var(--a2-topo));
+}
+
+.lp-v3 .lp3-ato2-a .lp3-a2-corpo {
+  margin-top: auto;
+}
+
+/* ── a espinha esquerda ──
+   Rótulo, manchete, corpo, fala, resposta e nota compartilham exatamente a mesma
+   borda esquerda. É a assimetria da referência com uma régua vertical dura: a
+   ÚNICA coisa que sai da espinha é a figura. */
+
+.lp-v3 .lp3-a2-rotulo {
+  position: relative;
+  z-index: 3;
+  margin: 0 0 calc(var(--a2) * 0.22);
+  font-family: var(--mk-font-body);
+  font-size: 0.6875rem; /* 11px — o teto da emenda 3 */
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mk-muted);
+}
+
+/* Só o que o design system NÃO dá. `font-family`, `font-weight: 800`, `margin: 0`
+   e `color: var(--mk-ink)` já vêm de `.mkt-world h1..h6` e `.mundo-barbeiros
+   :where(h1,h2,h3)` no marketing.css — repeti-los aqui congelaria esta manchete no
+   dia em que o mundo barbeiros mudasse de peso, e ela seria a única do projeto a
+   não acompanhar. `line-height` e `letter-spacing` SÃO override de verdade: o DS dá
+   1.0/−0.035em, que a 112px fica frouxo. */
+.lp-v3 .lp3-a2-titulo {
+  position: relative;
+  z-index: 3;
+  margin-bottom: calc(var(--a2) * 0.34);
+  font-size: var(--a2);
+  line-height: 0.86;
+  letter-spacing: -0.045em;
+}
+
+/* A máscara da revelação por linha. A COMPENSAÇÃO DE DIACRÍTICO NÃO É OPCIONAL:
+   sem ela o `overflow: hidden` decepa o til de "não" e a descida do "p" de
+   "precisou". É o defeito que passa na revisão de desktop e aparece no print. */
+.lp-v3 .lp3-a2-linha {
+  display: block;
+  overflow: hidden;
+  padding-block: 0.1em 0.16em;
+  margin-block: -0.1em -0.16em;
+}
+
+.lp-v3 .lp3-a2-linha > span {
+  display: block;
+}
+
+.lp-v3 .lp3-a2-corpo {
+  position: relative;
+  z-index: 3;
+  max-width: 34ch;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  color: var(--mk-ink-soft);
+  text-wrap: pretty;
+}
+
+/* ── a figura ──
+   O recorte é feito por FUSÃO, não por silhueta, e a decisão está escrita porque
+   ela vai parecer bug para quem esperava o contrário: as letras aparecem ATRAVÉS
+   da figura e ESCURECEM ao cruzá-la.
+
+   `multiply` sobre `--mk-bg-deep` funciona por identidade algébrica, não por
+   calibragem: `multiply(fundo, 1) = fundo`, então o BRANCO do estúdio devolve o
+   fundo exato. É por isso que a foto foi escolhida pelo FUNDO e não pelo assunto.
+
+   ⚠️ ISTO ERA `screen` ATÉ A TROCA PARA O TEMA CLARO, e a inversão é obrigatória,
+   não estética: `screen` só clareia, e sobre branco não há o que clarear — a foto
+   inteira sumiria. `multiply` é o dual exato: mesma identidade, sinal trocado, e
+   agora quem tem de ser branco é o fundo da foto, não preto. Trocar o tema de volta
+   sem trocar isto (e sem trocar a foto) devolve um retângulo chapado.
+
+   A acessibilidade também inverte. Antes o risco era a figura ficar mais CLARA que
+   a tinta; agora é ficar mais ESCURA, porque a manchete é navy sobre claro. O teto
+   está em `.lp3-foto`, com a conta. */
+.lp-v3 .lp3-figura {
+  position: absolute;
+  top: calc(var(--a2-fig-topo) - var(--a2-topo));
+  right: calc(var(--mk-gutter) * -1);
+  z-index: 2;
+  /* A ALTURA É O QUE CALIBRA A SOBREPOSIÇÃO COM A MANCHETE, e nunca o corpo do
+     display: a figura está ancorada na direita do container, então crescer em
+     altura a alarga (razão fixa) e empurra a borda esquerda dela para dentro da
+     tinta. Ela agora manda também na altura do bloco de texto — ver
+     `.lp3-ato2-a .lp3-a2-caixa`. */
+  height: var(--a2-fig-h);
+  /* QUADRADA, e a origem é 3:4 — a diferença é o recorte, e é intencional.
+     A foto vem do Unsplash recortada no rosto com `facepad=5`, o que deixa ~25% de
+     estúdio VAZIO acima da cabeça. Sobre branco esse vazio é invisível, então a
+     figura parecia começar um quarto de tela abaixo da caixa dela e a cabeça saía
+     pequena. Uma caixa MAIS LARGA que a origem faz o `cover` escalar pela largura e
+     cortar na vertical: some a folga de cima, a cabeça cresce, e de quebra a figura
+     alarga em direção à manchete. Medido em 1440×900: a caixa passa de 540 para
+     720px de largura e a borda esquerda sobe de 879 para 699. */
+  aspect-ratio: 1 / 1;
+  mix-blend-mode: multiply;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 22%, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 22%, #000 100%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* DOIS elementos, UMA máscara em cada — nunca `mask-composite` num só: o padrão
+   usa `intersect`, o WebKit usa `source-in`, e escrever `intersect` faz o Safari
+   não fazer nada, em silêncio. Prefixado ANTES do padrão (são a mesma propriedade
+   por alias e vence a última; invertido, serve-se o legado para todo mundo). */
+/* O TETO DE ESCURECIMENTO, com a conta — o quanto a figura pode escurecer o fundo.
+   É garantia algébrica, não impressão.
+
+   HOJE ELE NÃO ESTÁ SEGURANDO NADA: a figura desceu para alinhar com o pé do texto
+   e deixou de cruzar tipografia (ver a EMENDA 2 no Ato2.tsx). O teto fica porque é
+   ele que torna SEGURO voltar a aproximá-la — sem ele, subir `--a2-fig-h` de volta
+   para ~96svh reencostaria a foto na manchete com a camiseta escura por baixo, e o
+   defeito apareceria como "a última palavra sumiu", sem ninguém ligar uma coisa à
+   outra.
+
+   Com `multiply` e alpha α, o resultado é  Cr = B·(1 − α + α·S), onde B é o fundo
+   e S a foto. O pior caso é S = 0 (cabelo, roupa escura), que dá  Cr = B·(1 − α).
+   Com B = blue-50 (Y ≈ 0,926) e α = 0,70:  Y = 0,278, contra Y = 0,0106 da tinta
+   slate-900 → (0,278 + 0,05)/(0,0106 + 0,05) = 5,4:1. Passa AA de corpo (4,5:1),
+   e a manchete ali é 112px/800, que só precisaria de 3:1.
+
+   O ALPHA MORA NA <img>, NÃO NA `.lp3-figura`, e a diferença não é cosmética: o
+   motion escreve `opacity` inline na `.lp3-figura` para a entrada (0 → 1), e um
+   valor de CSS no mesmo elemento seria simplesmente sobrescrito no fim da
+   animação — o teto evaporaria assim que a seção terminasse de entrar, que é
+   exatamente quando ela é lida. Numa fonte parcialmente transparente a fórmula da
+   composição é a mesma, então o limite continua valendo, e as duas opacidades se
+   multiplicam durante a entrada (mais claro ainda, ou seja sempre do lado seguro).
+
+   O `contrast` DESCE de 1,1 para 0,92: sobre escuro, contraste ajudava a foto a se
+   destacar do navy; sobre claro ele aprofunda as sombras, que é justamente o que o
+   teto acima existe para conter. `brightness(1.06)` levanta o meio-tom para o fundo
+   branco do estúdio encostar em 1,0 e desaparecer de vez. */
+.lp-v3 .lp3-foto {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* A ORIGEM VEM EM 3:4 e a caixa é 1:1, então o `cover` corta 25% NA VERTICAL — e é
+     este número que escolhe QUAL 25%. Em 46% o corte tira quase toda a folga de
+     estúdio acima da cabeça e deixa o cabelo respirando alguns pixels abaixo da
+     borda de cima; em 50% (o padrão) ele encostaria o topo do cabelo na aresta, que
+     sobre `multiply` vira uma linha reta escura atravessando a cabeça. */
+  object-position: 50% 46%;
+  opacity: var(--a2-fig-alfa);
+  filter: saturate(0.62) contrast(0.92) brightness(1.06);
+  /* o dissolve de baixo termina EXATAMENTE no pé da caixa, que é o pé do texto:
+     era 74%, e com a figura descendo muito abaixo da última linha isso apagava a
+     foto no meio do nada. Em 88% os últimos ~12% da altura se desfazem e a imagem
+     acaba na mesma linha em que o texto acaba. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 88%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 88%, transparent 100%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* espaço, não pin */
+.lp-v3 .lp3-ato2-silencio {
+  height: calc(var(--a2) * 2.2);
+}
+
+/* ── batida B ── */
+.lp-v3 .lp3-ato2-b {
+  padding-bottom: var(--mk-section-y);
+}
+
+.lp-v3 .lp3-ato2-b .lp3-a2-caixa {
+  padding-top: calc(var(--a2) * 0.5);
+}
+
+.lp-v3 .lp3-a2-fio {
+  position: absolute;
+  top: 0;
+  left: var(--mk-gutter);
+  right: calc(var(--mk-gutter) * -1);
+  z-index: 2;
+  height: 1px;
+  background: var(--mk-accent);
+  /* entra pela borda direita da tela e PARA na espinha esquerda: a resposta vem de
+     fora e chega */
+  transform-origin: right;
+  display: block;
+}
+
+.lp-v3 .lp3-a2-fala {
+  position: relative;
+  z-index: 3;
+  margin: 0 0 calc(var(--a2) * 0.5);
+  max-width: 22ch;
+  font-family: var(--mk-font-display);
+  font-weight: 700;
+  font-size: clamp(1.6rem, 4vw, 4rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--mk-ink);
+}
+
+.lp-v3 .lp3-a2-resposta {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 46ch;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--mk-ink-soft);
+  text-wrap: pretty;
+}
+
+/* O bloco de honestidade. Recuado, não escondido: ele é peça estrutural — sem ele
+   a manchete afirma algo sobre uma pessoa que não existe. */
+.lp-v3 .lp3-a2-rotulo--nota {
+  margin-top: calc(var(--a2) * 0.9);
+  margin-bottom: 0.5rem;
+  color: var(--mk-muted);
+}
+
+.lp-v3 .lp3-a2-nota {
+  position: relative;
+  z-index: 3;
+  max-width: 52ch;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--mk-muted);
+}
+
+/* ── ACENTO: azul só em elemento de <= 1,1rem ──
+   Nesta seção são exatamente três superfícies: o filete divisor de 1px, o filete
+   de 1px da batida B, e o wordmark dentro do corpo. Nada de cor na batida A, e
+   nada de cor sobre a figura em nenhuma hipótese. A única coisa grande na tela é
+   tinta. (A regra nasceu para o dourado, que precisava de contenção porque falhava
+   em contraste; o azul do tema claro passa AA, mas a contenção fica — ela é de
+   composição, não de contraste.) */
+
+/* ============================ ATO 2 · CELULAR ============================ */
+@media (max-width: 759px) {
+  .lp-v3 .lp3-ato2 {
+    /* a barra é proporcionalmente mais grossa numa tela estreita */
+    margin-top: -11svh;
+    /* AQUI `--a2-topo` VOLTA A SER LITERAL, e é o único lugar do arquivo onde
+       isso é certo. No desktop ele é derivado (`fig-topo + vazio·fig-h − cap`)
+       porque a figura está AO LADO do texto e "começar junto" quer dizer alguma
+       coisa. No celular a figura está DEPOIS do texto, no fluxo: a derivação viraria
+       30,8svh de padding morto acima do rótulo, alinhado com nada. É a mesma razão
+       pela qual a `min-height` da caixa também é desfeita logo abaixo — os dois
+       overrides são a MESMA decisão escrita duas vezes, e quem tirar um tem de
+       tirar o outro. Pela variável, nunca por `padding-top`. */
+    --a2-topo: 14svh;
+  }
+
+  .lp-v3 .lp3-ato2-a {
+    padding-bottom: 6svh;
+  }
+
+  /* O ACOPLAMENTO FIGURA↔TEXTO É DESFEITO AQUI, DE PROPÓSITO. No celular a figura
+     deixa de ser uma coluna ao lado do texto e vira fundo ATRÁS dele (ver
+     `.lp3-figura` adiante, que a reposiciona inteira com `inset`). Alinhar o pé dos
+     dois deixa de significar coisa alguma quando um está por trás do outro, e a
+     `min-height` viraria só uma tira de branco depois da última linha. */
+  .lp-v3 .lp3-ato2-a .lp3-a2-caixa {
+    display: block;
+    min-height: auto;
+  }
+
+  .lp-v3 .lp3-ato2-a .lp3-a2-corpo {
+    margin-top: 0;
+  }
+
+  /* A REVELAÇÃO POR LINHA É DESLIGADA: máscara por linha exige bloco, e a 44px a
+     manchete reflui. `display: inline` faz o `transform` do motion ser ignorado
+     (elemento inline não-substituído não transforma) e sobra só a opacidade — que
+     é exatamente o fade único que esta largura pede. Sem ramificar em JavaScript. */
+  .lp-v3 .lp3-a2-linha,
+  .lp-v3 .lp3-a2-linha > span {
+    display: inline;
+    overflow: visible;
+    padding-block: 0;
+    margin-block: 0;
+  }
+
+  /* NÃO existe regra de `text-wrap` aqui, e a ausência é deliberada.
+     Havia um `text-wrap: balance` neste ponto que era código morto: o
+     marketing.css já liga `balance` em todo h2 sob `.mkt-world`, em qualquer
+     largura. Ele não fazia nada, e pior — quem um dia quisesse DESLIGAR o balance
+     ia editar esta regra, não ver diferença nenhuma, e concluir que o problema era
+     outro. Para desligar, é preciso um `text-wrap: wrap` explícito. */
+
+  /* ── A FIGURA SAI DE TRÁS DO TEXTO E ENTRA NO FLUXO ──
+     Ela era `absolute`, sangrando 118vw atrás de tudo, com um FURO RADIAL no meio
+     para o corpo de texto cair em cima de fundo limpo. Dois defeitos mataram esse
+     arranjo quando a foto mudou, e os dois estavam à vista no aparelho:
+
+       · o furo era centrado em 50% 46% — que era onde a foto ANTIGA (corpo inteiro,
+         de lado) tinha peito. Na foto nova, recortada no rosto, 46% é o ROSTO: o
+         furo apagava exatamente a cabeça e sobravam dois ombros flutuando.
+       · com a figura ancorada no topo da seção e 70svh de altura, o pé dela caía
+         DENTRO da batida B — o corpo de texto de "Ela só oferece os horários…"
+         ficava escrito por cima do ombro. A EMENDA 2 do Ato2.tsx promete, com estas
+         palavras, que "CORPO DE TEXTO NUNCA CRUZA A FIGURA, nem um pixel".
+
+     No fluxo, os dois somem de uma vez e não sobra nenhum caso particular: a figura
+     é um bloco depois do corpo, sangrando até as bordas pelas margens negativas.
+     Sobre fundo claro isso funciona porque o fundo BRANCO do estúdio já é o fundo da
+     página — não é preciso máscara lateral para "recortar" nada. */
+  .lp-v3 .lp3-figura {
+    position: relative;
+    inset: auto;
+    z-index: 0;
+    width: auto;
+    height: auto;
+    /* quadrada aqui também: mesma razão do desktop (a origem é 3:4 e o corte tira a
+       folga de estúdio acima da cabeça) */
+    aspect-ratio: 1 / 1;
+    margin-inline: calc(var(--mk-gutter) * -1);
+    margin-top: calc(var(--a2) * 0.7);
+    /* sem máscara lateral: no fluxo não há texto ao lado para dissolver contra */
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+/* ==================== ATO 2 · CELULAR DEITADO ====================
+ * Quatro blocos de texto e uma figura de 94svh não coexistem em 560px de altura, e
+ * fingir que sim é o defeito que só aparece no aparelho de outra pessoa. */
+@media (max-height: 560px) {
+  .lp-v3 .lp3-ato2 {
+    margin-top: -8svh;
+    /* SÓ AS DUAS LIVRES, e o resto se recalcula. `--a2-topo` era `13svh` escrito à
+       mão aqui; hoje ele é derivado destas duas, então repeti-lo seria reintroduzir
+       o desalinhamento exatamente no aparelho onde ninguém olha — 9 + 0,21·62 dá
+       22svh, e um `13svh` teimoso poria o rótulo 9svh acima do cabelo.
+
+       ⚠️ E NUNCA `padding-top` NA MÃO NEM `height` NA MÃO — é o defeito que esta
+       regra já teve duas vezes, nas duas direções:
+         · `padding-top: 13svh` movia a caixa mas não a figura (que se posiciona
+           pelo NEGATIVO de `--a2-topo`): sobravam 7svh de foto ACIMA da borda da
+           seção, fora do `background` e fora do grupo isolado — e sem backdrop o
+           `mix-blend-mode` devolve a fonte crua, o retângulo da foto reaparecendo
+           pela única porta que o aviso do Ato2.tsx não vigiava.
+         · `height: 62svh` direto na `.lp3-figura` encolhia a foto sem encolher o
+           bloco de texto, e o pé dos dois divergia 18svh.
+       Só o iPhone deitado cai aqui (844×390 passa neste media query e NÃO no de
+       max-width), que é o que torna os dois defeitos invisíveis no desenvolvimento. */
+    --a2-fig-h: 62svh;
+    --a2-fig-topo: 9svh;
+  }
+
+  /* ⚠️ AQUI SÓ O TOPO FICA PRESO — O PÉ NÃO, e está medido. Em 844×390 o conteúdo
+     natural da caixa dá 292px contra 195px de `min-height`: o texto é 97px mais
+     alto do que a figura permite, o `margin-top: auto` fica sem folga e a última
+     linha passa do pé da foto. É a degradação que a dedução da caixa já prevê, e
+     não um descuido — mas é uma promessa que NÃO vale neste bloco, e por isso está
+     escrita aqui em vez de só lá em cima.
+
+     NÃO ADIANTA ENCOLHER A MANCHETE, e isso também foi medido antes de desistir:
+         --a2 = 2,75rem (o piso do clamp) → 232px, ainda 37px de sobra
+         --a2 = 1,90rem (menor que corpo!) → 200px, ainda 5px de sobra
+     O que não cabe é o conjunto rótulo + corpo + respiros, não o display. O único
+     lever que fecharia é `--a2-fig-h` em ~94svh, que é exatamente a altura que este
+     media query existe para NÃO ter em 390px de tela.
+
+     O topo, esse, fecha em 0,0px em qualquer `--a2` — a derivação de `--a2-topo`
+     não depende da altura do texto. */
+  .lp-v3 .lp3-ato2-a {
+    padding-bottom: 8svh;
+  }
+  .lp-v3 .lp3-ato2-silencio {
+    height: calc(var(--a2) * 1.2);
+  }
+}

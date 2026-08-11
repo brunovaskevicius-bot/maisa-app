@@ -1,0 +1,690 @@
+"use client";
+/* MAISA — as cinco telas de grade: Clientes, Faturamento, Equipe, Serviços, Mais.
+ *
+ * Estão juntas de propósito: são variações do MESMO padrão (hero opcional →
+ * filtros opcionais → grade de cartões curtos → gaveta). Manter lado a lado
+ * deixa a repetição visível — se uma divergir, dá para ver na hora.
+ *
+ * Nenhuma delas tem estado próprio: tudo que muda vem do store. */
+
+import React from "react";
+import { s, Icon, fmt, fmtK, Filtros, EmptyState, Tabela, CelulaNome, Badge, SectionTitle, Btn, Monogram } from "@/ui/primitivos";
+import * as D from "@/adaptadores/saida/demo";
+import { useIsMobile, useEstreita } from "@/ui/useIsMobile";
+import { useStore, type TelaId } from "@/ui/estado/store";
+import { Cartao, GradeCartoes, Hero, TelaGrade, type TomTag } from "@/ui/componentes/Cartao";
+
+/* Estado da nota → como o cartão se apresenta. Um lugar só, para as duas telas
+   que mostram nota (Faturamento e a ficha do cliente) contarem a mesma coisa. */
+const TAG_NOTA: Record<D.StatusNota, { label: string; tom: TomTag }> = {
+  pendente: { label: "a emitir", tom: "warn" },
+  processando: { label: "processando", tom: "primary" },
+  emitida: { label: "emitida", tom: "success" },
+  cancelada: { label: "cancelada", tom: "neutral" },
+  erro: { label: "com erro", tom: "danger" },
+};
+
+/* Ordem de urgência, não alfabética: numa tabela de fechamento o que pede ação vem primeiro.
+   Antes os estados se misturavam na ordem do array e achar a nota com erro entre 14 exigia
+   14 hovers. */
+const ORDEM_ACAO: Record<D.StatusNota, number> = {
+  erro: 0, pendente: 1, processando: 2, cancelada: 3, emitida: 4,
+};
+
+/** Puxa um número do mês pelo rótulo, de D.NUMEROS_MES. Uma fonte só para chip e gaveta. */
+function numeroDoMes(rotulo: string): string {
+  const par = [...D.NUMEROS_MES.resultado, ...D.NUMEROS_MES.maisa].find(([l]) => l === rotulo);
+  return par?.[1] ?? "—";
+}
+
+/** A frase que explica o estado da nota. Uma só, para cartão e tabela não divergirem. */
+function resumoNota(n: D.Nota): string {
+  if (n.status === "emitida") return `Nota ${n.numero} emitida em ${n.data}${n.simulada ? " (modo simulado)" : ""}`;
+  if (n.status === "processando") return "Enviada à prefeitura — o número sai em alguns minutos.";
+  if (n.status === "cancelada") return "Nota cancelada. O valor do mês continua fechado.";
+  if (n.status === "erro") return n.erro ?? "A emissão falhou.";
+  return "Valor do mês fechado. Falta emitir a nota.";
+}
+
+/* ═══════════════════════════════ CLIENTES ═══════════════════════════════ */
+
+export function Clientes() {
+  const st = useStore();
+
+  const ativos = D.CLIENTES.filter((c) => st.cliAtivo(c.id));
+  const lista = D.CLIENTES.filter((c) => {
+    const on = st.cliAtivo(c.id);
+    return st.filtroCli === "Todos" || (st.filtroCli === "Ativos" ? on : !on);
+  });
+
+  return (
+    <TelaGrade>
+      <Hero
+        rotulo="Em atendimento"
+        valor={String(ativos.length)}
+        sub={`de ${D.CLIENTES.length} cadastrados`}
+        marcos={[
+          { n: ativos.reduce((a, c) => a + c.atendimentos, 0), label: `atendimentos em ${D.PERIODO.split(" de ")[0].toLowerCase()}`, tom: "primary" },
+          { n: fmtK(ativos.reduce((a, c) => a + c.valor, 0)), label: "fechado no mês", tom: "success" },
+          { n: D.CLIENTES.length - ativos.length, label: "inativos", tom: "neutral" },
+        ]}
+      />
+      <Filtros opcoes={["Ativos", "Inativos", "Todos"]} ativo={st.filtroCli} onChange={st.setFiltroCli} />
+      {lista.length === 0 ? (
+        <EmptyState icon="clientes" title="Nenhum cliente aqui" sub="Troque o filtro acima para ver os outros." />
+      ) : (
+        <GradeCartoes>
+          {lista.map((c) => {
+            const on = st.cliAtivo(c.id);
+            return (
+              <Cartao
+                key={c.id}
+                seed={c.id}
+                titulo={c.nome}
+                sub={`${st.nomeServico(c.servicoId)} · ${c.canal}`}
+                tag={on ? { label: "ativo", tom: "success" } : { label: "inativo", tom: "neutral" }}
+                atenuado={!on}
+                onClick={() => st.abrir(c.id)}
+                resumo={on && c.atendimentos > 0
+                  ? `${c.atendimentos} atendimentos em ${D.PERIODO} · ${fmt(c.valor)} · cliente desde ${c.desde}`
+                  : `Sem atendimentos em ${D.PERIODO} · cliente desde ${c.desde}`}
+                chips={[c.telefone, c.canal, ...(on ? [] : ["fora do faturamento"])]}
+              />
+            );
+          })}
+        </GradeCartoes>
+      )}
+    </TelaGrade>
+  );
+}
+
+/* ═══════════════════════════════ FATURAMENTO ═══════════════════════════════ */
+
+export function Faturamento() {
+  const st = useStore();
+  const mobile = useIsMobile();
+  const estreita = useEstreita();
+  const base = st.fechamento;
+
+  const por = (sts: D.StatusNota[]) => base.filter((c) => sts.includes(st.notaDe(c.id).status));
+  const emitidas = por(["emitida"]);
+  const processando = por(["processando"]);
+  const canceladas = por(["cancelada"]);
+  // st.emitiveis é a FONTE ÚNICA — a mesma lista que o lote de fato emite. Antes esta tela
+  // contava pendente|erro|cancelada e o lote emitia pendente|erro: o botão prometia N e saíam M,
+  // e com só canceladas o botão aparecia e não fazia nada.
+  const noLote = st.emitiveis;
+  const total = base.reduce((a, c) => a + c.valor, 0);
+
+  return (
+    <TelaGrade>
+      <Hero
+        rotulo={D.PERIODO}
+        valor={fmt(total)}
+        sub={`em ${base.length} clientes`}
+        marcos={[
+          { n: emitidas.length, label: "emitidas", tom: "success" },
+          { n: processando.length, label: "processando", tom: "primary" },
+          { n: noLote.length, label: "a emitir", tom: "warn" },
+          // cancelada tem marco PRÓPRIO: não é "a emitir" (o lote não a emite) nem "emitida".
+          // Antes ela era somada em "a emitir", que é a origem do número que não fechava.
+          ...(canceladas.length ? [{ n: canceladas.length, label: "canceladas", tom: "neutral" as const }] : []),
+        ]}
+        acao={noLote.length > 0
+          ? {
+            label: noLote.length === 1 ? "Emitir a nota pendente" : `Emitir as ${noLote.length} pendentes`,
+            icon: "receipt",
+            onClick: st.pedirLote,
+          }
+          : undefined}
+        pronto={noLote.length === 0 && processando.length === 0 ? "Mês fechado" : undefined}
+      />
+
+      {base.length === 0 ? (
+        <EmptyState icon="receipt" title="Nada a faturar" sub="Nenhum cliente ativo com valor fechado nesta competência." />
+      ) : mobile ? (
+        <GradeCartoes>
+          {base.map((c) => {
+            const nota = st.notaDe(c.id);
+            const tag = TAG_NOTA[nota.status];
+            return (
+              <Cartao
+                key={c.id}
+                dot={tag.tom}
+                titulo={c.nome}
+                // O erro da prefeitura sobe para o corpo do cartão: era o único estado que pede
+                // ação imediata e vivia só no `resumo`, que `hover:none` apaga no celular.
+                sub={nota.status === "erro" ? (nota.erro ?? "A emissão falhou.") : `${c.atendimentos} atendimentos · ${st.nomeServico(c.servicoId)}`}
+                meta={fmt(c.valor)}
+                tag={tag}
+                onClick={() => st.abrir(`nf-${c.id}`)}
+                resumo={c.teste ? `Tomador de teste — a nota se cancela sozinha depois de emitir. ${resumoNota(nota)}` : resumoNota(nota)}
+                chips={[...(c.teste ? ["teste fiscal"] : []), `CPF ${c.cpf}`, c.canal]}
+              />
+            );
+          })}
+        </GradeCartoes>
+      ) : (
+        /* Livro-caixa é tabela. Em cartão, os R$ alinhavam à direita DENTRO de cada cartão e
+           nunca formavam coluna — impossível varrer valores num fechamento de mês. */
+        <Tabela
+          linhas={base}
+          chaveDe={(c) => c.id}
+          estreita={estreita}
+          onLinha={(c) => st.abrir(`nf-${c.id}`)}
+          rotuloLinha={(c) => `${c.nome}, ${fmt(c.valor)}, ${TAG_NOTA[st.notaDe(c.id).status].label}, abrir nota`}
+          colunas={[
+            {
+              chave: "nome", label: "Cliente", largura: "minmax(0,1.7fr)",
+              ordenar: (c) => c.nome,
+              celula: (c) => <CelulaNome nome={c.nome} seed={c.id} sub={c.teste ? "tomador de teste fiscal" : st.nomeServico(c.servicoId)} />,
+            },
+            {
+              chave: "atend", label: "Atend.", num: true, largura: "90px", secundaria: true,
+              ordenar: (c) => c.atendimentos,
+              celula: (c) => c.atendimentos,
+            },
+            {
+              chave: "valor", label: "Valor", num: true, largura: "130px",
+              ordenar: (c) => c.valor,
+              celula: (c) => fmt(c.valor),
+            },
+            {
+              chave: "nota", label: "Nota", largura: "minmax(0,1.1fr)", secundaria: true,
+              celula: (c) => {
+                const n = st.notaDe(c.id);
+                return (
+                  <span style={s(`min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${n.status === "erro" ? "var(--danger)" : "var(--muted)"}`)}>
+                    {n.status === "emitida" ? `nº ${n.numero} · ${n.data}`
+                      : n.status === "erro" ? (n.erro ?? "falhou")
+                        : n.status === "processando" ? "na prefeitura"
+                          : n.status === "cancelada" ? "cancelada"
+                            : "—"}
+                  </span>
+                );
+              },
+            },
+            {
+              chave: "estado", label: "Estado", largura: "140px",
+              // ordena pelo que PEDE AÇÃO primeiro: erro, a emitir, processando, cancelada, emitida
+              ordenar: (c) => ORDEM_ACAO[st.notaDe(c.id).status],
+              celula: (c) => {
+                const t = TAG_NOTA[st.notaDe(c.id).status];
+                return <Badge tone={t.tom} dot>{t.label}</Badge>;
+              },
+            },
+          ]}
+        />
+      )}
+    </TelaGrade>
+  );
+}
+
+/* ═══════════════════════════════ EQUIPE ═══════════════════════════════ */
+
+export function Equipe() {
+  const st = useStore();
+  const mobile = useIsMobile();
+  const estreita = useEstreita();
+  const ativos = D.EQUIPE.filter((p) => st.profAtivo(p.id));
+
+  return (
+    <TelaGrade>
+      <Hero
+        rotulo="Equipe"
+        valor={String(ativos.length)}
+        sub={`de ${D.EQUIPE.length} recebendo agendamentos`}
+        /* "pausados" só aparece quando há algum. Com a equipe de uma pessoa o marco
+           ficava fixo em "0 pausados" — ocupando espaço para não dizer nada. */
+        marcos={[
+          { n: D.EQUIPE.reduce((a, p) => a + p.atendimentosMes, 0), label: "atendimentos no mês", tom: "primary" },
+          ...(D.EQUIPE.length - ativos.length > 0
+            ? [{ n: D.EQUIPE.length - ativos.length, label: "pausados", tom: "neutral" as const }]
+            : []),
+        ]}
+      />
+      {mobile ? (
+        <GradeCartoes>
+          {D.EQUIPE.map((p) => {
+            const on = st.profAtivo(p.id);
+            return (
+              <Cartao
+                key={p.id}
+                seed={p.id}
+                titulo={p.nome}
+                // horário sobe para o corpo do cartão: é o "quando" que o título da tela promete,
+                // e no toque o `resumo` do hover não existe.
+                sub={`${p.papel} · ${p.horario}`}
+                tag={on ? { label: "ativo", tom: "success" } : { label: "pausado", tom: "neutral" }}
+                atenuado={!on}
+                onClick={() => st.abrir(p.id)}
+                resumo={`${p.atendimentosMes} atendimentos no mês · nota ${p.avaliacao.toFixed(1)} · comissão ${p.comissao}% · folga ${p.folga}`}
+                /* "Google" entra na frente dos serviços: no celular só cabem uns três
+                   chips, e saber que a agenda está ligada muda o que dá para fazer
+                   com aquele profissional — quais serviços ele faz, não. */
+                chips={(st.googleDe(p.id) ? ["Google"] : [])
+                  .concat(p.servicoIds.slice(0, 2).map((sid) => st.nomeServico(sid)))
+                  .concat(p.servicoIds.length > 2 ? [`+${p.servicoIds.length - 2}`] : [])}
+              />
+            );
+          })}
+        </GradeCartoes>
+      ) : (
+        /* Tabela, não grade de cartões: 4 pessoas × 6 atributos onde a pergunta real é comparativa
+           ("quem trabalha sábado?", "quem tem a maior comissão?"). Em cartão, os atributos ficavam
+           atrás de hover e comparar dois exigia memória de trabalho. */
+        <Tabela
+          linhas={D.EQUIPE}
+          chaveDe={(p) => p.id}
+          estreita={estreita}
+          onLinha={(p) => st.abrir(p.id)}
+          rotuloLinha={(p) => `${p.nome}, ${p.papel}, abrir ficha`}
+          colunas={[
+            {
+              chave: "nome", label: "Profissional", largura: "minmax(0,1.6fr)",
+              ordenar: (p) => p.nome,
+              celula: (p) => <CelulaNome nome={p.nome} seed={p.id} sub={p.papel} />,
+            },
+            {
+              chave: "horario", label: "Quando atende", largura: "minmax(0,1.2fr)",
+              ordenar: (p) => p.horario,
+              celula: (p) => (
+                <span style={s("min-width:0;display:flex;flex-direction:column;line-height:1.25")}>
+                  <span className="n">{p.horario}</span>
+                  <span style={s("font-size:var(--t-label);color:var(--muted)")}>folga {p.folga}</span>
+                </span>
+              ),
+            },
+            {
+              chave: "atend", label: "Atendimentos", num: true, largura: "130px", secundaria: true,
+              ordenar: (p) => p.atendimentosMes,
+              celula: (p) => p.atendimentosMes,
+            },
+            {
+              chave: "nota", label: "Nota", num: true, largura: "80px", secundaria: true,
+              ordenar: (p) => p.avaliacao,
+              celula: (p) => p.avaliacao.toFixed(1),
+            },
+            {
+              chave: "comissao", label: "Comissão", num: true, largura: "100px",
+              ordenar: (p) => p.comissao,
+              celula: (p) => `${p.comissao}%`,
+            },
+            {
+              chave: "estado", label: "Estado", largura: "120px",
+              ordenar: (p) => (st.profAtivo(p.id) ? 0 : 1),
+              celula: (p) => st.profAtivo(p.id)
+                ? <Badge tone="success" dot>ativo</Badge>
+                : <Badge tone="neutral" dot>pausado</Badge>,
+            },
+            /* "Quem tem agenda conectada?" era uma pergunta que só a gaveta respondia,
+               uma pessoa por vez. Aqui é comparativa como o resto da tabela — e o
+               e-mail no title revela quando duas pessoas dividem a mesma conta. */
+            {
+              chave: "gcal", label: "Agenda", largura: "130px", secundaria: true,
+              ordenar: (p) => (st.googleDe(p.id) ? 0 : 1),
+              celula: (p) => {
+                const conexao = st.googleDe(p.id);
+                if (st.google.status !== "ok") return <span style={s("color:var(--muted)")}>—</span>;
+                return conexao
+                  ? <span title={conexao.googleEmail}><Badge tone="primary" dot>Google</Badge></span>
+                  : <span style={s("font-size:var(--t-label);color:var(--muted)")}>não conectada</span>;
+              },
+            },
+          ]}
+        />
+      )}
+    </TelaGrade>
+  );
+}
+
+/* ═══════════════════════════════ SERVIÇOS ═══════════════════════════════ */
+
+export function Servicos() {
+  const st = useStore();
+  const mobile = useIsMobile();
+  const estreita = useEstreita();
+  // st.servicos, não D.SERVICOS: o catálogo agora é vivo (edições + serviços criados).
+  const lista = st.servicos.filter((sv) => st.filtroSvc === "Todos" || sv.categoria === st.filtroSvc);
+  const ativos = st.servicos.filter((sv) => st.svcAtivo(sv.id));
+
+  return (
+    <TelaGrade>
+      <Hero
+        rotulo="No catálogo"
+        valor={String(ativos.length)}
+        sub={`de ${st.servicos.length} serviços`}
+        marcos={[
+          { n: fmt(Math.round(ativos.reduce((a, sv) => a + sv.preco, 0) / Math.max(ativos.length, 1))), label: "ticket médio", tom: "primary" },
+          { n: st.servicos.length - ativos.length, label: "fora do catálogo", tom: "neutral" },
+        ]}
+      />
+      <Filtros opcoes={["Todos", ...D.CATEGORIAS]} ativo={st.filtroSvc} onChange={st.setFiltroSvc} />
+      {/* Faltava estado vazio: filtrar uma categoria sem serviço dava uma faixa em branco sem
+          explicação, enquanto Clientes já tratava isso. */}
+      {lista.length === 0 ? (
+        <EmptyState icon="tag" title="Nenhum serviço nesta categoria" sub="Troque o filtro acima, ou crie um serviço novo pelo botão no topo." />
+      ) : mobile ? (
+        <GradeCartoes>
+          {lista.map((sv) => {
+            const on = st.svcAtivo(sv.id);
+            return (
+              <Cartao
+                key={sv.id}
+                dot={on ? "primary" : "neutral"}
+                titulo={sv.nome}
+                sub={`${sv.duracao} min · ${sv.profissionalIds.length} atendendo`}
+                meta={fmt(sv.preco)}
+                tag={on ? { label: "no catálogo", tom: "success" } : { label: "pausado", tom: "neutral" }}
+                atenuado={!on}
+                onClick={() => st.abrir(sv.id)}
+                resumo={`${sv.categoria} · ${fmt(sv.preco)} · ${sv.duracao} min`}
+                chips={sv.profissionalIds.map((pid) => D.primeiroNome(D.nomeProfissional(pid)))}
+              />
+            );
+          })}
+        </GradeCartoes>
+      ) : (
+        /* O catálogo é a tela MAIS tabular do app: nome · categoria · duração · preço · quem faz.
+           As três perguntas reais ("qual o mais caro", "qual demora mais", "o que está fora do ar")
+           exigiam varredura em zigue-zague entre cartões cujos preços nem alinhavam. */
+        <Tabela
+          linhas={lista}
+          chaveDe={(sv) => sv.id}
+          estreita={estreita}
+          onLinha={(sv) => st.abrir(sv.id)}
+          rotuloLinha={(sv) => `${sv.nome}, ${fmt(sv.preco)}, abrir e editar`}
+          colunas={[
+            {
+              chave: "nome", label: "Serviço", largura: "minmax(0,1.7fr)",
+              ordenar: (sv) => sv.nome,
+              celula: (sv) => <CelulaNome nome={sv.nome} sub={sv.categoria} />,
+            },
+            {
+              chave: "duracao", label: "Duração", num: true, largura: "100px",
+              ordenar: (sv) => sv.duracao,
+              celula: (sv) => `${sv.duracao} min`,
+            },
+            {
+              chave: "preco", label: "Preço", num: true, largura: "120px",
+              ordenar: (sv) => sv.preco,
+              celula: (sv) => fmt(sv.preco),
+            },
+            {
+              // A pergunta que nenhuma das duas colunas anteriores responde sozinha, e que decide
+              // preço: quanto este serviço rende por minuto de agenda ocupada.
+              chave: "porMin", label: "R$/min", num: true, largura: "90px", secundaria: true,
+              ordenar: (sv) => sv.preco / Math.max(sv.duracao, 1),
+              celula: (sv) => (sv.preco / Math.max(sv.duracao, 1)).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            },
+            {
+              chave: "quem", label: "Quem faz", largura: "minmax(0,1.1fr)", secundaria: true,
+              ordenar: (sv) => sv.profissionalIds.length,
+              celula: (sv) => (
+                <span style={s("min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)")}>
+                  {sv.profissionalIds.length === 0
+                    ? "ninguém ainda"
+                    : sv.profissionalIds.map((pid) => D.primeiroNome(D.nomeProfissional(pid))).join(", ")}
+                </span>
+              ),
+            },
+            {
+              chave: "estado", label: "Catálogo", largura: "130px",
+              ordenar: (sv) => (st.svcAtivo(sv.id) ? 0 : 1),
+              celula: (sv) => st.svcAtivo(sv.id)
+                ? <Badge tone="success" dot>no catálogo</Badge>
+                : <Badge tone="neutral" dot>pausado</Badge>,
+            },
+          ]}
+        />
+      )}
+    </TelaGrade>
+  );
+}
+
+/* ═══════════════════════════════ MAIS ═══════════════════════════════
+ * Era seis cartões idênticos gerados por um `.map()` sobre um array plano, sem título de seção,
+ * sem divisor e sem hierarquia — e três deles duplicavam itens que já são de primeira classe no
+ * rail. No desktop a tela era redundância pura; no mobile faltava justamente o item que a tab bar
+ * promete cobrir (os ajustes da MAISA), então tocar em "Mais" para mudar a saudação do bot dava
+ * num beco sem saída.
+ *
+ * Agora tem três grupos com nome, e os atalhos de navegação só existem no MOBILE, onde o rail
+ * não existe. No desktop eles não aparecem, porque ali já estão a um clique de distância. */
+
+/* ═══════════════════════════════ CONEXÕES ═══════════════════════════════ */
+
+/** O painel que responde "a agenda está conectada?" sem obrigar ninguém a abrir
+ *  quatro gavetas para descobrir.
+ *
+ *  O botão de conectar continua morando na ficha do profissional — é lá que a
+ *  ação faz sentido, ao lado da pessoa de quem é a agenda. O que faltava era o
+ *  panorama: com uma conexão POR PROFISSIONAL, o estado da integração é uma
+ *  lista, não um interruptor, e não existia tela nenhuma que mostrasse essa
+ *  lista inteira. Quem conectou dois de quatro não tinha como perceber.
+ *
+ *  Também é o único lugar que mostra a causa quando não dá para conectar
+ *  (ambiente sem as chaves, sessão caída). Na gaveta isso aparecia solto, uma
+ *  ficha de cada vez, como se fosse problema daquele profissional. */
+function Conexoes() {
+  const st = useStore();
+  const equipe = D.EQUIPE;
+  const conectados = equipe.filter((p) => st.googleDe(p.id)).length;
+
+  /* Cabeçalho da seção: um número, não um adjetivo. "Parcialmente conectado"
+     não diz se falta um ou três. */
+  const sub = st.google.status === "ok"
+    ? conectados === 0
+      ? "Nenhuma agenda conectada ainda"
+      : `${conectados} de ${equipe.length} agendas conectadas`
+    : "Google Calendar e Meet";
+
+  /* Estados em que a lista por profissional não faz sentido: o impedimento é do
+     ambiente ou da sessão, igual para todo mundo. Mostrar quatro linhas de
+     "não conectado" aqui sugeriria que é só clicar. */
+  const impedimento =
+    st.google.status === "carregando"
+      ? { tom: "neutral" as const, titulo: "Verificando a conexão…", texto: "Consultando quais agendas já estão ligadas." }
+      : st.google.status === "nao_configurado"
+        ? {
+            tom: "warn" as const,
+            titulo: "Google Calendar não configurado neste ambiente",
+            texto: `Falta definir ${st.google.faltando.join(", ")}. Enquanto isso o app funciona normalmente — só não cria eventos.`,
+          }
+        : st.google.status !== "ok"
+          ? { tom: "warn" as const, titulo: "Entre na sua conta para conectar", texto: "As agendas ficam ligadas à sua conta, então é preciso estar logado." }
+          : null;
+
+  return (
+    <section>
+      <SectionTitle title="Conexões" sub={sub} />
+      <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden")}>
+        {/* Faixa de topo: o que a integração FAZ, em uma frase. Sem isto, "Google
+            Calendar — conectado" não diz o que muda no dia a dia de quem usa. */}
+        <div style={s("display:flex;align-items:center;gap:13px;padding:15px 17px;border-bottom:1px solid var(--line)")}>
+          <span style={s("width:38px;height:38px;flex-shrink:0;border-radius:12px;background:var(--primary-soft);color:var(--primary-dark);display:flex;align-items:center;justify-content:center")}>
+            <Icon name="calendar-check" size={19} sw={1.9} />
+          </span>
+          <span style={s("flex:1;min-width:0;line-height:1.35")}>
+            <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title)")}>Google Calendar + Meet</span>
+            <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px")}>
+              Cada atendimento pode virar um evento na agenda do profissional, com link do Meet para mandar no WhatsApp.
+            </span>
+          </span>
+        </div>
+
+        {impedimento ? (
+          <div style={s("display:flex;align-items:flex-start;gap:11px;padding:15px 17px")}>
+            <span style={s(`flex-shrink:0;margin-top:1px;color:${impedimento.tom === "warn" ? "var(--warn)" : "var(--muted)"}`)}>
+              <Icon name={impedimento.tom === "warn" ? "alert" : "clock"} size={17} sw={1.9} />
+            </span>
+            <span style={s("flex:1;min-width:0;line-height:1.4")}>
+              <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title)")}>{impedimento.titulo}</span>
+              <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:3px")}>{impedimento.texto}</span>
+            </span>
+          </div>
+        ) : (
+          equipe.map((p, i) => {
+            const conexao = st.googleDe(p.id);
+            const ocupado = st.googleOcupado(p.id);
+            return (
+              <div
+                key={p.id}
+                style={s(`display:flex;align-items:center;gap:12px;padding:13px 17px;flex-wrap:wrap;${i < equipe.length - 1 ? "border-bottom:1px solid var(--line)" : ""}`)}
+              >
+                <Monogram name={p.nome} id={p.id} size={34} radius={11} />
+                <span style={s("flex:1;min-width:150px;line-height:1.3")}>
+                  <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title)")}>{p.nome}</span>
+                  {/* O e-mail da conta, não só "conectado": a mesma conta Google pode
+                      servir a mais de um profissional, e sem o endereço não dá para
+                      saber que duas colunas caem na MESMA agenda. */}
+                  <span
+                    style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}
+                    title={conexao?.googleEmail}
+                  >
+                    {conexao ? conexao.googleEmail : "Sem agenda conectada"}
+                  </span>
+                </span>
+                {conexao
+                  ? <Badge tone="success" dot>conectada</Badge>
+                  : <Badge tone="neutral" dot>desligada</Badge>}
+                <Btn
+                  size="sm"
+                  variant={conexao ? "secondary" : "primary"}
+                  onClick={() => (conexao ? st.desconectarGoogle(p.id) : st.conectarGoogle(p.id))}
+                  style={ocupado ? s("opacity:.5;pointer-events:none") : undefined}
+                >
+                  {ocupado ? "Aguarde…" : conexao ? "Desconectar" : "Conectar"}
+                </Btn>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ═══════════════════════════════ MAIS ═══════════════════════════════ */
+
+export function Mais() {
+  const st = useStore();
+  const mobile = useIsMobile();
+
+  /** Atalhos para telas — lista compacta de links, não cartões: navegar não é "abrir e editar". */
+  const atalhos: { id: TelaId; titulo: string; sub: string; icone: string }[] = [
+    { id: "faturamento", titulo: "Faturamento", sub: `${D.PERIODO} · notas do mês`, icone: "receipt" },
+    { id: "equipe", titulo: "Equipe", sub: "Quem atende e quando", icone: "equipe" },
+    { id: "servicos", titulo: "Serviços", sub: "O que você oferece e por quanto", icone: "tag" },
+    // o item que faltava: a tab bar diz que "Mais" cobre `assistente` e não havia caminho nenhum
+    { id: "assistente", titulo: "Ajustes da MAISA", sub: "Tom de voz, horários e o que ela pode fazer", icone: "bot" },
+  ];
+
+  const conteudo = [
+    {
+      id: "faq", titulo: "Perguntas frequentes", sub: `${D.FAQS.length} respostas no ar`,
+      resumo: "As respostas prontas que a MAISA usa sem te consultar.",
+      chips: [`${D.FAQS.length} no ar`, `${D.FAQS.reduce((a, f) => a + f.usos, 0).toLocaleString("pt-BR")} usos`],
+      onClick: () => st.abrir("faq"),
+    },
+    {
+      id: "numeros", titulo: "Números do mês", sub: "Faturamento e ocupação",
+      resumo: "Faturamento, ocupação e o que a MAISA resolveu no mês.",
+      // derivado de D.NUMEROS_MES, não string literal: os chips diziam "R$ 18,2k / 78% / 87%"
+      // hardcoded enquanto a gaveta lia o dado de verdade — os dois podiam discordar em silêncio.
+      chips: [numeroDoMes("Faturamento"), `${numeroDoMes("Ocupação média")} ocupação`, `${numeroDoMes("Resolvidas sem você")} resolvidas`],
+      onClick: () => st.abrir("numeros"),
+    },
+  ];
+
+  return (
+    <TelaGrade>
+      {mobile && (
+        <section>
+          <SectionTitle title="Atalhos" sub="As telas que não cabem na barra de baixo" />
+          <div style={s("display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden")}>
+            {atalhos.map((a, i) => (
+              <button
+                key={a.id}
+                onClick={() => st.irPara(a.id)}
+                className="m-hov-bg m-focus"
+                style={s(`display:flex;align-items:center;gap:13px;padding:14px 16px;border:none;background:transparent;cursor:pointer;text-align:left;font-family:inherit;color:inherit;${i < atalhos.length - 1 ? "border-bottom:1px solid var(--line)" : ""}`)}
+              >
+                <span style={s("width:36px;height:36px;flex-shrink:0;border-radius:11px;background:var(--primary-soft);color:var(--primary-dark);display:flex;align-items:center;justify-content:center")}>
+                  <Icon name={a.icone} size={18} sw={1.9} />
+                </span>
+                <span style={s("flex:1;min-width:0;line-height:1.3")}>
+                  <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title)")}>{a.titulo}</span>
+                  <span style={s("display:block;font-size:var(--t-label);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{a.sub}</span>
+                </span>
+                <Icon name="chevron-right" size={17} sw={2} style={s("flex-shrink:0;color:var(--muted)")} />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section>
+        <SectionTitle title="Sua conta" sub="Assinatura e cobrança" />
+        {/* Linha larga, não cartão numa grade: é UM item, e um cartão de 290px numa grade de
+            quatro colunas fazia o plano parecer um entre vários. */}
+        <button
+          onClick={() => st.abrir("plano")}
+          className="m-hov-bg m-focus"
+          style={s("width:100%;display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:16px;background:var(--surface);border:1px solid var(--border);cursor:pointer;text-align:left;font-family:inherit;color:inherit;flex-wrap:wrap")}
+        >
+          <span style={s("width:38px;height:38px;flex-shrink:0;border-radius:12px;background:var(--primary-soft);color:var(--primary-dark);display:flex;align-items:center;justify-content:center")}>
+            <Icon name="card" size={19} sw={1.9} />
+          </span>
+          <span style={s("flex:1;min-width:160px;line-height:1.3")}>
+            <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title)")}>Plano {D.NEGOCIO.plano}</span>
+            <span className="n" style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px")}>{fmt(D.NEGOCIO.precoPlano)}/mês</span>
+          </span>
+          {/* estado de cobrança com tom semântico de verdade — antes "em dia" era um chip neutro
+              idêntico ao do nome do plano, ou seja um status de pagamento sem cor de status. */}
+          <Badge tone="success" dot>em dia</Badge>
+        </button>
+      </section>
+
+      <Conexoes />
+
+      <section>
+        <SectionTitle title="Conteúdo e números" sub="O que a MAISA responde e como o mês foi" />
+        <GradeCartoes>
+          {conteudo.map((i) => (
+            <Cartao
+              key={i.id}
+              dot="neutral"
+              titulo={i.titulo}
+              sub={i.sub}
+              resumo={i.resumo}
+              chips={i.chips}
+              onClick={i.onClick}
+            />
+          ))}
+        </GradeCartoes>
+      </section>
+
+      {/* Contato do suporte — rodapé, não cartão: não é algo que se "abre". */}
+      <div style={s("display:flex;align-items:center;gap:12px;padding:16px 18px;border-radius:16px;background:var(--surface);border:1px solid var(--line);flex-wrap:wrap")}>
+        <span style={s("width:38px;height:38px;flex-shrink:0;border-radius:12px;background:var(--primary-soft);color:var(--primary-dark);display:flex;align-items:center;justify-content:center")}>
+          <Icon name="chat" size={19} />
+        </span>
+        <span style={s("flex:1;min-width:180px")}>
+          <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title)")}>Precisa de ajuda?</span>
+          <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px")}>Fale com o suporte da MAISA pelo WhatsApp — respondemos em minutos.</span>
+        </span>
+        <a
+          href="https://wa.me/5511999999999"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="m-hov-bright m-press m-focus"
+          style={s("height:42px;padding:0 18px;border-radius:12px;background:var(--whatsapp);color:var(--on-primary);font-size:var(--t-sm);font-weight:var(--w-title);display:inline-flex;align-items:center;gap:8px;text-decoration:none")}
+        >
+          <Icon name="whatsapp" size={17} sw={1.9} />
+          Falar com o suporte
+        </a>
+      </div>
+    </TelaGrade>
+  );
+}

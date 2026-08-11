@@ -1,9 +1,9 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { s, Icon } from "@/lib/ui";
-import { createClient } from "@/lib/supabase/client";
-import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/supabase/config";
+import { s, Icon } from "@/ui/primitivos";
+import { createClient } from "@/adaptadores/saida/supabase/client";
+import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/adaptadores/saida/supabase/config";
 
 /* Motivos que /auth/callback devolve, em português de gente. Cada um diz o que
  * aconteceu E o que fazer — "tente de novo" só serve quando tentar de novo pode

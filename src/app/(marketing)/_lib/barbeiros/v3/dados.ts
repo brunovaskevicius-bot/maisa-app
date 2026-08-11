@@ -154,7 +154,7 @@ export const SUB_DOBRA =
  * O QUE ISSO CUSTA, SEM MAQUIAGEM. As conversas deste arquivo são ESCRITAS, não
  * capturadas. Este repositório NÃO tem integração com WhatsApp (todo "WhatsApp" no
  * produto é um link `wa.me` que abre o app com a mensagem digitada, faltando apertar
- * enviar — `src/lib/detalhe.tsx:574`), não tem modelo de IA e não tem cron de
+ * enviar — `src/ui/detalhe.tsx`), não tem modelo de IA e não tem cron de
  * lembrete; o README do produto diz, na linha 6: "Protótipo visual (Next.js 14),
  * sem backend: todos os dados são mockados". Ou seja: a peça deixou de ser PROVA e
  * virou ILUSTRAÇÃO. Se o motor de verdade mora no outro repositório da MAISA, a
@@ -513,7 +513,7 @@ export const DUELO_FONTE = {
  * `../PlanosBarbeiros.tsx`, que é o catálogo que já servia as outras LPs de barbeiros
  * (97 / 147 / 197, com o Profissional marcado `destaque: true`). Este arquivo os
  * REDIGITA em vez de importar de lá, e isso é uma dívida consciente, não descuido:
- * aquele módulo é `"use client"`, arrasta `@/lib/ui`, `../primitives` e `../icp`, e
+ * aquele módulo é `"use client"`, arrasta `@/ui/primitivos`, `../primitives` e `../icp`, e
  * importá-lo puxaria o bundle de um componente inteiro para ler três strings. A v3
  * não importa NADA das outras LPs, por decisão escrita no topo deste arquivo.
  *

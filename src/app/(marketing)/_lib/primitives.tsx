@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-import { s } from "@/lib/ui";
+import { s } from "@/ui/primitivos";
 
 /* ============================================================================
  * Primitivos GLOBAIS das landing pages MAISA. Todos leem os tokens `--mk-*` do

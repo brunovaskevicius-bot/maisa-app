@@ -1,50 +1,36 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { NF_CONFIG } from "@/lib/nf/config";
-import { consultarNfse, normalizarStatus } from "@/lib/nf/focus";
+import { app } from "@/composicao";
+import { barrou, sessaoOuDemo } from "@/adaptadores/entrada/http/contexto";
+import { falhaFiscal } from "@/adaptadores/entrada/http/fiscal";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSULTA DE STATUS DA NFS-e — GET /api/nf/status?ref=...
 // Usada pelo front para acompanhar a emissão assíncrona (processando → autorizado).
 // Exige sessão; sem token da Focus, responde "simulado".
 // ─────────────────────────────────────────────────────────────────────────────
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  if (isSupabaseConfigured) {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, status: "nao_autenticado" }, { status: 401 });
-  }
+  const porteiro = await sessaoOuDemo();
+  if (barrou(porteiro)) return porteiro.barrado;
 
-  const ref = new URL(request.url).searchParams.get("ref");
-  if (!ref) return NextResponse.json({ ok: false, status: "payload_invalido", info: "ref ausente" }, { status: 400 });
-
-  if (!NF_CONFIG.token) {
-    return NextResponse.json({ ok: true, status: "simulado", ref });
-  }
+  const ref = new URL(request.url).searchParams.get("ref") ?? "";
 
   try {
-    const { data } = await consultarNfse(ref);
-    const status = normalizarStatus(data?.status);
-    // A rejeição fiscal da prefeitura (ex.: "Código de Serviço inexistente") chega AQUI,
-    // no status assíncrono. Loga p/ aparecer nos logs da Vercel.
-    if (status === "erro") {
-      console.error("[nf/status] erro_autorizacao da prefeitura", { ref, focusStatus: data?.status, erros: data?.erros });
-    }
+    const r = await app.consultarNota(porteiro.tenant, ref);
     return NextResponse.json({
-      ok: status !== "erro",
-      status,
-      ref,
-      numero: data?.numero,
-      url: data?.url,
-      pdf: data?.url_danfse,
-      xml: data?.caminho_xml_nota_fiscal,
-      erros: data?.erros,
+      ok: r.status !== "erro",
+      status: r.status,
+      ref: r.ref,
+      numero: r.numero,
+      url: r.url,
+      pdf: r.pdf,
+      xml: r.xml,
+      erros: r.erros,
     });
-  } catch {
-    return NextResponse.json({ ok: false, status: "erro", ref, erros: [{ mensagem: "Erro ao consultar a Focus NFe." }] }, { status: 502 });
+  } catch (e) {
+    return falhaFiscal(e);
   }
 }

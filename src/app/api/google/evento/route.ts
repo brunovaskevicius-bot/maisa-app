@@ -1,253 +1,75 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { isGoogleConfigured, googleFaltando } from "@/lib/google/config";
-import { acessoValido } from "@/lib/google/integracoes";
-import { PrecisaReconectar } from "@/lib/google/oauth";
-import * as G from "@/lib/google/calendario";
-import { instanteISO } from "@/lib/google/datas";
-import * as D from "@/lib/data";
+import { app } from "@/composicao";
+import { barrou, exigirSessaoComGoogle } from "@/adaptadores/entrada/http/contexto";
+import { falha } from "@/adaptadores/entrada/http/respostas";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EVENTO NO GOOGLE CALENDAR — sempre no servidor.
+// ATENDIMENTO NA AGENDA — sempre no servidor.
 //
-// POST   → cria o evento (com Meet, se pedido) e devolve o link
-// DELETE → cancela o evento
+// POST   → marca o atendimento (com videochamada, se pedido) e devolve o link
+// DELETE → cancela
 //
-// O cliente manda o ID DO AGENDAMENTO, nunca datas nem títulos prontos: o servidor
-// resolve tudo a partir de src/lib/data.ts. Se o horário viesse do corpo do request,
-// qualquer um poderia escrever o que quisesse na agenda de quem conectou o Google.
+// A rota é FINA de propósito: ela só traduz HTTP para o caso de uso. Toda a regra
+// (validação, allowlist, idempotência, título do evento) mora em
+// `nucleo/aplicacao/agendar-atendimento.ts`, porque o agente de WhatsApp vai chamar
+// a MESMA função sem passar por aqui. Quando isso valia como "a rota faz tudo", a
+// única forma de marcar um horário era ter um navegador aberto.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function guarda() {
-  if (!isGoogleConfigured) {
-    return NextResponse.json({ ok: false, status: "nao_configurado", faltando: googleFaltando() }, { status: 400 });
-  }
-  if (isSupabaseConfigured) {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, status: "nao_autenticado" }, { status: 401 });
-  } else {
-    return NextResponse.json({ ok: false, status: "login_necessario" }, { status: 401 });
-  }
-  return null;
-}
-
-/** Erro → resposta. PrecisaReconectar vira um status próprio para a UI oferecer "reconectar". */
-function falha(e: unknown) {
-  if (e instanceof PrecisaReconectar) {
-    return NextResponse.json({ ok: false, status: "reconectar", info: e.motivo }, { status: 409 });
-  }
-  console.error("[google/evento]", String(e));
-  return NextResponse.json(
-    { ok: false, status: "erro", info: e instanceof Error ? e.message : "Falha ao falar com o Google." },
-    { status: 502 },
-  );
-}
-
 export async function POST(request: Request) {
-  const barrado = await guarda();
-  if (barrado) return barrado;
+  const porteiro = await exigirSessaoComGoogle();
+  if (barrou(porteiro)) return porteiro.barrado;
 
   const body = await request.json().catch(() => ({} as any));
-  // O uuid é cunhado pelo NAVEGADOR, antes do POST, e é o que torna a criação
-  // idempotente — ver `buscarPorProp` abaixo. Um id gerado aqui não serviria: ele
-  // nasceria diferente a cada tentativa, que é exatamente o problema.
-  const maisaAg = String(body?.maisaAg ?? "");
-  const comMeet = body?.comMeet !== false; // padrão: com Meet
-
-  // Convidar o cliente por e-mail é OPT-IN, e o padrão é NÃO convidar.
-  //
-  // Os clientes deste protótipo são fictícios e todos apontam para o e-mail do
-  // dono do projeto (ver src/lib/data.ts) — antes usavam `@email.com`, que é um
-  // domínio REAL e mandava convite para a caixa de estranhos. Hoje o convite não
-  // atinge mais terceiros, mas continua sendo um e-mail de verdade despachado
-  // pelo Google (e "cancelar" depois manda um segundo). Por isso segue opt-in.
-  const convidarCliente = body?.convidarCliente === true;
-
-  // A POSIÇÃO (dia, hora, profissional) vem do CLIENTE, e agora vem SÓ dele.
-  //
-  // O atendimento mora no localStorage do navegador; o servidor nunca teve como
-  // conhecê-lo. Havia um `D.agendamento(agId)` aqui como padrão para o que o corpo não
-  // mandasse — resto da época em que data.ts guardava uma agenda de exemplo. Com ela
-  // fora, esse fallback devolveria `undefined` para todo id: um padrão que nunca cai é
-  // pior que padrão nenhum, porque esconde a ausência do campo até o erro aparecer
-  // longe daqui. Faltou campo, é `payload_invalido` — a validação abaixo cobre todos.
-  //
-  // (A prioridade já era essa e continua sendo. A primeira versão preferia o catálogo ao
-  // corpo, e o efeito era o pior possível: a gaveta mostrava "15:00" e o evento nascia
-  // às 10:00, porque o arrasto do usuário só existia no navegador.)
-  //
-  // Não é furo de segurança: o usuário está autenticado e escrevendo na PRÓPRIA agenda
-  // conectada (acessoValido é escopado à sessão) — ele poderia criar o mesmo evento
-  // direto no Google. A validação abaixo é sanidade de dado, não fronteira de acesso.
-  const data = String(body?.data ?? "");
-  const inicio = Number(body?.inicio);
-  const profissionalId = String(body?.profissionalId ?? "");
-  const servicoId = String(body?.servicoId ?? "");
-  const clienteId = String(body?.clienteId ?? "");
-
-  const profissional = D.profissional(profissionalId);
-  const cliente = D.cliente(clienteId);
-
-  // Serviço criado pelo usuário (id "sv-novo-…") só existe no localStorage, então a
-  // duração vem do corpo. Sem isso, marcar num serviço novo falhava com "Faltam dados
-  // do atendimento" e nada na tela dizia que a causa era o serviço.
-  const doCatalogo = D.servico(servicoId);
-  const duracao = Number(body?.duracao ?? doCatalogo?.duracao);
-  const nomeServico = String(body?.servicoNome ?? doCatalogo?.nome ?? "Atendimento").slice(0, 120);
-  const valorServico = Number(body?.servicoValor ?? doCatalogo?.preco ?? 0);
-  // Nome e telefone do cliente também podem vir do corpo, pela mesma razão do serviço:
-  // eles serão GRAVADOS no evento (ver PROPS) para o app funcionar noutro navegador.
-  const nomeCliente = String(body?.clienteNome ?? cliente?.nome ?? "Cliente").slice(0, 120);
-  const telCliente = String(body?.clienteTelefone ?? cliente?.telefone ?? "").slice(0, 40);
-
-  if (!profissional || !Number.isFinite(inicio) || !Number.isFinite(duracao)) {
-    return NextResponse.json({ ok: false, status: "payload_invalido" }, { status: 400 });
-  }
-  // O uuid é a chave de idempotência: se vier vazio ou malformado, a proteção contra
-  // evento duplicado simplesmente não existe, e é melhor recusar do que criar às cegas.
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(maisaAg)) {
-    return NextResponse.json({ ok: false, status: "payload_invalido", info: "Identificador do atendimento ausente." }, { status: 400 });
-  }
-  // Só profissional que é coluna da Agenda — as três rotas usam o mesmo critério.
-  // Com D.profissional() sozinho, "pr4" (existe na equipe, não tem coluna) passava
-  // aqui e só falhava lá na frente como 409 "reconectar", que é o diagnóstico errado.
-  if (!D.COLUNAS_AGENDA.includes(profissionalId)) {
-    return NextResponse.json({ ok: false, status: "profissional_invalido" }, { status: 400 });
-  }
-  // Formato E validade: "2026-02-31" passa no regex e é um dia que não existe. Sem o
-  // Date.parse, ele viraria um ISO que o Google aceitaria deslocando para 3 de março.
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(`${data}T00:00:00Z`))) {
-    return NextResponse.json({ ok: false, status: "payload_invalido", info: "Data inválida." }, { status: 400 });
-  }
-  // `inicio` é hora decimal. Sem limite, um valor forjado (999) viraria um ISO
-  // inválido — "T999:00:00-03:00" — e o erro só apareceria como recusa crua do Google.
-  if (inicio < 0 || inicio >= 24 || Math.round(inicio * 2) !== inicio * 2) {
-    return NextResponse.json({ ok: false, status: "payload_invalido", info: "Horário fora do dia." }, { status: 400 });
-  }
-  if (duracao < 5 || duracao > 480) {
-    return NextResponse.json({ ok: false, status: "payload_invalido", info: "Duração fora do razoável." }, { status: 400 });
-  }
-
-  const inicioISO = instanteISO(data, inicio);
-  // Criar no PASSADO deixou de ser recusado — a recusa é que estava errada.
-  //
-  // Enquanto o calendário era fictício, "já passou" pegava um artefato: o mês fixo era
-  // empurrado por semanas inteiras, então clicar em quase qualquer dia anterior batia
-  // aqui e voltava 400. Com datas reais o clique é legítimo: registrar às 15h o encaixe
-  // que entrou às 14h é uso normal de agenda, e o Google cria sem reclamar.
-  //
-  // Fica a sanidade de faixa. Uma data corrompida não deve plantar evento em 1998 nem em
-  // 2200 — lá ninguém olha, e o dono levaria meses para descobrir que tem lixo na agenda.
-  const distanciaDias = (Date.parse(inicioISO) - Date.now()) / 86_400_000;
-  if (Math.abs(distanciaDias) > 366) {
-    return NextResponse.json(
-      { ok: false, status: "payload_invalido", info: "Data a mais de um ano daqui." },
-      { status: 400 },
-    );
-  }
 
   try {
-    const { token, email } = await acessoValido(profissionalId);
-
-    /* IDEMPOTÊNCIA — pergunta antes de criar.
-     *
-     * O caminho que isto cobre não é o duplo clique (a trava no cliente já pega esse):
-     * é o POST que CHEGOU ao Google, criou o evento, e perdeu a resposta na volta — rede
-     * caindo, aba fechando, timeout do runtime. Sem esta consulta, a tentativa seguinte
-     * cria um segundo evento às 14h para o mesmo cliente, e nada na tela explica de onde
-     * saiu o segundo. O `requestId` do Meet, que já existia, dedupla a CONFERÊNCIA e não
-     * o evento — proteção parecida o bastante para enganar, e no lugar errado. */
-    const jaExiste = await G.buscarPorProp({
-      token, chave: G.PROPS.ag, valor: maisaAg, perto: inicioISO,
-    });
-    if (jaExiste) {
-      return NextResponse.json({
-        ok: true, status: "ja_existia", googleEmail: email,
-        eventId: jaExiste.eventId,
-        meetLink: jaExiste.meetLink ?? null,
-        htmlLink: jaExiste.htmlLink ?? null,
-        inicioISO, semMeet: comMeet && !jaExiste.meetLink,
-      });
-    }
-
-    const ev = await G.criar({
-      token,
-      chave: `maisa-${maisaAg}`, // estável ⇒ retry não duplica a conferência
-      inicio: inicioISO,
-      fim: instanteISO(data, inicio + duracao / 60),
-      // Etiqueta de dono no TÍTULO, não só na descrição.
-      //
-      // Nada impede que a mesma conta Google seja conectada para mais de um
-      // profissional: a PK é (user_id, profissional_id) e `google_email` não é
-      // única. Quando isso acontece, os atendimentos de todos caem no MESMO
-      // "primary" e a grade do Google fica sem dizer de quem é cada um — a
-      // descrição resolve, mas só depois de abrir o evento. O prefixo aparece
-      // já na grade e não atrapalha quem conectou uma conta por profissional.
-      titulo: `[${D.primeiroNome(profissional.nome)}] ${nomeServico} — ${nomeCliente}`,
-      descricao: [
-        `Agendado pela MAISA · ${D.NEGOCIO.nome}`,
-        `Profissional: ${profissional.nome}`,
-        telCliente ? `Telefone: ${telCliente}` : "",
-      ].filter(Boolean).join("\n"),
-      emails: convidarCliente && cliente?.email ? [cliente.email] : [],
-      comMeet,
-      // As marcas que fazem este evento voltar da leitura como ATENDIMENTO e não como
-      // compromisso pessoal. Sem elas o app criaria o evento e depois o leria em cinza,
-      // sem cliente e sem serviço — o pior dos dois mundos.
-      props: {
-        [G.PROPS.marca]: "1",
-        [G.PROPS.ag]: maisaAg,
-        [G.PROPS.pro]: profissionalId,
-        [G.PROPS.cli]: clienteId,
-        [G.PROPS.cliNome]: nomeCliente,
-        ...(telCliente ? { [G.PROPS.cliTel]: telCliente } : {}),
-        [G.PROPS.svc]: servicoId,
-        [G.PROPS.svcNome]: nomeServico,
-        [G.PROPS.svcDur]: String(duracao),
-        [G.PROPS.svcVal]: String(valorServico),
-      },
+    const r = await app.agendarAtendimento(porteiro.tenant, {
+      agendaId: String(body?.profissionalId ?? ""),
+      maisaAg: String(body?.maisaAg ?? ""),
+      data: String(body?.data ?? ""),
+      inicio: Number(body?.inicio),
+      duracao: body?.duracao != null ? Number(body.duracao) : undefined,
+      servicoId: String(body?.servicoId ?? ""),
+      servicoNome: body?.servicoNome != null ? String(body.servicoNome) : undefined,
+      servicoValor: body?.servicoValor != null ? Number(body.servicoValor) : undefined,
+      clienteId: String(body?.clienteId ?? ""),
+      clienteNome: body?.clienteNome != null ? String(body.clienteNome) : undefined,
+      clienteTelefone: body?.clienteTelefone != null ? String(body.clienteTelefone) : undefined,
+      comMeet: body?.comMeet !== false,
+      convidarCliente: body?.convidarCliente === true,
     });
 
     return NextResponse.json({
       ok: true,
-      status: "criado",
-      googleEmail: email,
-      eventId: ev.eventId,
-      meetLink: ev.meetLink ?? null,
-      htmlLink: ev.htmlLink ?? null,
-      // O instante REALMENTE usado. O cliente grava isto e passa a exibir a partir
-      // daqui — a previsão (rotuloReal) anda 7 dias por semana, o evento não.
-      inicioISO,
-      // Sem Meet mesmo tendo sido pedido: a UI precisa saber para não prometer link.
-      semMeet: comMeet && !ev.meetLink,
+      // `criado` | `ja_existia` — a tela distingue para não dizer "marcado!" duas vezes.
+      status: r.situacao === "ja_existia" ? "ja_existia" : "criado",
+      eventoId: r.eventoId,
+      meetLink: r.meetLink,
+      htmlLink: r.htmlLink,
+      inicioISO: r.inicioISO,
+      semMeet: r.semMeet,
     });
   } catch (e) {
-    return falha(e);
+    return falha("google/evento", e);
   }
 }
 
 export async function DELETE(request: Request) {
-  const barrado = await guarda();
-  if (barrado) return barrado;
+  const porteiro = await exigirSessaoComGoogle();
+  if (barrou(porteiro)) return porteiro.barrado;
 
   const { searchParams } = new URL(request.url);
-  const eventId = searchParams.get("eventId") ?? "";
-  const profissionalId = searchParams.get("pid") ?? "";
-
-  if (!eventId || !D.COLUNAS_AGENDA.includes(profissionalId)) {
-    return NextResponse.json({ ok: false, status: "payload_invalido" }, { status: 400 });
-  }
 
   try {
-    const { token } = await acessoValido(profissionalId);
-    await G.cancelar({ token, eventId });
+    await app.cancelarAtendimento(porteiro.tenant, {
+      agendaId: searchParams.get("pid") ?? "",
+      eventoId: searchParams.get("eventoId") ?? "",
+    });
     return NextResponse.json({ ok: true, status: "cancelado" });
   } catch (e) {
-    return falha(e);
+    return falha("google/evento", e);
   }
 }

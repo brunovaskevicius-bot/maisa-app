@@ -26,6 +26,34 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+# Cópias de segurança do env. Sem esta linha, `.env.local.bak-20260811` NÃO é
+# ignorado (o padrão acima exige terminar em `.local`) e vai commitado com chave
+# dentro — o vazamento clássico de "só um backup rápido antes de mexer".
+.env*.bak*
+# O exemplo é rastreado de propósito: é a documentação das variáveis.
+!.env.local.example
+
+# ─────────────────────────────────────────────────────────────
+# Rascunho de sessão: screenshots de auditoria e sondagem (~74 MB).
+#
+# Ficam de fora porque git não esquece: um PNG de 1,3 MB commitado por engano fica
+# no histórico para sempre, e `git rm` depois não devolve o espaço — todo clone
+# futuro baixa os 74 MB de novo. Os arquivos continuam no disco, só não versionados.
+#
+# O que É versionado de propósito, e por quê:
+#   .claude/skills/    → a skill maisa-design, que o Claude carrega
+#   .claude/snapshots/ → a ÚNICA proteção da pasta v3 (ver CLAUDE.md do projeto)
+#   .claude/fontes/    → o original das imagens publicadas em public/
+#   public/**          → asset de runtime; sem ele a LP quebra
+# ─────────────────────────────────────────────────────────────
+.auditoria-perfil/
+.auditoria-perfil-p/
+.foto-perfil/
+.perf-larg/
+.sonda-perfil/
+.claude/auditoria/
+.claude/rostos/
+.claude/*.png
 
 # vercel
 .vercel

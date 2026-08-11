@@ -1,0 +1,283 @@
+# `entrada/whatsapp/` — o agente
+
+Adaptador de **entrada**, irmão do `http/`. A diferença é só quem começa a conversa: lá
+é o navegador do Bruno, aqui é uma mensagem do cliente.
+
+Este documento era um plano. Agora é descrição — a reorganização hexagonal foi feita
+**para** este adaptador, e o teste dela era: marcar horário pelo WhatsApp tinha que ser
+a mesma chamada que marcar pelo painel, sem nada abaixo mudar. Foi.
+
+## O caminho de uma mensagem
+
+```
+cliente no WhatsApp
+  └─ webhook (Evolution / Cloud API) → app/api/whatsapp/route.ts   ← rota FINA
+     ├─ contexto.ts ....... segredo + destino da mensagem → ContextoTenant, ator = agente
+     └─ agente.ts ......... o loop (Claude + histórico + ferramentas)
+        ├─ persona.ts ..... system prompt montado a partir do cadastro
+        ├─ ferramentas.ts . casos de uso como tools + os guardrails de alucinação
+        ├─ bolhas.ts ...... texto do modelo → mensagens curtas de WhatsApp
+        └─ composicao.ts → app.agendarAtendimento(...)   ← A MESMA FUNÇÃO DO PAINEL
+                           └─ canal.enviar(...) → saida/evolution/  ← a resposta sai aqui
+```
+
+A volta é o [`saida/evolution/`](../../saida/evolution/LEIA-ME.md). Os dois lados não se
+conhecem: encontram-se em `composicao.ts`.
+
+## Arquivo a arquivo
+
+| Arquivo | O que faz |
+|---|---|
+| `contexto.ts` | Valida o segredo, resolve o inquilino **pelo destino da mensagem** e normaliza o envelope de três formatos de webhook |
+| `persona.ts` | Monta o system prompt em duas partes: estável (cacheável) e volátil (hoje + memória) |
+| `ferramentas.ts` | As 6 ferramentas, o executor e a camada que desconfia do modelo |
+| `bolhas.ts` | Quebra a resposta em mensagens, converte Markdown, aplica os tetos |
+| `agente.ts` | O loop: histórico → modelo → ferramenta → resposta → memória |
+
+## O destino da mensagem, por provedor
+
+| Provedor | O que identifica o negócio |
+|---|---|
+| Cloud API (Meta) | `metadata.display_phone_number` — o número do negócio |
+| **Evolution** | **`instance`** — o nome da instância (`EVOLUTION_INSTANCIA`) |
+
+Basta um dos dois casar. Não é frouxidão: a Evolution **não manda o número do negócio**
+de forma confiável no envelope de mensagem — o que ela sempre manda é qual instância
+recebeu. Uma instância é um negócio, e o campo é preenchido pelo servidor dela, não por
+quem escreveu a mensagem. É essa última propriedade que importa: identidade tem que vir
+de algo que o cliente não controla.
+
+> **Custou um bug que descartava 100% das mensagens reais.** O código comparava
+> `corpo.instance` com `MAISA_WHATSAPP_NUMERO`. Mas `instance` é um *nome*
+> (`"maisa-barbearia"`), não um número: `digitos("maisa-barbearia")` é `""`, a comparação
+> nunca casava, e o log dizia "número de destino não pertence a nenhum negócio" —
+> apontando para a env errada. Nada estourava. A MAISA só ficava calada.
+
+## O que a normalização descarta, e por quê
+
+Tudo devolve `null` e a rota responde **200**: para o provedor, resposta de erro significa
+"tente de novo", e ele reentrega o mesmo evento em loop.
+
+| Caso | Por quê |
+|---|---|
+| `fromMe: true` | **A Evolution devolve o que NÓS mandamos** como `messages.upsert`, no mesmo evento das recebidas. Sem o descarte a MAISA responde a si mesma, num loop caro e visível para o cliente. |
+| `@g.us` / `@broadcast` | Grupo não é atendimento. A MAISA num grupo responderia a cada mensagem de cada participante — e o dono descobre pelo grupo da família. |
+| `@lid` sem telefone | Desde 2025 o WhatsApp entrega alguns contatos por id opaco (`69385314111689@lid`). Tratá-lo como número põe um "cliente" de telefone falso no cadastro **e** o `sendText` de volta falha com `exists: false`: a conversa roda inteira, gasta token, e a resposta não chega em ninguém. Quando vem `remoteJidAlt`/`senderPn`, usamos o telefone de lá. |
+| evento ≠ `messages.upsert` | `messages.update` (recibo de leitura) também tem `data.key`. |
+| áudio, figurinha, localização | A MAISA não lê. **Ver a dívida.** |
+
+O nome do evento é comparado numa forma canônica porque a Evolution é inconsistente: a
+configuração usa `MESSAGES_UPSERT`, o corpo entregue traz `messages.upsert`
+(evolution-api#1340).
+
+E o texto não vem num campo só: `conversation` para texto simples,
+`extendedTextMessage` quando é resposta a outra mensagem, dentro de `ephemeralMessage`
+quando o cliente usa mensagens temporárias (padrão em muitos aparelhos),
+`imageMessage.caption` quando ele manda foto escrevendo em cima, `buttonsResponseMessage`
+quando toca num botão. Ler só `conversation` funciona no teste e perde uma fatia grande da
+conversa real — sem erro nenhum no log.
+
+## As três camadas de guardrail
+
+Saber qual protege de quê é o que evita achar que está protegido e não estar.
+
+| Camada | Recusa | Onde | Vale para o painel? |
+|---|---|---|---|
+| **1. Núcleo** | O impossível: data inexistente, hora fora do dia, agenda de outro inquilino, atendimento duplicado | `nucleo/aplicacao/` | Sim |
+| **2. Ferramenta** | O **alucinado**: horário que ninguém ofereceu, id que o modelo compôs porque parecia plausível | `ferramentas.ts` | Não — um humano não inventa id |
+| **3. Prompt** | Mau comportamento: inventar preço, dar conselho clínico, prometer desconto | `persona.ts` | Não |
+
+A camada 3 é a mais fraca e a única que **não vale como garantia**. Guardrail que mora
+só em prompt é sugestão. A camada 2 existe porque a 1 não consegue distinguir "14h que
+o cliente escolheu de uma lista" de "14h que o modelo achou razoável" — para o núcleo,
+os dois são um pedido válido.
+
+### O guardrail principal
+
+`agendar` só aceita um horário que saiu de `oferecer_horarios` **neste turno**. Sem
+isso, o caminho de falha é silencioso e caro: o modelo diz "tenho quinta às 15h" sem
+consultar, o cliente aceita, o núcleo não tem como saber que ninguém ofereceu 15h, o
+evento nasce em cima do almoço do dono — e todo mundo descobre na quinta.
+
+### Idempotência sem colaboração do modelo
+
+`maisaAg` é **derivado** de `(inquilino, telefone, serviço, dia, hora)` por SHA-256
+formatado como uuid v4, não sorteado. No painel o uuid nasce do clique, e clique é
+único. Aqui não há clique: um modelo que não recebeu a resposta da ferramenta tenta de
+novo — é o comportamento normal dele. Com uuid aleatório, a retentativa é um
+atendimento novo e o cliente fica com dois horários às 14h. Derivando, a segunda
+tentativa **encontra** o primeiro. A proteção funciona sem o modelo cooperar, que é o
+único jeito de ela funcionar.
+
+## As ferramentas
+
+Elas são, literalmente, [`nucleo/portas/entrada/casos-de-uso.ts`](../../../nucleo/portas/entrada/casos-de-uso.ts).
+
+| Tool | Caso de uso | Guardrail próprio |
+|---|---|---|
+| `oferecer_horarios` | `OferecerHorarios` | Registra a oferta — é o que dá poder ao `agendar` |
+| `agendar` | `AgendarAtendimento` | Só horário ofertado; chave de idempotência derivada; hora em `HH:MM` |
+| `meus_horarios` | `LerAgenda` | Filtra por marca da MAISA **e** por telefone — sem isso vaza o compromisso pessoal do dono e o atendimento de outro cliente |
+| `cancelar` | `CancelarAtendimento` | `evento_id` só vem de `meus_horarios` |
+| `anotar_nome` | `AnotarFato` | Só nome. Favorito é inferido, nunca escrito |
+| `chamar_humano` | `CanalDeMensagens.escalar` | Encerra o turno |
+
+Não existe ferramenta de identificar cliente: o telefone vem do envelope e o perfil é
+carregado **antes** do primeiro token. Uma ferramenta a menos, e um passo que o modelo
+não pode esquecer.
+
+## Ser conversacional é código, não pedido
+
+O que denuncia um bot na primeira frase é o **bloco**: parágrafo, lista com marcadores,
+fecho educado, tudo numa mensagem. Gente manda "Bom dia!", depois "Como posso te
+ajudar?".
+
+O prompt pede (uma ideia por mensagem, separadas por linha em branco); `bolhas.ts`
+**garante** — teto de 3 bolhas, 320 caracteres cada, quebra em fronteira de frase.
+Instrução em prompt é probabilidade, e num canal onde o cliente vê o resultado cru a
+exceção aparece.
+
+`bolhas.ts` também traduz Markdown, porque o WhatsApp não é Markdown: `**negrito**`
+aparece com os asteriscos duplos e `### Título` com as cerquilhas. O modelo escreve
+Markdown por hábito, e o cliente lê o hábito.
+
+## Memória
+
+Nome, profissional favorito, serviço favorito e — quando o padrão passa do limiar —
+horário favorito. Ver [`nucleo/dominio/memoria.ts`](../../../nucleo/dominio/memoria.ts).
+
+**Preferência é inferida, não anotada.** O agente grava FATOS (marcou tal dia, tal hora,
+com tal profissional); a conclusão é uma função pura com mínimo de 3 amostras e
+concentração mínima de 50%. Se o modelo pudesse escrever "horário favorito = 15h" porque
+o cliente disse uma vez "15h tá bom", a memória viraria bloco de notas dele — e um
+modelo anotando conclusões próprias inventa padrão onde há coincidência.
+
+Quem alternou entre três profissionais em seis visitas **não tem** favorito. Preferimos
+não lembrar nada a lembrar errado: errar aqui é chamar o cliente pelo nome do
+profissional que ele não quer.
+
+No prompt, favorito entra como **atalho a confirmar**, nunca como fato a executar.
+
+## Histórico é só texto
+
+A cada mensagem recebida o loop de ferramentas **começa de novo**: replayamos as falas e
+descartamos os blocos de `tool_use`/`tool_result` dos turnos passados. Parece
+desperdício e é o contrário:
+
+- **Correção** — resultado de ferramenta sobre agenda azeda em segundos. Um
+  `tool_result` de "quinta 15h está livre" replayado dez minutos depois faz o modelo
+  reafirmar com convicção um horário já tomado.
+- **Fronteira** — a porta `RepositorioHistorico` fala `Msg`, o tipo que a tela de
+  Conversas já usa. Se guardasse blocos da Anthropic, trocar de modelo viraria migração
+  de banco.
+
+## Quem responde
+
+**Nenhum nome de provedor aparece neste adaptador.** O loop fala
+[`portas/saida/modelo-conversa.ts`](../../../nucleo/portas/saida/modelo-conversa.ts), e
+quem responde é uma linha em `composicao.ts`:
+
+| Provedor | Adaptador | Quando |
+|---|---|---|
+| Gemini | `saida/gemini/` | Há `GEMINI_API_KEY` — é o caso de **hoje** |
+| Anthropic | `saida/anthropic/` | Só `ANTHROPIC_API_KEY` |
+
+⚠️ **A chave do Gemini em uso é de TESTE e será revogada na ida para produção.** Trocar de
+volta é apagar `GEMINI_API_KEY` do ambiente — nenhuma linha de código. A porta existe por
+causa disso: antes o `agente.ts` importava o SDK da Anthropic e falava `tool_use`,
+`stop_reason`, `TextBlock`, e trocar de provedor era reescrever o loop.
+
+**Modelo hoje:** `gemini-3.5-flash-lite`, US$ 0,30 / 2,50 por 1M tokens (entrada/saída) —
+mesmo preço da 2.5 Flash, uma geração depois. Dá ~US$ 0,001 por mensagem. Se ele tropeçar
+na disciplina que importa (chamar `oferecer_horarios` antes de afirmar qualquer coisa
+sobre agenda), o degrau é `GEMINI_MODELO=gemini-3.6-flash`, não prompt novo.
+
+Três coisas valem para os dois provedores:
+
+- **Pensamento LIGADO.** Com raciocínio desabilitado, os dois às vezes escrevem a chamada
+  de ferramenta como **texto visível**: o turno "dá certo", a ferramenta nunca roda, e o
+  cliente recebe a intenção em vez do agendamento. Num canal onde ele não vê que algo
+  falhou, é o pior modo de falha possível — e a economia não paga isso.
+- **Prompt cache é casamento de prefixo.** O bloco estável (persona + catálogo + FAQ) vem
+  primeiro; a data de hoje fica no bloco volátil, **depois**. Se a data estivesse no topo
+  (o lugar "natural"), o prefixo mudaria à meia-noite e o catálogo inteiro seria
+  reprocessado a preço cheio a cada mensagem.
+- **`estadoOpaco` na chamada de ferramenta.** Modelos com raciocínio interno guardam
+  estado cifrado junto da chamada e exigem que ele volte **intacto** no turno seguinte. No
+  Gemini 3 é o `thoughtSignature`; sem ele a API responde **400** e o agente morre na
+  primeira consulta de agenda. Descoberto testando, não lendo. Nunca inspecione nem
+  reconstrua esse valor — só carregue.
+
+## Testar sem número de WhatsApp
+
+**`npm run dev` e abra [/laboratorio](http://localhost:3100/laboratorio).** Você é o
+cliente; ao lado da conversa aparece o que ela fez por baixo. Dev-only: fecha em produção
+e só abre com `MAISA_LABORATORIO=1`.
+
+A coluna da direita é o motivo de o laboratório existir em vez de um `curl`. No texto da
+resposta, *"consultei a agenda e tenho quinta às 15h"* e *"inventei quinta às 15h"* são
+**indistinguíveis** — e a segunda é o pior bug deste produto. A trilha mostra se
+`oferecer_horarios` rodou antes da fala. Sem ela, você está avaliando prosa.
+
+Também mostra o que a MAISA lembra (e o que ela **não** afirma: favorito só aparece com 3
+visitas e 50% de concentração) e o que foi marcado. "Esquecer tudo" zera memória,
+histórico e agenda — sem isso, o caminho "cliente que nunca falou com a MAISA" só é
+testável uma vez por processo, e é justamente ele que decide a primeira impressão.
+
+Sem credencial do Google, a agenda cai numa **agenda em memória** (`saida/demo/agenda.ts`)
+com o almoço bloqueado das 12h às 13h. Um selo no topo diz qual está em uso — um horário
+que "não existe" parece bug do agente quando é só a agenda de mentira.
+
+Por `curl`, se preferir:
+
+```sh
+curl -s localhost:3100/api/laboratorio \
+  -H 'content-type: application/json' \
+  -d '{"texto":"bom dia"}' | jq
+```
+
+O `de` é opcional e cai no telefone da Mariana Alves dos fixtures — o caminho de cliente
+reconhecido. Trocar o número dá o caminho de desconhecido.
+
+A rota `/api/whatsapp` também aceita `{ de, texto }` cru, mas exige o segredo do webhook:
+ela é a porta pública, e afrouxar a autenticação dela "só no dev" é afrouxá-la.
+
+## O que NÃO fazer aqui
+
+- ❌ `fetch("/api/google/evento")`. O agente roda no mesmo processo: chama o caso de uso
+  direto. HTTP no meio só adiciona latência, um round-trip de auth e um ponto de falha.
+- ❌ Reimplementar regra de agendamento "porque no WhatsApp é diferente". Se for
+  diferente de verdade, é parâmetro do caso de uso — não uma segunda cópia dele.
+- ❌ Deixar o modelo escolher `tenantId`. Ele vem do destino da mensagem (instância ou
+  número), resolvido antes de o modelo ver qualquer coisa.
+- ❌ Deixar o modelo escolher `maisaAg`, `comMeet` ou `convidarCliente`. Não estão no
+  schema das ferramentas de propósito: convite é e-mail de verdade despachado pelo
+  provedor, e isso não é decisão de um modelo.
+- ❌ Novo guardrail em prompt quando ele cabe em código. Prompt é a camada 3.
+
+## Dívida declarada
+
+- **Memória em `Map` de processo.** Morre no redeploy, não é compartilhada entre
+  instâncias — na Vercel, duas mensagens seguidas podem cair em lambdas diferentes e a
+  segunda não lembra da primeira. A DDL existe em `supabase/007_memoria_agente.sql`;
+  faltam `saida/supabase/memoria.ts` e duas linhas em `composicao.ts`.
+- **⚠️ Áudio não é respondido.** Cliente que manda áudio recebe **silêncio**. A mensagem é
+  reconhecida e aparece no log (`[api/whatsapp] audio de 5511… sem legenda`), depois é
+  descartada. No Brasil áudio é como muita gente manda mensagem, então isto não é caso de
+  borda — é decisão de produto pendente, com três saídas: responder uma frase pedindo
+  texto, escalar para o dono, ou transcrever. A plumbing está pronta (`Envelope.midia`);
+  falta escolher.
+- **Um inquilino só.** `contexto.ts` lê instância e número de env em vez de
+  `integracoes_whatsapp`.
+- **`voce` nunca é gravado.** Quando o dono assume no painel, a fala dele não entra em
+  `mensagens_agente` — então a MAISA pode contradizer o próprio dono ao retomar.
+- **Sem deduplicação de reentrega.** O webhook reentrega quando não recebe 200 a tempo;
+  o índice único em `provedor_id` já está na DDL, mas o adaptador de demonstração não o
+  usa. Hoje uma reentrega gera resposta duplicada.
+- **Nenhum teste automatizado no repo.** As 69 asserções que provaram vagas, inferência
+  de memória, bolhas, normalização de webhook e a allowlist de horários rodaram fora do
+  projeto — e outras 36, sobre os envelopes da Evolution (`fromMe`, grupo, `@lid`,
+  `ephemeralMessage`, resolução por instância, formatação de número), também. O código
+  está pronto para elas (casos de uso recebem portas por parâmetro), falta escolher o
+  runner. **Toda vez que essas asserções rodam fora do repo, elas não protegem ninguém
+  amanhã.**

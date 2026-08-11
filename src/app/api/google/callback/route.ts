@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { isGoogleConfigured, redirectUri, caminhoDeVolta } from "@/lib/google/config";
-import { lerEstado } from "@/lib/google/cripto";
-import { trocarCodigo, emailDaConta, RecusaDoGoogle } from "@/lib/google/oauth";
-import { salvar } from "@/lib/google/integracoes";
+import { createClient } from "@/adaptadores/saida/supabase/server";
+import { isGoogleConfigured, redirectUri, caminhoDeVolta } from "@/adaptadores/saida/google/config";
+import { lerEstado } from "@/adaptadores/saida/google/cripto";
+import { trocarCodigo, emailDaConta, RecusaDoGoogle } from "@/adaptadores/saida/google/oauth";
+import { salvar } from "@/adaptadores/saida/google/conexoes";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Volta do consentimento do Google.
@@ -100,8 +100,9 @@ export async function GET(request: Request) {
     // conserto bem diferente: env var mal colada e banco recusando. O `catch` separa.
     await etapa("gravação da conexão", "falha_ao_salvar", () =>
       salvar({
-        userId: user.id,
-        profissionalId: e.profissionalId,
+        tenant: { tenantId: user.id, usuarioId: user.id, ator: { tipo: "usuario", id: user.id } },
+        agendaId: e.profissionalId,
+      }, {
         googleEmail: email,
         accessToken: tokens.accessToken,
         refreshToken,

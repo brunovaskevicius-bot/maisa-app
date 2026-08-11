@@ -1,6 +1,21 @@
-# MAISA — Assistente por WhatsApp (protótipo)
+# MAISA — Assistente por WhatsApp
 
-Front-end da **MAISA**: um assistente de IA que atende, agenda e confirma pelo WhatsApp — modular, com reskin por profissão. Protótipo visual (Next.js 14), **sem backend**: todos os dados são mockados.
+Painel da **MAISA**: um assistente que atende, agenda e confirma pelo WhatsApp. Next.js 14
+(App Router) + TypeScript, com **arquitetura hexagonal** — o núcleo do negócio não conhece
+Next, React nem os serviços externos.
+
+> 📐 **Como o código está organizado: [`ARQUITETURA.md`](ARQUITETURA.md).** Comece por lá.
+> Cada pasta tem também o seu `LEIA-ME.md`.
+
+O que é real e o que é demonstração:
+
+| | Estado |
+|---|---|
+| Agenda (Google Calendar + Meet) | ✅ real — lê e escreve a agenda de verdade |
+| Nota fiscal (Focus NFe / NFS-e) | ✅ real — homologação ou produção |
+| Login (Supabase Auth) | ✅ real |
+| Cadastro (clientes, serviços, equipe) | ⚠️ fixtures em memória — um negócio só |
+| Conversas de WhatsApp | ⚠️ demonstração — a integração ainda não existe |
 
 > Feito por Poli Júnior.
 
@@ -18,29 +33,25 @@ Build de produção:
 npm run build && npm start
 ```
 
-## O que tem
+## As telas
 
-- **App único e modular**: na tela **Super Adm** você escolhe a **profissão** (Barbearia · Psicologia · Odontologia · Clínica Médica · Genérico) e liga/desliga as **features** — isso muda a sidebar e o dashboard na hora.
-- **Reskin por profissão**: termos (cliente/paciente, barbeiro/dentista…), nome do negócio, saudação, catálogo e **ícones** se adaptam à profissão escolhida.
-- **Telas**: Dashboard (bento vivo), Atendimentos (inbox estilo WhatsApp), Agenda (calendário), Dados (gráficos), Configurações do Assistente (preview do WhatsApp ao vivo), Minha Equipe, Meus Serviços, FAQ, Marketing, Meus Pagamentos.
-- Design system próprio (tokens OKLCH, sem Tailwind), animações sutis em CSS puro.
+Rail à esquerda, gaveta de detalhe à direita. Cinco telas (ver [`src/ui/LEIA-ME.md`](src/ui/LEIA-ME.md)):
 
-As escolhas do Super Adm ficam salvas no navegador (`localStorage`).
+- **Fluxo de hoje** — o kanban do dia: chegando → atendendo → feito.
+- **Agenda** — dia/semana/mês, com a agenda REAL do Google dentro da grade.
+- **Conversas** — as conversas de WhatsApp (demonstração).
+- **Grades** — clientes, equipe, catálogo, faturamento (emissão de NFS-e), "Mais".
+- **A MAISA** — os ajustes da assistente, com preview de WhatsApp ao vivo.
+
+O negócio é **genérico**: o mesmo app atende terapeutas e barbeiros, e a diferença vive nas
+landing pages, não no produto. As decisões do usuário ficam no navegador (`localStorage`,
+chave `maisa.app.v3`).
 
 ## Stack
 
-Next.js 14 (App Router) · TypeScript · React. Sem dependências de UI externas (estilos inline via tokens + CSS).
-
-## Módulo Clínico (Psico Manager)
-
-A aba **Psico Manager** é um app clínico separado, embutido via `iframe`. Vem **desligada por padrão** (habilite em Super Adm). A URL é configurável:
-
-```bash
-# .env.local  (opcional)
-NEXT_PUBLIC_PSICO_URL=https://sua-url-do-psico
-```
-
-Sem essa variável, o módulo aponta para `localhost:3000` (dev) e, em produção, mostra um aviso no lugar do iframe.
+Next.js 14 (App Router) · TypeScript · React · Supabase (auth + tokens) · Google Calendar ·
+Focus NFe. Design system próprio vendorado em `src/ds/` (tokens OKLCH, sem Tailwind); sem
+biblioteca de componentes externa.
 
 ## Google Calendar + Meet
 
@@ -78,11 +89,15 @@ Sem as três, o botão de conectar não aparece (e nada quebra) — mesma lógic
 
 ### Detalhes que valem saber
 
-- **As datas são deslocadas.** A Agenda é um julho/2026 fixo, que já passou. O evento real é criado deslocando o mês por **semanas inteiras** até cair no futuro — assim "sexta 17" continua caindo numa sexta, e a folga de cada profissional continua fazendo sentido. A gaveta sempre mostra a data real antes de criar. Lógica em [`src/lib/google/datas.ts`](src/lib/google/datas.ts).
+- **As datas são reais.** A agenda do Google é a fonte da verdade dos atendimentos: o app não mantém uma segunda lista. A conversão entre a data civil da tela (`"2026-08-06"` + hora decimal `14.5`) e o instante com fuso que o Google entende mora em [`src/nucleo/dominio/tempo.ts`](src/nucleo/dominio/tempo.ts) — e é o único lugar do código que sabe que existe fuso horário.
+- **Marcar duas vezes não cria dois eventos.** Um uuid é cunhado antes do pedido e gravado no evento; o servidor procura por ele antes de inserir. Cobre o caso feio: o POST que chegou ao Google, criou o evento e perdeu a resposta na volta.
 - **Ninguém é convidado por e-mail.** O evento é criado só na agenda do profissional. Os clientes do protótipo são fictícios, mas o e-mail deles é **real**: hoje todos apontam para o dono do projeto, de propósito, para que um teste de convite caia na própria caixa. (Antes era `@email.com`, que é um domínio de verdade, com dono — convidar disparava e-mail para estranhos.) Para ligar, mande `convidarCliente: true` no POST de `/api/google/evento`, ciente de que é e-mail real saindo.
 - **O WhatsApp abre com a mensagem pronta** (link `wa.me`), faltando apertar enviar. Envio automático depende da API oficial do WhatsApp, que este protótipo ainda não tem.
 - **Desconectar revoga de verdade** no Google, não só apaga a linha local.
 
 ## Deploy (Vercel)
 
-Zero configuração — a Vercel detecta o Next.js automaticamente. Importe o repositório em [vercel.com/new](https://vercel.com/new). Variáveis opcionais: `NEXT_PUBLIC_PSICO_URL` e o bloco do Google acima (lembre de adicionar a URL de produção nos URIs de redirecionamento).
+Zero configuração — a Vercel detecta o Next.js automaticamente. Importe o repositório em [vercel.com/new](https://vercel.com/new). Lembre de adicionar a URL de produção nos URIs de redirecionamento do client OAuth.
+
+⚠️ **Nunca rode `npm run build` com o `next dev` no ar** — o build clobbera o `.next` do dev
+e a tela perde todo o CSS. Parece bug do código, e não é.

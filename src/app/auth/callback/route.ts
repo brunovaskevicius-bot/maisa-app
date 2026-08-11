@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { caminhoDeVolta } from "@/lib/google/config";
+import { createClient } from "@/adaptadores/saida/supabase/server";
+import { caminhoDeVolta } from "@/adaptadores/saida/google/config";
 
 // Callback do OAuth (Google) e de confirmação por e-mail: troca o `code` por uma sessão
 // e redireciona pro destino. O Supabase manda pra cá após o login social.

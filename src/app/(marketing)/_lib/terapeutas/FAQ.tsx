@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-import { s } from "@/lib/ui";
+import { s } from "@/ui/primitivos";
 import { Section, Heading, Lead } from "../primitives";
 import { type Nivel } from "../icp";
 import { type Tone } from "./_shared";

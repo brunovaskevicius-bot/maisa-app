@@ -1,0 +1,1786 @@
+/* ============================================================================
+ * /barbeiros/v3 — a dobra e o desenrolar. Tudo escopado em `.lp-v3`, que a
+ * page.tsx põe no <World>. Nada aqui vaza para as outras LPs nem para o produto.
+ *
+ * O ARQUIVO INTEIRO É UMA GEOMETRIA COM UMA VARIÁVEL. `--o-r0` é o raio do anel
+ * de dentro; TODO o resto (largura do cartão, altura, raio do anel de fora,
+ * tamanho do oco, corpo do texto) é derivado dele por multiplicação. Não há um
+ * segundo número livre, e é isso que faz a peça caber de 320px a 1920px sem uma
+ * única media query de layout — só uma, no fim, para trocar a regra de
+ * dimensionamento do próprio `--o-r0` no celular.
+ *
+ * E ELA É ESCRITA UMA VEZ SÓ. O `--o-r0` é registrado com `@property` logo
+ * abaixo, o que o faz computar para px de verdade; o <Morph> então LÊ esse valor
+ * em vez de repetir o `clamp` em JavaScript. Não existe cópia da regra do raio no
+ * geometria.ts — só a derivação do resto a partir dele.
+ * ========================================================================== */
+
+/* Número: o progresso do desenrolar, escrito pelo <Morph> uma vez por quadro no
+   palco. REGISTRADO de propósito — sem `@property` a variável seria uma string,
+   e cada escrita viraria recálculo de estilo em vez de um número interpolável. */
+@property --lp3-p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+/* O raio do anel de dentro. REGISTRADO como comprimento porque o <Morph> precisa
+   LÊ-LO — e `getComputedStyle` só devolve um valor resolvido em px se a
+   propriedade for registrada; sem isto ele devolveria a string
+   "clamp(180px, min(24vw, 27.5svh), 300px)" e o cliente teria de repetir a conta.
+   É esse registro que permite o `clamp` abaixo ser a ÚNICA definição do raio no
+   projeto, servindo ao mesmo tempo o desenho sem JS e o cálculo com JS. */
+@property --o-r0 {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 240px;
+}
+
+/* ============================================================================
+ * O CLIMA CLARO — a v3 sai do modo escuro.
+ *
+ * O `.mundo-barbeiros` do marketing.css é navy profundo, e as outras cinco LPs
+ * dependem dele. Então NADA é editado lá: os tokens são REDECLARADOS aqui, dentro
+ * de `.lp-v3`, que fica MAIS PERTO na árvore — a herança de custom property pega o
+ * valor do ancestral mais próximo, sem disputa de especificidade e sem
+ * `!important`. O mundo escuro continua intacto para quem ainda o usa.
+ *
+ * DE ONDE VÊM OS NÚMEROS: da LP em produção, maisasecretary.com.br, amostrada no
+ * navegador em vez de estimada de um print. Ela é branca com tinta slate-900 e
+ * azul-600 como primário; o dourado sobrevive lá só dentro de uma pílula escura,
+ * que esta página não tem. Os OKLCH abaixo são a conversão exata dos hexes
+ * medidos (a fração serve para o valor VOLTAR ao hex de origem, e é por isso que
+ * não estão arredondados a duas casas como no resto do projeto).
+ *
+ * ── O DOURADO SAI, E ISSO É UMA REGRA DA CASA SENDO CUMPRIDA, NÃO QUEBRADA.
+ * `--mk-accent` dourado dá 1,9:1 sobre branco. O mundo terapeutas já resolveu
+ * isto do mesmo jeito ("dourado sobre off-white não passa AA", marketing.css:147)
+ * e é o precedente que se segue: o acento vira azul e o wordmark vira `--mk-brand`.
+ * Não sobrou dourado nenhum na página.
+ *
+ * ── O QUE ESTA TROCA ARRASTA JUNTO: a trilha da dobra desenha em `multiply`, não
+ * em `lighter` (trilha.ts). É uma troca de SINAL, e a regra vale para o que vier:
+ * sobre escuro só se pode clarear, sobre claro só se pode escurecer. Duas outras
+ * consequências viviam no ato 2 (a figura em `multiply` e a foto de fundo branco em
+ * `imagens.ts`) e saíram com ele em 06/08/2026 — se aquela seção voltar, as duas
+ * voltam junto, porque o clima claro continua o mesmo.
+ * ========================================================================== */
+.lp-v3.mkt-world {
+  /* fundo e degraus */
+  --mk-bg: oklch(1 0 0); /* branco */
+  /* ⚠️ SEM CONSUMIDOR desde 06/08/2026. Era o fundo do ato 2 E o fundo dos 64 cartões,
+     vendido como "degrau tonal" — medido, dava 1,09:1 contra o branco: invisível.
+     Os dois viraram branco puro. Mesmo motivo do bloco de tinta abaixo para manter a
+     linha: é o piso do escopo para componentes compartilhados. */
+  --mk-bg-deep: oklch(0.9705 0.0142 254.8); /* blue-50 #EFF6FF */
+  --mk-panel: oklch(0.9683 0.0068 248.2); /* slate-100 #F1F5F9 */
+  --mk-panel-2: oklch(0.9288 0.0126 255.7); /* slate-200 #E2E8F0 */
+  --mk-surface: oklch(1 0 0);
+
+  /* TINTA: UM DEGRAU SÓ. Eram três (17,85:1 · 7,58:1 · 5,19:1 sobre branco), e os
+     dois de baixo eram cinza. Saíram em 06/08/2026: hierarquia de texto nesta LP é
+     ESCALA e PESO, não lavagem — a manchete tem 112px e o corpo 18px, o degrau já
+     está lá sem precisar apagar ninguém. Medido antes da troca: 567 caracteres da
+     página em cinza contra 15 em azul. Depois: zero em cinza.
+
+     ⚠️ OS DOIS TOKENS ABAIXO NÃO TÊM MAIS NENHUM CONSUMIDOR NESTA PÁGINA. Ficam
+     declarados de propósito: componentes compartilhados (World, CTA móvel) podem
+     entrar sob `.lp-v3` e, sem estas linhas, cairiam nos valores do `marketing.css`
+     — que são outros. Não são lixo; são o piso do escopo.
+     Se for reintroduzir cinza de texto aqui, saiba o que se perde: `--mk-muted` foi
+     escurecido até #5E6E85 justamente porque o slate-500 da referência dava 4,37:1
+     sobre o antigo fundo blue-50, e os textos que ele pintava (rótulo de 11px, nota
+     de 12,8px) não se qualificam como "texto grande". */
+  --mk-ink: oklch(0.2077 0.0398 265.8); /* slate-900 #0F172A — 17,85:1 */
+  --mk-ink-soft: oklch(
+    0.4455 0.0374 257.3
+  ); /* slate-600 #475569 — sem consumidor */
+  --mk-muted: oklch(0.535 0.0407 257.4); /* #5E6E85 — sem consumidor */
+  --mk-border: oklch(0.8823 0.057 254.2); /* blue-200 #BFDBFE */
+  --mk-line: oklch(0.9288 0.0126 255.7); /* slate-200 #E2E8F0 */
+
+  /* UM AZUL SÓ, e é este. `--mk-accent` era blue-500 (#3B82F6), um degrau mais claro
+     para "o azul que só desenha" (filetes e trilha) enquanto `--mk-brand` decidia
+     (botão, wordmark, rótulos). Isso é hierarquia por meio-tom entrando pela porta
+     dos fundos: são dois azuis quase iguais fazendo o trabalho que tamanho e peso
+     deveriam fazer. Apontado para o mesmo valor em 06/08/2026.
+
+     O nome fica porque `trilha.ts` LÊ `--mk-accent` do CSS em tempo de execução
+     (com `#3b82f6` como reserva se o navegador não resolver o token) — renomear
+     exige mexer nos dois lados. `--mk-accent-strong` continua diferente de
+     propósito: ele é ESTADO (hover), não hierarquia. */
+  --mk-brand: oklch(0.5461 0.2152 262.9); /* blue-600 #2563EB */
+  --mk-accent: var(--mk-brand);
+
+  /* `--mk-ouro` (#EAB444). Saiu em 06/08/2026 com a faixa do fechamento e VOLTOU em
+     07/08/2026 — "se voltar, volta com esta linha e com estes números", dizia a nota
+     que ficou no lugar dele. São estes, relidos:
+       · ouro como TINTA sobre branco = 1,89:1 — reprovado em qualquer tamanho;
+       · tinta #0F172A sobre ouro = 9,45:1 — excelente;
+       · azul #2563EB sobre ouro = 2,68:1 — reprovado.
+     A regra que eles geram: amarelo entra POR BAIXO do texto, nunca no texto, e
+     dentro dele tudo é tinta ou branco.
+
+     VOLTOU PARA CÁ, E NÃO PARA DENTRO DE UMA SEÇÃO, porque tem DOIS consumidores —
+     `.lp3-t-risco` (o laço, na seção das telas) e `.lp3-d-risco` (a linha horizontal, no
+     duelo). ⚠️ NÃO SÃO O MESMO TRAÇO: eram, até 07/08/2026, quando o duelo trocou o laço
+     por uma linha aberta própria (`RISCO_H` — ver dados.ts). São dois GESTOS diferentes
+     que compartilham só a COR, e é justamente por isso que o token tem de ficar aqui:
+     é o único jeito de os dois amarelos não divergirem. Enquanto havia um consumidor só,
+     ele morava em `--t-ouro`, dentro do `.lp3-t`. `--t-ouro` continua existindo e
+     apontando para cá, para a seção das telas não precisar saber de nada disso.
+
+     LIMITES DA EXCEÇÃO, que continuam valendo palavra por palavra: vale para o RISCO
+     e mais nada; o amarelo NUNCA pinta texto, borda de foco nem ícone; e voltar atrás
+     continua sendo uma linha, porque é token. */
+  --mk-ouro: oklch(0.7909 0.1291 82.9); /* #EAB444 */
+  --mk-accent-strong: oklch(0.4882 0.2172 264.4); /* blue-700 #1D4ED8 */
+  --mk-accent-ink: oklch(0.4882 0.2172 264.4);
+  --mk-on-brand: oklch(1 0 0);
+
+  /* wordmark: azul, pelo mesmo motivo do mundo terapeutas */
+  --mk-wordmark: var(--mk-brand);
+  --mk-wordmark-shadow: transparent;
+
+  /* CTA = azul-600 com texto branco. 5,17:1 — AA para o corpo do botão, e o
+     botão é 1,1rem/700, então também passa como texto grande com folga. */
+  --mk-cta: oklch(0.5461 0.2152 262.9);
+  --mk-cta-hover: oklch(0.4882 0.2172 264.4);
+  --mk-cta-ink: oklch(1 0 0);
+  --mk-ring: oklch(0.5461 0.2152 262.9);
+  --mk-cta-glow: oklch(0.5461 0.2152 262.9 / 0.28);
+
+  /* sombras: sobre branco, sombra preta com 0,6 de alpha é sujeira. Azul-acinzentada
+     e rasa, no molde do mundo terapeutas. */
+  --mk-shadow: 0 24px 55px oklch(0.45 0.06 260 / 0.16);
+  --mk-shadow-soft: 0 12px 32px oklch(0.45 0.06 260 / 0.1);
+}
+
+/* O `body:has(.mundo-barbeiros)` do marketing.css pinta o BODY de navy para não
+   respirar o creme do produto atrás da LP. Aqui ele deixaria uma moldura escura em
+   volta de uma página branca (e uma barra escura no overscroll do iOS).
+   `:has(.lp-v3.mundo-barbeiros)` tem especificidade 0-2-1 contra 0-1-1 do original
+   — vence por especificidade, e não por ordem de importação, que num bundler não é
+   coisa em que se apostar. */
+body:has(.lp-v3.mundo-barbeiros) {
+  background-color: #ffffff;
+}
+
+/* ======================= A PISTA E O PALCO =======================
+ * A pista é a régua de rolagem; o palco é o que fica preso nela. A conta que faz
+ * a costura cair no lugar certo:
+ *
+ *     pista 200svh − palco 100svh = 100svh de pin
+ *
+ * e o <Morph> lê o progresso com offset ["start start", "end end"] NA PISTA, o
+ * que dá exatamente o mesmo intervalo: p=0 no primeiro quadro do pin, p=1 no
+ * último. A barra de rostos termina de se formar no pixel em que o palco descola —
+ * que era a fronteira com a seção seguinte, e hoje é o fim da página (o ato 2 saiu
+ * em 06/08/2026). Não é ajuste fino, é a mesma aritmética escrita nos dois lugares,
+ * e é ela que continua valendo quando entrar o que vier no lugar.
+ *
+ * `svh` NOS DOIS, e isto é aritmética e não estética: se a pista e o palco
+ * usassem unidades diferentes, a duração do pin deixaria de ser constante e o
+ * ponto onde p=1 escorregaria em relação à costura enquanto o dedo está na tela.
+ * `dvh` re-layouta quando a barra de URL do iOS recolhe (e isso conta para CLS);
+ * `vh` equivale ao viewport grande e esconderia o rodapé da dobra sob a barra na
+ * abertura. `svh` é constante pela sessão. */
+.lp-v3 .lp3-pista {
+  position: relative;
+  /* O `z-index` é METADE DA TRAVESSIA e continua aqui de propósito, mesmo sem a
+     outra metade: ele punha esta caixa acima da seção seguinte, que subia 16svh por
+     baixo dela, e assim os últimos 16svh do palco pinado — a barra de rostos e o
+     filete — passavam POR CIMA da cabeça da figura enquanto ela entrava.
+     Hoje não há seção seguinte. A linha fica porque a outra metade (a ausência de
+     `background`, logo abaixo) só faz sentido junto com ela, e porque quem
+     reconstruir a página precisa das duas ao mesmo tempo ou de nenhuma. */
+  z-index: 2;
+  /* `height`, não `min-height`: com min-height a duração do pin passaria a
+     depender do conteúdo e a costura sairia do lugar. */
+  height: 200svh;
+  /* SEM `overflow` AQUI. Um ancestral com overflow diferente de `visible` vira o
+     "scrolling mechanism" mais próximo, e o palco passaria a grudar dentro de uma
+     caixa que não rola — o sintoma é "o sticky não funciona". O recorte lateral
+     desceu para o palco, onde é inofensivo.
+
+     SEM `background` AQUI TAMBÉM, e isso é a outra metade da travessia. Esta caixa
+     é opaca por 200svh e está por cima; se ela pintasse o fundo, cobriria justamente
+     os 16svh sobrepostos e a travessia simplesmente não apareceria. O fundo já vem
+     do `.mkt-world` (marketing.css), então nenhuma das duas precisava dele. */
+}
+
+.lp-v3 .lp3-palco {
+  position: sticky;
+  /* sem um inset não-`auto`, `sticky` se comporta como `relative` */
+  top: 0;
+  height: 100svh;
+
+  /* `clip` e não `hidden`: os dois recortam, mas só o `hidden` cria scroll
+     container. E o par misto é traiçoeiro — `overflow-x: hidden` faria o
+     `overflow-y: visible` COMPUTAR para `auto`, matando o sticky em silêncio.
+     `clip` é o único valor que preserva o `visible` do outro eixo.
+     O recorte lateral é necessário porque no celular o anel é de propósito mais
+     largo que a tela, e porque a barra formada é 14% mais larga que a viewport. */
+  overflow-x: clip;
+  overflow-y: visible;
+
+  /* o centramento desceu da pista para cá: um grid item esticado por 200svh nunca
+     teria folga para grudar */
+  display: grid;
+  place-items: center;
+
+  isolation: isolate;
+  /* transparente de propósito — ver a nota de `background` na pista */
+}
+
+/* ── O FILETE DIVISOR ──
+   A divisória permanente entre a dobra e o resto. Mora na borda de baixo do palco,
+   que é onde a barra de rostos pousa, então os dois são a mesma aresta.
+
+   Sem JS e sem movimento ele já está inteiro: `data-vivo` só é posto pelo <Morph>
+   quando o laço vai rodar, então os dois casos degradados caem no `scaleX(1)`
+   sozinhos — sem <noscript> e sem media query. */
+.lp-v3 .lp3-palco::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  z-index: 4;
+  pointer-events: none;
+  background: var(--mk-accent);
+  transform-origin: left;
+  transform: scaleX(1);
+}
+
+/* Com JS: ele se desenha no fim do morph e TERMINA ANTES DE O PIN SOLTAR — quando
+   a pessoa recupera o controle da rolagem, a divisão já está lá. Puro CSS lendo o
+   `--lp3-p` que o <Morph> já escreve; nenhum MotionValue a mais. */
+.lp-v3 .lp3-palco[data-vivo]::after {
+  transform: scaleX(clamp(0, (var(--lp3-p) - 0.78) / 0.18, 1));
+}
+
+/* ─────────────────────────── a trilha ───────────────────────────
+   O canvas do traçado que varre o vazio em volta da roda. Quem desenha é
+   trilha.ts, chamado pelo laço do <Morph>; aqui só mora a caixa.
+
+   NADA DE `mix-blend-mode` NESTE ELEMENTO, e a tentação é grande: o instinto num
+   tema claro é pedir `multiply` para o traço nunca clarear a página. Só que o
+   palco é `isolation: isolate` e é TRANSPARENTE, e o canvas é o primeiro filho —
+   ou seja, o backdrop dele dentro do grupo isolado é vazio. Pela fórmula
+   Cr = (1−αb)·Cs + αb·B(Cb,Cs) com αb = 0, o resultado é Cs: `multiply` ali seria
+   uma declaração que não faz absolutamente nada, e mais tarde alguém gastaria uma
+   tarde tentando entender por que mudá-la não muda nada. O azul já é escuro o
+   bastante para só escurecer sobre branco; composição normal basta.
+
+   Sem `--lp3-p` aqui: quem apaga a trilha durante o desenrolar é o próprio
+   trilha.ts, que ao mesmo tempo PARA de desenhar. Fazer o sumiço por opacidade de
+   CSS deixaria o laço trabalhando em cima de um canvas invisível justo no trecho
+   mais caro da página. */
+.lp-v3 .lp3-trilha {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ─────────────────────────── assinatura ───────────────────────────
+   Uma dobra que é uma roda não tem barra de navegação: não há seção para
+   ancorar, e uma nav roubaria a moldura da peça. O wordmark fica no canto como
+   ASSINATURA — um <p>, sem href —, do jeito que se assina uma fotografia. Vive
+   FORA do elemento mascarado abaixo, senão a máscara o apagaria junto com a
+   borda de cima. */
+.lp-v3 .lp3-assinatura {
+  position: absolute;
+  top: clamp(18px, 3.2vh, 34px);
+  left: var(--mk-gutter);
+  z-index: 3;
+  margin: 0;
+  font-size: clamp(1.15rem, 1.8vw, 1.5rem);
+  line-height: 1;
+}
+
+/* ============================ A RODA ============================ */
+
+.lp-v3 .lp3-roda {
+  /* ── O ÚNICO NÚMERO LIVRE ──────────────────────────────────────────────────
+     Preso pelas duas dimensões da tela ao mesmo tempo, e é isso que impede o
+     defeito da versão anterior (a roda virar uma fatia horizontal numa tela
+     larga e baixa). A conta que o `27.5svh` resolve:
+
+         extensão externa da roda = --o-r1 + meia-diagonal do cartão
+                                  = 1,46·r0 + 0,240·r0  =  1,700·r0
+
+     e isso precisa caber em meia tela COM FOLGA PARA A RAMPA DA MÁSCARA (6% de
+     H, ver adiante): 1,700 · 0,275 · H = 0,468·H, contra um orçamento de
+     0,5 − 0,06 = 0,44·H… que estoura em 2,8%.
+
+     Estourar aqui é DE PROPÓSITO, e o número foi calibrado medindo no navegador
+     em vez de deduzido: a roda encosta na rampa pelas pontas dos cartões mais
+     externos, uns 25px deles, e o que isso produz é a coroa se dissolvendo nas
+     12h e nas 6h em vez de terminar numa borda. Foi a versão com 29svh + rampa
+     de 12% que mostrou o limite: ali a rampa comia 110px de uma roda de 861px —
+     um oitavo da peça apagado de cada lado, e aí sim volta a parecer fatia.
+
+     ⚠️ TUDO ACIMA DESCREVE A RODA QUE CABIA INTEIRA NA TELA, e essa deixou de ser a
+     peça. Em 06/08/2026 a regra virou SANGRAR: a coroa passa das quatro bordas e o
+     branco lateral vai a zero. Os cálculos de meia-tela e de folga para a rampa
+     continuam escritos porque explicam de onde veio o 27,5svh — e porque, se um dia
+     a roda voltar a caber inteira, é para lá que se volta, não para um número novo.
+
+     O QUE FOI MEDIDO PARA ESCOLHER O 49svh: com 27,5svh (r0 = 247,5px) a coroa media
+     803px numa viewport de 1430 — **627px de branco lateral**, 44% da dobra vazia. A
+     coroa mede 3,24 · r0, então sangrar exige r0 >= 1430/3,24 = 441px. 49svh de 900
+     dá exatamente 441. O `min(34vw, …)` continua existindo para telas muito largas e
+     baixas, onde a largura volta a mandar.
+
+     O QUE VEM JUNTO, DE GRAÇA, porque o arquivo é uma geometria com uma variável:
+     cartão de 106 → 189px, oco de 287 → 512px de largura, e o corpo do h1 sobe pelo
+     mesmo `clamp`. Nada disso precisou de linha própria. */
+  --o-r0: clamp(180px, min(34vw, 49svh), 520px);
+
+  /* ── O OCO, em múltiplos de r0 ──
+     Os dois números que dimensionam a caixa de texto no centro. Estavam escritos só
+     em PROSA no comentário do `.lp3-miolo` (1,16 × 0,84) enquanto o CSS usava outra
+     largura — o comentário descrevia uma caixa que não existia mais. Agora são token:
+     a conta de folga do bloco "O OCO" lê estes valores, e o miolo os consome.
+
+     A RESTRIÇÃO QUE ELES TÊM DE OBEDECER, e é uma só:
+         meia-diagonal do oco  <  distância do cartão mais próximo ao centro
+         r0 · √((L/2)² + (A/2)²)  <  0,760 · r0
+     Com 1,16 e 0,84: √(0,58² + 0,42²) = 0,716. Folga de 4,4% de r0 (≈19px em
+     1440×900). Mexer em um dos dois sem refazer essa raiz é encostar cartão no texto.
+     Há troca livre entre eles: 1,10 × 0,95 dá 0,727 e continua válido — mais alto,
+     mais estreito. É o lever para quando a manchete ganhar linhas. */
+  --o-oco-l: 1.16;
+  --o-oco-a: 0.84;
+
+  /* `--o-r1`, `--o-w` e `--o-h` NÃO SÃO DECLARADOS AQUI. Eles chegam inline, do
+     Roda.tsx, derivados de RAZAO_ANEL/LARGURA_CARTAO/ALTURA_CARTAO no geometria.ts
+     — que são os mesmos números que decidem quantos cartões cabem em cada anel e
+     onde a barra pousa. Escritos nos dois lugares, eles divergiam em silêncio.
+     O raio fica aqui porque é o CSS que sabe de tela; as proporções ficam lá porque
+     é o JavaScript que faz conta com elas. */
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+/* AQUI HAVIA UM HALO, removido em 06/08/2026 pela regra de cor chapada: um
+   `.lp3-roda::before` com `radial-gradient` de `--mk-brand` a 16% de alfa, ~2,6·r1
+   de diâmetro, esmaecendo com `opacity: calc(1 - var(--lp3-p))`. Era o maior meio-tom
+   da dobra — azul-gelo #DCE6FC sobre branco, sem nenhuma função além de atmosfera.
+
+   Duas coisas para quem pensar em trazer de volta alguma forma de brilho:
+   · ele TEM de ficar no nível de baixo (z-index 0, sob o campo). Na tentativa
+     anterior a vinheta radial era pintada POR CIMA dos cartões e o raio dela
+     alcançava a órbita: cada cartão apagava ao cruzar as 12h e as 6h, um defeito
+     que parece bug de imagem e não de CSS.
+   · ele TEM de morrer junto com o círculo (era o que o `1 - --lp3-p` fazia). Quando
+     a roda vira reta não existe mais um centro para iluminar, e um halo redondo
+     atrás de uma barra horizontal é o fantasma da forma anterior. */
+
+.lp-v3 .lp3-roda-campo {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+
+  /* A REDE DE SEGURANÇA, não o efeito principal — e a diferença entre as duas
+     coisas é o tamanho da rampa. Ela existe porque nas telas em que o piso de
+     180px do clamp ganha (viewport muito baixa) o anel de fora passa da borda, e
+     sem isto seria CORTADO em linha reta: um cartão cortado ao meio vira uma tira
+     opaca de rosto. 6% é o que se mede como "encosta e some" em vez de "apaga".
+
+     A RAMPA DE BAIXO FECHA CONFORME A RODA DESENROLA, e sem isso a peça teria um
+     defeito grave: a barra pousa com o pé no rodapé do palco, ou seja EXATAMENTE
+     dentro dos 6% de baixo — a máscara dissolveria justamente a coisa que o
+     desenrolar existe para construir (54px de uma barra de 92px numa tela de
+     900px). Em p=1 o corte de baixo vira uma aresta reta, que é o que uma
+     divisória quer ser. A rampa de CIMA fica: é por ela que os braços saem de
+     quadro durante o desenrolar, e sair dissolvendo é melhor que sair cortado. */
+  --lp3-fim: calc(94% + var(--lp3-p) * 6%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 6%,
+    #000 var(--lp3-fim),
+    transparent 100%
+  );
+}
+
+/* ── o anel: hoje só agrupa ──
+   Este envelope nasceu para uma coisa que NÃO EXISTE MAIS: o anel de fora tinha
+   `opacity: 0.62`, e o recuo precisava valer para o GRUPO. Aplicado em cada braço,
+   como os cartões se sobrepõem uns 20%, cada um deixava ver o de baixo ATRAVÉS de
+   si e o anel virava um borrão translúcido em vez de uma pilha de fotos.
+
+   O recuo saiu em 06/08/2026: 38 dos 64 rostos apareciam com 62% da força, e a
+   regra é foto em opacidade cheia ou foto nenhuma. A profundidade agora vem só do
+   raio e da sobreposição.
+
+   O envelope FICA, e não é sobra: o <Morph> escreve opacidade por cartão (o portão
+   da costura, 0..1) e lê `data-anel` do CARTÃO, não daqui — mas qualquer efeito de
+   grupo futuro no anel de fora depende deste nível existir. Se for reintroduzir
+   profundidade, use escala ou sombra, NUNCA alfa; e cuidado: mexer no tamanho do
+   cartão muda `N_ANEL` (ver Roda.tsx). */
+.lp-v3 .lp3-anel {
+  position: absolute;
+  inset: 0;
+}
+
+/* ── o braço: uma haste do centro até a órbita ──
+   `transform: rotate(--a) translateX(--r)` põe o cartão no ângulo inicial dele.
+   A keyframe anima a propriedade INDIVIDUAL `rotate`, que o navegador aplica
+   ANTES do `transform` e em volta da mesma origem — somar duas rotações no mesmo
+   ponto é somar ângulos, então o braço varre a circunferência. Sem JS, e no
+   compositor.
+
+   ISTO É O ESTADO SEM JAVASCRIPT. Quando o <Morph> monta, ele põe `data-vivo` no
+   palco e assume a escrita do `transform` (ver adiante). */
+.lp-v3 .lp3-braco {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--o-w);
+  height: var(--o-h);
+  margin-left: calc(var(--o-w) / -2);
+  margin-top: calc(var(--o-h) / -2);
+  transform: rotate(var(--a)) translateX(var(--r));
+  animation: lp3-gira var(--dur) linear infinite;
+}
+
+/* ── o cartão: gira ao contrário para ficar EM PÉ ──
+   `reverse` numa keyframe de 0→360° é 360→0, que é ≡ −360f (mod 360). Somado à
+   rotação do braço dá zero em todo instante, então sobra só o `--t` (a
+   inclinação). As duas animações têm a MESMA duração e nascem no mesmo instante,
+   o que torna o cancelamento exato e não aproximado. */
+.lp-v3 .lp3-cartao {
+  width: 100%;
+  height: 100%;
+  transform: rotate(calc(-1 * var(--a))) rotate(var(--t));
+  animation: lp3-gira var(--dur) linear infinite reverse;
+  border-radius: calc(var(--o-r0) * 0.03);
+  overflow: hidden;
+  /* Os cartões se SOBREPÕEM (~20% da largura). Sem um fundo opaco, a
+     transparência de um PNG ou o quadro de uma imagem ainda carregando deixaria
+     ver o cartão de baixo através dele, e a coroa viraria um borrão. */
+  background: var(--mk-bg);
+  /* NO CLARO A SOMBRA DEIXA DE BASTAR. Sobre navy, uma foto sempre era mais clara
+     que o fundo e a borda aparecia sozinha; sobre branco, um retrato de fundo
+     claro encosta na página e o cartão perde o contorno bem onde a coroa é mais
+     densa. A resposta agora é UMA LINHA SÓLIDA, não um par de véus: o anel de 1px em
+     azul cheio dá a aresta, e a sombra externa saiu junto com o resto dos meio-tons.
+     O anel é `inset` para não somar largura ao cartão — a geometria do
+     oco (v3.css, "O OCO") mede a meia-diagonal do retângulo, e uma borda de
+     verdade a aumentaria em 1px sem que a conta soubesse.
+
+     ⚠️ A SOMBRA EXTERNA FOI REMOVIDA em 06/08/2026, e o histórico dela é a melhor
+     explicação de por que ela não podia ficar. Era `0 10px 26px / 0.16`, um número
+     escolhido olhando UM cartão — mas a coroa empilha vários. Medido na página,
+     amostrando em 360×14 pontos e contando quantas caixas de sombra (a caixa do
+     cartão dilatada pelo blur) cobrem cada ponto: média de 2,7 sombras sobrepostas,
+     metade da coroa com 3, o pior ponto com 6. Com 1−(1−0,16)^2,7 isso mostrava 0,37
+     de opacidade, e 0,58 no pior ponto — duas a quatro vezes o que a linha pedia.
+     Foi redimensionada pelo empilhamento (1−(1−α)^n = 0,18 → blur 16px, α = 0,092) e
+     ainda assim continuava sendo 64 véus somados: uma névoa cinza sob o anel.
+
+     Nenhum alfa sobrevive a "8 ou 80". O que dava profundidade agora é a
+     sobreposição dos próprios cartões, e o que dá aresta é o anel sólido de 1px.
+     Se a coroa parecer chapada demais, a saída é ESCALA entre os anéis — e cuidado:
+     mexer no tamanho do cartão muda `N_ANEL` (ver Roda.tsx). Nunca alfa. */
+  box-shadow: inset 0 0 0 1px var(--mk-brand);
+}
+
+.lp-v3 .lp3-cartao img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+@keyframes lp3-gira {
+  from {
+    rotate: 0deg;
+  }
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* ── COM JAVASCRIPT: o <Morph> assume ──
+   As duas keyframes morrem e o braço passa a receber um `translate3d` inline a
+   cada quadro. O cartão para de contra-girar porque não há mais rotação de braço
+   para cancelar: a posição vem em coordenadas cartesianas, e a única rotação que
+   sobra é a inclinação. Isto é mais simples que o estado sem JS, não mais
+   complicado — o truque das duas rotações só existia porque CSS não sabe calcular
+   uma posição. */
+.lp-v3 .lp3-palco[data-vivo] .lp3-braco {
+  animation: none;
+}
+
+.lp-v3 .lp3-palco[data-vivo] .lp3-cartao {
+  animation: none;
+  transform: rotate(var(--t));
+}
+
+/* ============================ O OCO ============================
+ * A GARANTIA DE QUE NENHUM CARTÃO ENCOSTA NO TEXTO, que é o que dispensa
+ * qualquer véu atrás dele (e véu sobre fundo chapado é o que arruinou a dobra
+ * anterior — três camadas de navy somando 92% de alpha sobre um fundo de 0,4%
+ * de luminância, ou seja um retângulo preto com letras):
+ *
+ *   · o ponto de um cartão mais próximo do centro é  r0 − ½·√(w² + h²).
+ *     Com w = 0,300·r0 e h = 0,375·r0 isso dá  r0 − 0,240·r0 = 0,760·r0.
+ *     Usar a meia-DIAGONAL e não a meia-largura é o que torna a conta imune ao
+ *     `--t`: a circunferência circunscrita a um retângulo não muda quando ele
+ *     roda, então a garantia vale em qualquer inclinação.
+ *   · o oco é um retângulo de `--o-oco-l`·r0 × `--o-oco-a`·r0 (1,16 × 0,84, ver a
+ *     declaração deles no `.lp3-roda`), logo meia-diagonal
+ *     = r0·√(0,58² + 0,42²) = 0,716·r0.
+ *
+ * Folga = 0,760 − 0,716 = 4,4% de r0 em TODA viewport (≈19px em 1440×900 — eram
+ * ≈11px quando r0 valia 247px, antes de a roda passar a sangrar).
+ *
+ * A conta vale em p=0. Durante o desenrolar ela deixa de ser necessária porque a
+ * roda ABRE — os cartões se afastam do centro, não se aproximam. O pior instante
+ * continua sendo o repouso.
+ *
+ * ── VERIFICADO NO NAVEGADOR EM 06/08/2026, e não só deduzido ──
+ * Teste: o retângulo GIRADO de cada um dos 64 cartões contra o retângulo do miolo,
+ * por eixo separador (SAT). O retângulo girado é o que importa — a caixa alinhada aos
+ * eixos de um cartão inclinado é bem maior que o cartão, e testar por ela acusa
+ * colisão onde não há (foi o que aconteceu na primeira medição, em 1920×1080).
+ *
+ *     viewport     r0    caixa do miolo   folga até o cartão
+ *     1920×1080   520     603 × 409           31px
+ *     1440× 900   441     512 × 372           19px
+ *     1280× 800   392     455 × 330           17px
+ *      768×1024   261     303 × 224           10px
+ *      375× 812   218     252 × 195            6px
+ *      320× 568   186     215 × 173            3px
+ *
+ * Zero colisões em todas, e zero em p = 0,0 … 1,0 de onze em onze centésimos.
+ *
+ * ⚠️ A FOLGA ENCOLHE COM A TELA, E A CAUSA TEM NOME: o botão tem PISO ABSOLUTO. O
+ * corpo dele para no `0.95rem` do clamp e a altura no piso de toque de 44px, então
+ * abaixo de ~370px de largura tudo escala menos ele — e a caixa de texto encolhe mais
+ * devagar que o oco. Em 320px sobram 3px. Não é folga que se defenda; é o número que
+ * diz onde esta composição acaba. Quem for mexer no piso do botão, ou nas linhas da
+ * manchete, refaz esta tabela antes. */
+.lp-v3 .lp3-miolo {
+  position: relative;
+  z-index: 2;
+  /* ── A TARJA SAIU EM 06/08/2026, E O QUE A JUSTIFICAVA JÁ TINHA SIDO RESOLVIDO ──
+     Aqui houve uma faixa de azul chapado sangrando de ponta a ponta, com o miolo a
+     `min(88vw, 2.3 · r0)` = 1014px passando POR CIMA dos cartões. Ela existia por um
+     número: o <h1> saía a 26px, terceiro maior texto do site, porque era dimensionado
+     para caber num oco que ocupava 4,6% da tela.
+
+     Esse número morreu antes da faixa. A roda passou a sangrar e `--o-r0` saltou de
+     `min(24vw, 27.5svh)` com teto 300px para `min(34vw, 49svh)` com teto 520px — em
+     1440×900, de 247px para 441px. O oco cresceu na mesma proporção, e com ele o
+     corpo da manchete, que é `0,13 · r0`. A faixa continuou pintando azul para
+     resolver um problema que o raio já tinha resolvido: em 1440×900 o h1 dá os mesmos
+     57px DENTRO do oco, sem uma gota de fundo.
+
+     Voltando ao oco, a garantia geométrica do bloco acima volta a valer — é ela que
+     mantém cartão e texto sem se tocar, em qualquer viewport e em qualquer `--t`. */
+  width: min(88vw, calc(var(--o-r0) * var(--o-oco-l)));
+
+  /* ⚠️ CONTINUA SEM `max-height`, e a razão sobreviveu à remoção da tarja. O teto era
+     `0,84 · r0`; num aparelho de 375px a manchete quebra em mais linhas do que ele
+     comporta, e um teto que o conteúdo estoura não segura nada — só mente sobre a
+     altura para quem lê o CSS. Quem mantém o conteúdo dentro do oco é o `--o-oco-a`
+     abaixo, medido, não um `max-height` torcendo para dar certo. */
+
+  /* Tinta sobre branco: 17,85:1. Era `var(--mk-bg)` enquanto o texto vivia sobre a
+     faixa azul. Sem faixa, branco sobre branco seria a manchete inteira sumindo. */
+  color: var(--mk-ink);
+  /* SEM override de `--mk-wordmark` aqui: com a faixa, "maisa" tinha de virar branco
+     para não sumir azul-sobre-azul. Sobre o branco do oco, o token já é o azul da
+     marca e é exatamente o que se quer — a palavra é o único trecho colorido da
+     manchete, que é a razão de o `frase()` existir. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* 0,06 · r0 = 26px em 1440×900. Era 0,075 (33px), e os 7px saíram pelo mesmo
+     motivo da entrelinha: o conteúdo tem de caber no oco, e entre a manchete e o
+     botão a folga é o item mais barato de cortar. */
+  gap: calc(var(--o-r0) * 0.06);
+  text-align: center;
+
+  /* A FRASE NÃO SOME QUANDO A RODA DESENROLA — ela sobe um pouco e fica.
+     A tentação era esmaecê-la junto: o resultado medido é uma tela vazia entre
+     p≈0,4 e p≈0,9, um buraco morto bem no meio da rolagem. Ficando, a dobra
+     resolve numa composição inteira: assinatura no canto, a frase, o botão, e a
+     multidão que saiu de VOLTA dela para DEBAIXO dela. O "esses" da frase
+     continua tendo a quem se referir. */
+  transform: translateY(calc(var(--lp3-p) * var(--o-h) * -0.62));
+}
+
+.lp-v3 .lp3-frase {
+  margin: 0;
+  font-family: var(--mk-font-display);
+  font-weight: 800;
+  /* O corpo acompanha o raio porque é o raio que define a largura da caixa: um
+     `clamp` em vw deixaria o texto crescer enquanto o oco encolhe (é o que
+     acontece numa tela larga e baixa) e o texto estouraria o oco. */
+  font-size: clamp(1.05rem, calc(var(--o-r0) * 0.13), 4rem);
+  /* ── ENTRELINHA DE DISPLAY, e o piso foi MEDIDO, não estimado ──
+     Era 1,06. Sem a tarja o texto voltou para dentro do oco e passou a faltar altura:
+     5 linhas + respiro + botão davam 409px num oco de 370. Apertar o corpo da letra
+     seria desfazer o que o raio novo tinha ganhado, então o que apertou foi a folga
+     entre as linhas — que num display de 57px é folga mesmo, não legibilidade.
+
+     O piso vem da tinta real da fonte, medida em canvas com a Archivo 800 servida,
+     no corpo servido (57,33px):
+         maior ascendente  = 42,1px  ("Todos esses foram", e o "ê" de Você)
+         maior descendente = 10,7px  ("quer perder eles.")
+         piso = (42,1 + 10,7) / 57,33 = 0,921
+     Abaixo disso o descendente de uma linha cruza o ascendente da seguinte. A 0,95
+     sobram 1,7px de tinta a tinta — pouco, e de propósito: é o mesmo tipo de colisão
+     que a manchete do fechamento teve com o cedilha de "começa" a 0,86, e ali o
+     conserto foi subir para 0,94. O número aqui é maior que aquele. */
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  /* herda a tinta do miolo — a manchete vive sobre o branco do oco, 17,85:1 */
+  color: inherit;
+  text-wrap: balance;
+
+  /* Cresce 18% enquanto a roda abre. `scale` e não `font-size`: a caixa de
+     layout não muda, então as quebras de linha ficam onde estão e não há refluxo
+     a cada quadro — só rasterização maior. 18% é o teto em que a frase mais longa
+     ainda não passa da largura do oco em 390px. */
+  transform: scale(calc(1 + var(--lp3-p) * 0.18));
+  transform-origin: center bottom;
+}
+
+/* ── O BOTÃO ──
+   O desenho dele mora em `_lib/glass-button.css`; aqui fica SÓ a escala, e a divisão
+   é de propósito: o vidro é compartilhado (qualquer LP pode usá-lo), a régua é desta
+   dobra. Um `font-size` no wrap basta porque os respiros do vidro são em `em` — a
+   caixa, o raio e as arestas acompanham a letra sozinhos.
+
+   Este bloco substituiu o `.lp3-btn`, que era um retângulo branco de `--mk-btn-radius`
+   (8px) com texto azul — invertido porque vivia DENTRO da tarja. Sem tarja, o botão
+   voltou a viver sobre o branco do oco e a inversão perdeu o objeto: o vidro é claro
+   com aro e tinta azuis, que é o par de 5,17:1 medido, na ordem original.
+
+   0,052 · r0 = 23px em 1440×900, o mesmo corpo do botão anterior. O teto de 1,45rem
+   existe para o botão não competir com a manchete numa tela muito grande; o piso de
+   0,95rem é o menor corpo em que um alvo com estes respiros ainda passa dos 44px de
+   toque (0,889em de respiro vertical × 2 + 1,2 de entrelinha ≈ 3em ≈ 46px). */
+.lp-v3 .lp3-cta {
+  font-family: var(--mk-font-body);
+  font-weight: 700;
+  font-size: clamp(0.95rem, calc(var(--o-r0) * 0.052), 1.45rem);
+  line-height: 1.2;
+}
+
+/* ============================================================================
+ * AS TELAS — a segunda seção. Três capturas do app à direita, o que cada uma
+ * mostra à esquerda, no molde da `#demo` da LP de terapeutas.
+ *
+ * UM NÚMERO LIVRE, como a dobra. Lá é `--o-r0`; aqui é `--t-cel-a`, a ALTURA do
+ * celular. Largura, aro, raio, corpo do texto e o passo da pilha saem dela por
+ * multiplicação. A altura é que manda (e não a largura) porque um celular é
+ * retrato num layout cujo limite é a viewport: é a altura que decide se ele cabe.
+ *
+ *   390 / 844 = 0,462085 — o iPhone lógico, que é o formato em que as fotos foram
+ *   tiradas (`scripts/captura-telas.mjs`). Trocar o aparelho da captura obriga a
+ *   trocar esta razão, e é por isso que ela está escrita aqui com a conta à vista.
+ *
+ * ── A TRAVESSIA VOLTOU, e ela é a razão de este bloco existir agora ──
+ * `page.tsx` e as notas em `.lp3-pista` reservaram por escrito o que sai junto com
+ * uma seção nova: os últimos 16svh do palco pinado passam POR CIMA do topo desta
+ * seção (`margin-top: -16svh`), e a barra de rostos pousa dentro dela enquanto ela
+ * entra. As três metades que faltavam estão agora todas no lugar: o `z-index: 2` e
+ * a ausência de `background` na pista (que já estavam lá), esta margem negativa, e
+ * o `margin-top: 0` no bloco de movimento reduzido lá embaixo.
+ *
+ * ── EMENDA AO DS: O AMARELO VOLTA, E SÓ AQUI ──────────────────────────────
+ * `--mk-ouro` saiu em 06/08/2026 com a faixa do fechamento, e a nota que ficou no
+ * lugar dele dizia: "token sem consumidor é convite a alguém reintroduzir amarelo
+ * sem reler as três medições". Aqui estão elas, relidas, e a regra que elas geram:
+ *
+ *     · ouro como TINTA sobre branco = 1,89:1 — reprovado em qualquer tamanho;
+ *     · tinta #0F172A sobre ouro     = 9,45:1 — excelente;
+ *     · azul #2563EB sobre ouro      = 2,68:1 — reprovado.
+ *
+ *   ⇒ amarelo entra POR BAIXO do texto, nunca no texto, e dentro dele tudo é tinta.
+ *
+ * O RISCO É EXATAMENTE ESSE CASO e é o único consumidor: um traço que passa por
+ * trás do <h2>, com o <h2> em `--mk-ink`. Onde o traço cruza uma letra, a letra
+ * está a 9,45:1; onde não cruza, a 17,85:1 contra o branco. Os dois passam.
+ * LIMITES DA EXCEÇÃO: vale para `.lp3-t-risco` e mais nada; é token, então voltar
+ * atrás é uma linha; e o amarelo NUNCA pinta texto, borda de foco nem ícone.
+ *
+ * (A referência desenha esse traço em ocre a 45% de opacidade. Aqui ele é chapado
+ * — a página baniu alfa como recurso de hierarquia, e um ocre a 45% sobre branco
+ * é só um ocre mais claro escrito de um jeito que esconde qual é a cor.) */
+
+/* Número: o progresso da seção atravessando a viewport, escrito pela <Sincronia>
+   uma vez por quadro. REGISTRADO pelo mesmo motivo do `--lp3-p` da dobra — sem
+   `@property` ele seria string, e o `calc()` do risco não interpolaria. */
+@property --t-p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+.lp-v3 .lp3-t {
+  /* O NÚMERO LIVRE. 72svh deixa 14svh de folga em cima e embaixo quando o celular
+     está grudado no meio da tela — folga que a pílula do rótulo ocupa embaixo e o
+     respiro ocupa em cima. O teto de 760px impede que numa tela de 1440 de altura
+     o aparelho fique maior que um aparelho de verdade nunca é. */
+  --t-cel-a: clamp(400px, 72svh, 760px);
+  --t-cel-l: calc(var(--t-cel-a) * 0.462085);
+  /* O aro do aparelho e o raio dos cantos, os dois derivados da largura: um iPhone
+     tem canto de ~12,1% da largura, e o aro que sobra dele é ~3,5%. */
+  --t-aro: calc(var(--t-cel-l) * 0.035);
+  --t-raio: calc(var(--t-cel-l) * 0.121);
+
+  /* O amarelo. SUBIU para `--mk-ouro` no bloco de tokens em 07/08/2026, quando a
+     <Duelo> passou a desenhar o mesmo risco — o alias fica para esta seção não
+     precisar saber disso. Ver a emenda lá em cima, com as três medições. */
+  --t-ouro: var(--mk-ouro);
+
+  position: relative;
+  /* A TRAVESSIA. Os últimos 16svh do palco pinado passam por cima desta seção. */
+  margin-top: -16svh;
+  /* E o conteúdo tem de nascer ABAIXO da barra de rostos, que pousa dentro desses
+     16svh. Medido em 1440×900 com p=1: a barra ocupa de 747px a 817px dentro de um
+     palco de 900px, ou seja termina a 83px do fim; com a margem de -144px (16svh),
+     ela cobre os primeiros 61px desta seção. O padrão de 16svh + 10svh põe o topo
+     do risco 90px abaixo do último rosto na tela mais apertada da tabela. */
+  padding-block: calc(16svh + 10svh) 12svh;
+  padding-inline: clamp(20px, 4vw, 56px);
+}
+
+.lp-v3 .lp3-t-grade {
+  display: grid;
+  /* A referência usa 0,78fr / 1,22fr — coluna de texto ESTREITA e de mídia larga,
+     porque lá a mídia é paisagem. Aqui é o contrário: um celular retrato de 72svh
+     tem ~330px de largura e não precisa de coluna larga nenhuma. Invertido, então:
+     o texto fica com a coluna grande, que é o que "fonte grande e ousada" pede. */
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: clamp(32px, 5vw, 72px);
+  align-items: start;
+  max-width: 1240px;
+  margin-inline: auto;
+}
+
+/* ── A COLUNA DE TEXTO ──
+   Grudada, como na referência: ela fica parada enquanto os três celulares passam,
+   e é isso que faz os passos acenderem ao lado do aparelho a que se referem.
+   `top` centrado pela própria altura seria bonito e é impossível em CSS puro; 22svh
+   é o valor da referência e funciona porque o bloco tem ~46svh de altura. */
+.lp-v3 .lp3-t-texto {
+  position: sticky;
+  top: 22svh;
+  /* Contexto de empilhamento próprio: sem ele o risco (que é `absolute` com
+     `z-index: 0`) disputaria com os celulares da outra coluna em vez de disputar
+     só com os irmãos dele. */
+  isolation: isolate;
+}
+
+/* ── O RISCO ──
+   Atrás do título, saindo pela esquerda da coluna, como na referência (lá ele fica
+   em `left:-120px; top:-150px` numa caixa de 560×430).
+
+   `overflow: visible` no <svg> é obrigatório: com stroke de 14 unidades e um `d`
+   cujo bbox começa em x=41, a espessura estoura o viewBox e o traço seria cortado
+   nas bordas — o sintoma é um rabisco com as pontas em ângulo reto. */
+.lp-v3 .lp3-t-risco {
+  position: absolute;
+  z-index: 0;
+  left: clamp(-140px, -8vw, -40px);
+  top: clamp(-150px, -11svh, -70px);
+  width: clamp(320px, 42vw, 560px);
+  height: auto;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.lp-v3 .lp3-t-risco path {
+  stroke: var(--t-ouro);
+  stroke-width: 14;
+  stroke-linecap: round;
+  fill: none;
+  /* `pathLength="1"` no markup normaliza o traço, então o dasharray é 1 e o offset
+     é literalmente "quanto falta". Sem JS o `--t-p` fica no `initial-value: 1` do
+     registro e o risco aparece INTEIRO — o estado degradado é o pôster completo,
+     não um rabisco pela metade.
+
+     O 0,3 de piso é o que a referência chama de `drawn`: o traço já nasce com um
+     terço desenhado, senão ele só aparece quando a seção já passou da metade. */
+  stroke-dasharray: 1;
+  stroke-dashoffset: calc(1 - (0.3 + 0.7 * var(--t-p)));
+}
+
+.lp-v3 .lp3-t-titulo {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-family: var(--mk-font-display);
+  font-weight: 800;
+  /* Um degrau abaixo da manchete da dobra (0,13 · r0 ≈ 57px em 1440×900): esta é a
+     segunda voz da página, não a primeira. */
+  font-size: clamp(2.1rem, 4.4vw, 3.6rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  color: var(--mk-ink);
+  text-wrap: balance;
+}
+
+.lp-v3 .lp3-t-filete {
+  display: block;
+  width: clamp(56px, 6vw, 92px);
+  height: 5px;
+  margin-top: clamp(18px, 2.4svh, 28px);
+  background: var(--mk-accent);
+}
+
+.lp-v3 .lp3-t-lead {
+  margin: clamp(18px, 2.4svh, 28px) 0 0;
+  max-width: 34ch;
+  font-family: var(--mk-font-body);
+  font-size: clamp(1.02rem, 1.25vw, 1.28rem);
+  line-height: 1.45;
+  /* TINTA CHEIA, e não o cinza que um "lead" normalmente pede: esta LP tem um
+     degrau de tinta só, e a hierarquia contra o <h2> já está no tamanho (3,6rem
+     contra 1,28rem) e no peso. */
+  color: var(--mk-ink);
+  text-wrap: pretty;
+}
+
+/* ── OS PASSOS ──
+   O trilho vertical da referência, com uma diferença que é a regra da página sendo
+   cumprida: lá os estados são opacidade (0,34 / 0,66 / 1) e aqui são COR — azul
+   cheio no ativo, tinta cheia nos outros. Os dois em força total, os dois AA
+   (5,17:1 e 17,85:1 sobre branco), e — o que a alternativa "trocar o peso" não dá —
+   sem um pixel de salto de layout quando o ativo muda. */
+.lp-v3 .lp3-t-passos {
+  position: relative;
+  z-index: 1;
+  margin: clamp(28px, 4svh, 46px) 0 0;
+  padding: 0 0 0 30px;
+  list-style: none;
+}
+
+/* O trilho. `::before` é a régua inteira em cinza-linha; o `::after` é a parte
+   percorrida, em azul, e a altura dele vem do `data-ativo` lá embaixo. */
+.lp-v3 .lp3-t-passos::before,
+.lp-v3 .lp3-t-passos::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 0.85em;
+  bottom: 0.85em;
+  width: 2px;
+  border-radius: 2px;
+}
+.lp-v3 .lp3-t-passos::before {
+  background: var(--mk-line);
+}
+.lp-v3 .lp3-t-passos::after {
+  bottom: auto;
+  height: 0;
+  background: var(--mk-accent);
+  transition: height 260ms var(--mk-ease, ease);
+}
+
+.lp-v3 .lp3-t-passo {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  /* ≥44px de alvo por linha: os passos não são clicáveis hoje, mas o espaçamento é
+     o mesmo que eles precisariam se virassem âncoras — e é o que dá ao trilho o
+     ritmo que a referência tem. */
+  min-height: 44px;
+  padding: clamp(10px, 1.4svh, 16px) 0;
+}
+
+.lp-v3 .lp3-t-ponto {
+  position: absolute;
+  left: -30px;
+  top: 0.85em;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid var(--mk-line);
+  background: var(--mk-bg);
+  transition:
+    background-color 240ms var(--mk-ease, ease),
+    border-color 240ms var(--mk-ease, ease),
+    transform 240ms var(--mk-ease, ease);
+}
+
+.lp-v3 .lp3-t-num {
+  flex: 0 0 auto;
+  /* IBM Plex Mono, que o layout.tsx já carrega — dígitos de avanço igual, então o
+     "01/02/03" não dança quando o ativo muda. É a quarta família da página, e a
+     alternativa (Hanken com tabular-nums) perderia justamente o contraste que faz
+     esses dois dígitos lerem como etiqueta e não como texto. */
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--mk-ink);
+}
+
+.lp-v3 .lp3-t-txt {
+  font-family: var(--mk-font-body);
+  font-size: clamp(1rem, 1.2vw, 1.22rem);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--mk-ink);
+  transition: color 240ms var(--mk-ease, ease);
+  text-wrap: pretty;
+}
+
+/* O passo ativo. Um seletor por índice, e não uma classe escrita pelo JS: assim a
+   <Sincronia> escreve UMA coisa (`data-ativo`) e o CSS decide tudo o que ela
+   significa — o passo que acende, o ponto que enche e a altura do trilho. */
+.lp-v3 .lp3-t[data-ativo="0"] .lp3-t-passo[data-i="0"] .lp3-t-txt,
+.lp-v3 .lp3-t[data-ativo="1"] .lp3-t-passo[data-i="1"] .lp3-t-txt,
+.lp-v3 .lp3-t[data-ativo="2"] .lp3-t-passo[data-i="2"] .lp3-t-txt {
+  color: var(--mk-accent);
+}
+.lp-v3 .lp3-t[data-ativo="0"] .lp3-t-passo[data-i="0"] .lp3-t-ponto,
+.lp-v3 .lp3-t[data-ativo="1"] .lp3-t-passo[data-i="1"] .lp3-t-ponto,
+.lp-v3 .lp3-t[data-ativo="2"] .lp3-t-passo[data-i="2"] .lp3-t-ponto {
+  background: var(--mk-accent);
+  border-color: var(--mk-accent);
+  transform: scale(1.3);
+}
+/* Os já percorridos: ponto cheio, texto em tinta. */
+.lp-v3 .lp3-t[data-ativo="1"] .lp3-t-passo[data-i="0"] .lp3-t-ponto,
+.lp-v3 .lp3-t[data-ativo="2"] .lp3-t-passo[data-i="0"] .lp3-t-ponto,
+.lp-v3 .lp3-t[data-ativo="2"] .lp3-t-passo[data-i="1"] .lp3-t-ponto {
+  background: var(--mk-accent);
+  border-color: var(--mk-accent);
+}
+/* O trilho azul cresce em degraus de um passo. */
+.lp-v3 .lp3-t[data-ativo="1"] .lp3-t-passos::after {
+  height: 50%;
+}
+.lp-v3 .lp3-t[data-ativo="2"] .lp3-t-passos::after {
+  height: 100%;
+}
+
+/* ── A PILHA DE CELULARES ──
+   `sticky` puro, sem JavaScript: cada aparelho para no mesmo ponto e o seguinte
+   sobe por cima. É o que a referência FAZ (o `stack-scroll.js` dela é inerte na
+   faixa visível — o gatilho quer `top <= 10vh` e os cartões param em 22vh).
+
+   O espaço entre eles é o que dá o tempo de leitura de cada tela: um `gap` de
+   `--t-cel-a` significa "uma altura de aparelho de rolagem por tela". */
+.lp-v3 .lp3-t-pilha {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--t-cel-a);
+  min-width: 0;
+}
+
+.lp-v3 .lp3-t-cel {
+  position: sticky;
+  /* Centrado na tela pela própria altura — o único jeito de os três pararem no
+     mesmo lugar sem escrever a altura duas vezes. */
+  top: calc((100svh - var(--t-cel-a)) / 2);
+  margin: 0;
+  width: var(--t-cel-l);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(12px, 1.6svh, 20px);
+}
+
+/* O aparelho. O aro é `--mk-ink` e não preto: é a tinta que a página já tem, e
+   preto seria uma quinta cor num arquivo que passou uma reforma inteira reduzindo
+   a paleta. A sombra é a mesma família azul-acinzentada do resto. */
+.lp-v3 .lp3-t-vidro {
+  width: 100%;
+  padding: var(--t-aro);
+  border-radius: calc(var(--t-raio) + var(--t-aro));
+  background: var(--mk-ink);
+  box-shadow: var(--mk-shadow);
+  /* O recorte tem de estar AQUI e não no <img>: o raio interno é menor que o
+     externo, e sem o clip os cantos da foto apareceriam por dentro do aro. */
+  overflow: hidden;
+}
+
+.lp-v3 .lp3-t-vidro img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--t-raio);
+  /* A foto é 780×1688 para uma caixa de ~330px: sobra resolução de propósito, para
+     a interface do app continuar nítida em tela retina. */
+}
+
+.lp-v3 .lp3-t-rotulo {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* CAIXA ALTA só em rótulo micro, que é a regra do DS — e nunca num rótulo que
+     contenha a palavra "maisa", que é por que estes três dizem o que ela FAZ. */
+  color: var(--mk-ink);
+  white-space: nowrap;
+}
+
+/* ── UMA COLUNA ──
+   Abaixo de 900px a coluna de texto e a pilha não cabem lado a lado: o celular
+   sozinho já pede ~330px. Vira uma coluna, e o `sticky` SAI dos dois — com o texto
+   grudado no topo de uma tela estreita não sobraria altura para o aparelho, e com
+   os aparelhos grudados eles cobririam o texto que os explica.
+
+   A perda é real e assumida: no celular os passos não acendem em sincronia com a
+   foto (não há como estarem os dois na tela ao mesmo tempo). Fica a pílula de
+   rótulo sobre cada aparelho, que é a mesma informação em três palavras. */
+@media (max-width: 899px) {
+  .lp-v3 .lp3-t-grade {
+    grid-template-columns: 1fr;
+  }
+  .lp-v3 .lp3-t-texto,
+  .lp-v3 .lp3-t-cel {
+    position: static;
+  }
+  .lp-v3 .lp3-t-pilha {
+    gap: clamp(40px, 8svh, 80px);
+    margin-top: clamp(36px, 6svh, 64px);
+  }
+  .lp-v3 .lp3-t {
+    /* A travessia encolhe junto com o palco no celular — ver a media query da roda:
+       lá o anel fica MAIS largo que a tela, e a barra formada pousa mais alto. */
+    margin-top: -11svh;
+    padding-block: calc(11svh + 8svh) 10svh;
+  }
+}
+
+/* ============================================================================
+ * O DUELO — a terceira seção. Contratar alguém contra assinar a maisa.
+ *
+ * Inspirada na seção "Humano vs. Inteligência Artificial" de maisasecretary.com.br.
+ * O que mudou da referência está escrito no Duelo.tsx, em quatro itens. Aqui ficam
+ * as consequências de CSS deles, que são três e valem a pena por escrito:
+ *
+ * 1. OS CARTÕES SE SEPARAM, ENTÃO O FUNDO PRECISA AMARRÁ-LOS. Duas metades coladas
+ *    não precisam de fundo — a junta já diz que são a mesma peça. Separados,
+ *    precisam: sem nada por trás, o vão entre eles lê como sobra de layout. É essa
+ *    a função do risco largo (`[data-papel="ponte"]`), e é por isso que ele passa
+ *    POR TRÁS dos dois em vez de ficar decorando um canto.
+ *
+ * 2. O DESTAQUE É GEOMETRIA + LUZ, E NÃO TARJA. O card da maisa é maior (margem
+ *    vertical negativa, que o faz transbordar a linha da grade nas duas pontas) e
+ *    cercado de brilho azul. A referência usa uma pílula "RECOMENDADO" — que é o
+ *    mesmo recurso que o cliente reprovou nesta LP em 06/08/2026. Não se repõe uma
+ *    tarja reprovada num lugar novo da mesma página.
+ *
+ * 3. O CARD ESCURO OBRIGA UM SEGUNDO AZUL, e isso é exceção escrita, não descuido.
+ *    A página tem "UM AZUL SÓ" por regra (ver os tokens lá em cima). Medido, o
+ *    blue-600 #2563EB sobre o slate-900 do card dá 2,63:1 — reprovado. Então dentro
+ *    do card escuro o azul é blue-400 #60A5FA, que dá 7,02:1.
+ *
+ *    ISSO NÃO FURA A REGRA, e a diferença importa: o que ela proíbe é hierarquia
+ *    por meio-tom ("dois azuis quase iguais fazendo o trabalho que tamanho e peso
+ *    deveriam fazer"). Este é o MESMO papel do azul numa superfície invertida — é
+ *    a mesma exceção que `--mk-accent-strong` já tem por ser ESTADO e não
+ *    hierarquia. LIMITE: `--d-azul-claro` só existe dentro de `[data-lado="maisa"]`;
+ *    sobre branco ele daria 2,54:1 e não pode encostar em texto em lugar nenhum.
+ *
+ * ── SEM JAVASCRIPT ────────────────────────────────────────────────────────
+ * O risco se desenha com `animation-timeline: view()`, que a <Sincronia> rejeitou
+ * para a seção das telas — e com razão, lá. A diferença é o MODO DE FALHA: lá, sem
+ * suporte, o risco travaria pela metade; aqui o estado sem suporte é o traço
+ * INTEIRO (`--d-p` fica no `initial-value: 1`), que é o pôster que se quer. Quando
+ * o fallback é o resultado desejado, uma API sem suporte universal sai de graça.
+ * ========================================================================== */
+
+/* Número: o progresso do risco desta seção. REGISTRADO pelo mesmo motivo do `--t-p`
+   e do `--lp3-p` — sem `@property` ele seria string e o `calc()` não interpolaria.
+   `initial-value: 1` é o que faz o traço nascer inteiro sem JS e sem `view()`. */
+@property --d-p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+.lp-v3 .lp3-d {
+  /* AQUI MOROU `--d-alca`, o quanto o card da maisa transbordava a linha da grade
+     em cima e embaixo. O deslocamento vertical saiu em 07/08/2026 por desalinhar as
+     duas listas (ver a nota na grade), e o token saiu junto: token sem consumidor é
+     convite a alguém repor o efeito sem reler por que ele tinha sido tirado — que é
+     exatamente o que a nota do `--mk-ouro` diz lá em cima, e ela estava certa.
+     O destaque hoje é largura de coluna + respiro interno + brilho. */
+
+  /* O azul do card escuro. Ver o item 3 do cabeçalho — 7,02:1 sobre slate-900.
+     Hex direto e não oklch: o resto do arquivo escreve oklch com fração porque
+     aqueles valores foram convertidos e conferidos de volta ao hex de origem; este
+     não foi, e um oklch aproximado que não volta ao #60A5FA seria pior que o hex. */
+  --d-azul-claro: #60a5fa;
+  /* O fundo da tira do saldo: blue-950 CHAPADO, e não azul translúcido sobre o
+     card. Alpha ali seria a mesma "hierarquia por lavagem" que a página baniu, com
+     o agravante de o valor final depender do que estiver por baixo. Medido sobre
+     ele: branco 14,69:1 e o blue-400 5,78:1 — os dois passam. */
+  --d-saldo-bg: #172554;
+
+  position: relative;
+  /* ⚠️ A LINHA É MAIS LARGA QUE A SEÇÃO DE PROPÓSITO (1200px no mínimo, contra uma
+     tela que pode ter 390) — é o transbordo que a faz ler como algo que atravessa em
+     vez de algo que começa e acaba dentro da seção. Sem `clip` isso é rolagem
+     horizontal, que num celular é o defeito mais caro possível. NÃO TIRAR. */
+  overflow: clip;
+  /* Contexto próprio, para a seção não disputar empilhamento com o que vem de fora.
+     A briga interna (linha atrás, cartões na frente) é resolvida uma camada abaixo,
+     na `.lp3-d-arena`. */
+  isolation: isolate;
+  padding-block: clamp(72px, 12svh, 150px);
+  padding-inline: clamp(20px, 4vw, 56px);
+}
+
+/* Número: onde está a CABEÇA DO PULSO, em fração do caminho. É o que o tempo anima.
+   REGISTRADO por dois motivos, os dois necessários:
+     · sem registro ele seria string e o `calc()` da posição não interpolaria — o
+       pulso pularia de quadro em quadro em vez de deslizar;
+     · `initial-value: -0.2` é o FALLBACK. Sem a animação (reduced-motion, ou um
+       navegador que ignore o @property), o pulso fica parado ANTES do começo do
+       caminho, ou seja fora dele: invisível, sem borrão 1,7× mais grosso sobrando
+       em cima do traço. Era isto que o `initial-value: 0` da antiga ponta da caneta
+       garantia, e a garantia tinha de sobreviver à troca.
+   ⚠️ Tem de ser ≤ −(--d-pulso), senão o pulso nasce com metade do corpo dentro. */
+@property --d-corre {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: -0.2;
+}
+
+/* ── A ARENA ──
+   Só existe para dar à linha um pai cuja meia-altura seja a meia-altura dos
+   CARTÕES. Ver a nota no Duelo.tsx. `isolation` porque a linha é `z-index: 0` e a
+   grade é `z-index: 1`: sem contexto próprio os dois disputariam com o resto. */
+.lp-v3 .lp3-d-arena {
+  position: relative;
+  isolation: isolate;
+}
+
+/* ── A LINHA ──
+   Uma, horizontal, atrás dos dois cartões. Mesmo amarelo e mesma espessura na tela
+   da seção das telas — é o mesmo gesto aparecendo de novo, que é o que faz a página
+   parecer uma peça só.
+
+   `overflow: visible` no <svg> é obrigatório pelo mesmo motivo de lá: metade do
+   stroke estoura o viewBox nas pontas e nos picos, e sem isso o traço sairia com as
+   bordas cortadas em ângulo reto. */
+.lp-v3 .lp3-d-risco {
+  position: absolute;
+  z-index: 0;
+  left: 50%;
+  /* 50% DA ARENA = a meia-altura dos cartões, e é por isso que a linha "corta" os
+     dois em vez de raspar um canto. O `overflow: clip` da seção corta o que sobra. */
+  top: 50%;
+  /* ⚠️ O `clamp` EM PX É O QUE MATOU AS DUAS CORREÇÕES POR BREAKPOINT, e vale
+     entender antes de trocar por um `%` limpo.
+
+     A espessura na tela é `stroke-width × (largura renderizada ÷ 1600)`. Com uma
+     largura em `%` puro, a largura renderizada acompanha a viewport e a espessura
+     acompanha junto: a MESMA regra sairia com 2,6px num celular de 390px e com 23px
+     numa tela de 899px. Foi essa proporcionalidade que obrigou o laço antigo a ter
+     `stroke-width` e `width` diferentes por media query — e a nota que dizia
+     "mexeu num, mexe no outro".
+
+     Preso entre 1200px e 1800px, o fator fica entre 0,75 e 1,125 SEMPRE, e um
+     `stroke-width` só serve da tela do celular ao monitor grande: 7,5px a 11,3px,
+     dentro da faixa da seção das telas. Nenhuma media query de espessura.
+
+     Isso só é possível porque a linha é ABERTA: num celular sobra o terço do meio
+     dela, e o terço do meio de uma linha ainda é uma linha. Com o laço não era — ver
+     a nota do `RISCO_H` no dados.ts. */
+  width: clamp(1200px, 118%, 1800px);
+  transform: translate(-50%, -50%);
+  height: auto;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.lp-v3 .lp3-d-risco path {
+  stroke: var(--mk-ouro);
+  /* ~10px na tela em qualquer viewport — ver a conta no `width` acima. */
+  stroke-width: 10;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* O traço. Desenha da esquerda para a direita conforme `--d-p` vai de 0 a 1.
+   SEM O PISO DE 0,3 QUE O LAÇO TINHA, e a diferença é o formato: num laço, começar
+   do zero deixava a seção sem nada por trás até a metade da entrada, então valia
+   nascer com um terço pronto. Numa linha horizontal o piso é justamente o que
+   estraga — ele faria o traço nascer com os primeiros 30% já prontos, ou seja com um
+   pedaço APARECENDO em vez de sendo riscado. O gesto aqui é a varredura inteira. */
+.lp-v3 .lp3-d-risco .lp3-d-traco {
+  stroke-dasharray: 1;
+  stroke-dashoffset: calc(1 - var(--d-p));
+}
+
+/* ── O PULSO — O PERCURSO ──
+   Um trecho de 17% do caminho, 1,7× mais grosso, viajando da ponta esquerda à direita
+   em 9s, para sempre. Pedido de 07/08: "que ele tivesse um percurso para percorrer".
+   Ver a nota do <Risco> no Duelo.tsx para o papel dele e para o porquê de ser um
+   segundo <path> com o mesmo `d`.
+
+   ── A MATEMÁTICA DO DASH, porque ela não é adivinhável ──
+   Com `stroke-dasharray: L G` o padrão começa na posição `−offset` do caminho. Para
+   o trecho visível ficar em [cabeça − L, cabeça], o offset tem de ser `L − cabeça`.
+   É só isso que a linha do `stroke-dashoffset` faz.
+
+   ⚠️ O GAP É 2 E NÃO 1, E ISSO CONSERTA UM PONTINHO PISCANDO. Com gap 1 o padrão
+   repete a cada L+1 = 1,17 — e como o caminho tem comprimento 1, a SEGUNDA cópia do
+   dash cai em [1; 1,17], que encosta no ponto final do caminho. Um dash de
+   comprimento zero com `stroke-linecap: round` não desenha nada: desenha um PONTO
+   REDONDO. Resultado: uma bolinha amarela aparecendo na ponta direita a cada volta.
+   Com gap 2 o período vira 2,17, a segunda cópia cai em [2; 2,17] e nunca toca o
+   caminho. (A cópia anterior, em [−2,3; −2,1], também não.) */
+.lp-v3 .lp3-d-risco .lp3-d-pulso {
+  /* O comprimento do pulso. 17% de ~1567px ≈ 266px: largo o bastante para ATRAVESSAR
+     as janelas visíveis (a margem tem 130px, o vão 37px) e acender cada uma por
+     ~1,3–1,6s. Com os ~5% da antiga ponta da caneta, o vão acenderia por 0,3s — um
+     flash que lê como cintilação, não como algo passando. */
+  --d-pulso: 0.17;
+  /* 1,7× o traço: o fio engrossa e relaxa na passagem. NÃO é um segundo amarelo nem
+     opacidade — as duas coisas a LP proíbe (um azul/amarelo a mais sem exceção
+     escrita; opacidade reduzida em qualquer lugar). Espessura era a única variável
+     livre, e é a que combina com um traço de marcador: pressão.
+     Precisa de três classes para vencer `.lp-v3 .lp3-d-risco path`, que declarou 10. */
+  stroke-width: 17;
+  stroke-dasharray: var(--d-pulso) 2;
+  /* ⚠️ `× var(--d-p)` É O QUE CONFINA O PULSO AO PEDAÇO JÁ DESENHADO, e sem isso há
+     um bug visível: o pulso é animado pelo TEMPO e o traço é desenhado pela ROLAGEM,
+     então nada impede o pulso de estar em 70% do caminho enquanto o traço só existe
+     até 30% — e aí se vê um risco amarelo solto na margem direita, sem fio por baixo.
+     Multiplicando pela fração desenhada, a cabeça do pulso nunca passa da cabeça do
+     traço. Terminado o desenho (`--d-p: 1`, que é também o estado sem `view()`), o
+     fator vira 1 e o pulso passa a percorrer o caminho inteiro. */
+  stroke-dashoffset: calc(var(--d-pulso) - var(--d-corre) * var(--d-p));
+}
+
+/* ── O CABEÇALHO ── */
+.lp-v3 .lp3-d-cab {
+  position: relative;
+  /* Contexto próprio, para o risco do cabeçalho disputar só com o título ao lado
+     dele e não com a ponte, que é irmã da seção inteira. */
+  isolation: isolate;
+  max-width: 1180px;
+  margin-inline: auto;
+  margin-bottom: clamp(44px, 7svh, 84px);
+}
+
+.lp-v3 .lp3-d-titulo {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-family: var(--mk-font-display);
+  font-weight: 800;
+  /* A MESMA ESCALA DO <h2> DAS TELAS, e não um degrau abaixo: as duas são a segunda
+     voz da página, e dar tamanhos diferentes a duas seções do mesmo nível inventa
+     uma hierarquia que não existe. */
+  font-size: clamp(2.1rem, 4.4vw, 3.6rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  color: var(--mk-ink);
+  text-wrap: balance;
+}
+
+.lp-v3 .lp3-d-filete {
+  display: block;
+  width: clamp(56px, 6vw, 92px);
+  height: 5px;
+  margin-top: clamp(18px, 2.4svh, 28px);
+  background: var(--mk-accent);
+}
+
+.lp-v3 .lp3-d-lead {
+  position: relative;
+  z-index: 1;
+  margin: clamp(18px, 2.4svh, 28px) 0 0;
+  max-width: 46ch;
+  font-family: var(--mk-font-body);
+  font-size: clamp(1.02rem, 1.25vw, 1.28rem);
+  line-height: 1.45;
+  /* Tinta cheia, como o lead das telas: um degrau de tinta só nesta página. */
+  color: var(--mk-ink);
+  text-wrap: pretty;
+}
+
+/* ── A GRADE ──
+   Duas colunas iguais com a dobradiça no meio. `stretch` e não `center`: os dois
+   cartões têm de terminar na mesma linha para as listas ficarem emparelhadas — é o
+   paralelismo item-a-item que faz a comparação funcionar sem uma tabela. */
+.lp-v3 .lp3-d-grade {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  /* A COLUNA DA MAISA É 8% MAIS LARGA, e é aí que mora o "maior" do destaque.
+     Tentei antes por deslocamento vertical (margem negativa, o card transbordando
+     a linha nas duas pontas, que é o clichê de tabela de preço). Medido em
+     07/08/2026: com o card 56px mais alto, as duas listas param de se alinhar —
+     "Atende nas horas que você paga" fica 50px abaixo de "Responde a qualquer
+     hora", e o emparelhamento item-a-item, que é o argumento inteiro da seção,
+     some. Largura destaca sem desalinhar linha nenhuma. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.08fr);
+  align-items: stretch;
+  gap: clamp(16px, 2.6vw, 40px);
+  max-width: 1180px;
+  margin-inline: auto;
+}
+
+/* ── A DOBRADIÇA ──
+   O "vs" da referência sem a função que ele tinha lá. Lá ele TAPAVA a costura de
+   dois retângulos colados; aqui não há costura para tapar, então ele volta a ser só
+   o que diz: o sinal de que os dois lados se comparam. Por isso é pequeno, branco e
+   fica no vão — não sobre nada. */
+.lp-v3 .lp3-d-vs {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: clamp(46px, 5vw, 62px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--mk-bg);
+  border: 2px solid var(--mk-ink);
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: clamp(0.72rem, 0.9vw, 0.86rem);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mk-ink);
+}
+
+/* ── OS CARTÕES ── */
+.lp-v3 .lp3-d-cartao {
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  padding: clamp(24px, 3.4vw, 44px);
+}
+
+.lp-v3 .lp3-d-cartao[data-lado="humano"] {
+  background: var(--mk-surface);
+  border: 1px solid var(--mk-line);
+  box-shadow: var(--mk-shadow-soft);
+}
+
+/* O CARD DA MAISA. Maior, escuro e com brilho — o "destaque maior" pedido.
+   O brilho é box-shadow em três camadas e não um pseudo-elemento borrado: um
+   `::before` com `z-index: -1` dentro de um cartão que já é contexto de
+   empilhamento pinta ATRÁS do próprio fundo do cartão, ou seja some. Três sombras
+   resolvem sem essa armadilha e sem um nó a mais no DOM. */
+.lp-v3 .lp3-d-cartao[data-lado="maisa"] {
+  background: var(--mk-ink);
+  border: 1px solid transparent;
+  /* O respiro interno maior é a segunda metade do "maior" (a primeira é a coluna
+     8% mais larga, na grade). Padding não desalinha as listas — cresce nos quatro
+     lados a partir da mesma linha de topo. */
+  padding: clamp(28px, 3.9vw, 52px);
+  box-shadow:
+    /* o aro, que define a borda contra o branco */
+    0 0 0 1.5px oklch(0.5461 0.2152 262.9 / 0.55),
+    /* a sombra apoiada, que dá o peso de estar na frente */ 0 34px 74px -26px
+      oklch(0.5461 0.2152 262.9 / 0.62),
+    /* o halo ambiente, que é o "glow" propriamente dito — mais aberto e mais forte
+       que a primeira tentativa, porque com os dois cartões alinhados ele passou a
+       ser o ÚNICO sinal de destaque além da cor. */
+    0 0 130px -18px oklch(0.5461 0.2152 262.9 / 0.6);
+  /* O wordmark do <Maisa> lê `--mk-wordmark`, e o blue-600 herdado daria 2,63:1
+     sobre este fundo. Trocado pelo azul claro do escopo — 7,02:1. É exatamente o
+     que a nota do Maisa.tsx descreve a `.lp-band` fazendo sobre o dourado. */
+  --mk-wordmark: var(--d-azul-claro);
+}
+
+.lp-v3 .lp3-d-rotulo {
+  margin: 0;
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  /* CAIXA ALTA só em rótulo micro, que é a regra do DS — e nenhum dos dois contém
+     a palavra "maisa", que não sobrevive a `text-transform: uppercase`. */
+  text-transform: uppercase;
+  color: var(--mk-ink);
+}
+.lp-v3 .lp3-d-cartao[data-lado="maisa"] .lp3-d-rotulo {
+  color: var(--d-azul-claro);
+}
+
+.lp-v3 .lp3-d-nome {
+  margin: clamp(10px, 1.4svh, 16px) 0 0;
+  font-family: var(--mk-font-display);
+  font-weight: 800;
+  font-size: clamp(1.32rem, 1.9vw, 1.8rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--mk-ink);
+}
+
+.lp-v3 .lp3-d-preco {
+  margin: clamp(20px, 3svh, 36px) 0 0;
+  font-family: var(--mk-font-display);
+  font-weight: 800;
+  font-size: clamp(2.4rem, 4.6vw, 3.5rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  /* Os dois preços têm dígitos de larguras diferentes ("1.858" e "97") e ficam um
+     ao lado do outro: sem `tabular-nums` eles desalinham na vertical. */
+  font-variant-numeric: tabular-nums;
+  color: var(--mk-ink);
+}
+
+.lp-v3 .lp3-d-periodo {
+  font-family: var(--mk-font-body);
+  font-size: clamp(0.95rem, 1.1vw, 1.1rem);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.lp-v3 .lp3-d-nota {
+  margin: clamp(8px, 1.2svh, 14px) 0 0;
+  font-family: var(--mk-font-body);
+  font-size: clamp(0.86rem, 1vw, 0.98rem);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--mk-ink);
+}
+
+/* ── AS LISTAS ──
+   O marcador é o `.lp3-t-ponto` da seção das telas com a mesma gramática: vazado é
+   "não tem", cheio é "tem". Nenhum ícone e nenhum ✓/✗ — a página inteira desenha
+   estado com forma em CSS, e um ✓ aqui seria o único glifo-como-ícone do projeto. */
+.lp-v3 .lp3-d-itens {
+  margin: clamp(24px, 3.4svh, 40px) 0 0;
+  padding: 0 0 0 30px;
+  list-style: none;
+  border-top: 1px solid var(--mk-line);
+  padding-top: clamp(18px, 2.6svh, 28px);
+}
+.lp-v3 .lp3-d-cartao[data-lado="maisa"] .lp3-d-itens {
+  border-top-color: oklch(0.5461 0.2152 262.9 / 0.42);
+}
+
+.lp-v3 .lp3-d-item {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  /* ≥44px por linha, como os passos das telas: não são clicáveis, mas o ritmo é o
+     mesmo que precisariam se um dia virassem âncoras. */
+  min-height: 44px;
+  padding: clamp(8px, 1.2svh, 13px) 0;
+}
+
+.lp-v3 .lp3-d-ponto {
+  position: absolute;
+  left: -30px;
+  top: 0.72em;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  /* Vazado, com aro de tinta cheia. `--mk-line` (slate-200) seria quase invisível
+     sobre branco num disco de 12px. */
+  border: 2px solid var(--mk-ink);
+  background: transparent;
+}
+
+.lp-v3 .lp3-d-cartao[data-lado="maisa"] .lp3-d-ponto {
+  border-color: var(--d-azul-claro);
+  background: var(--d-azul-claro);
+}
+
+.lp-v3 .lp3-d-txt {
+  font-family: var(--mk-font-body);
+  font-size: clamp(0.96rem, 1.1vw, 1.1rem);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--mk-ink);
+  text-wrap: pretty;
+}
+.lp-v3 .lp3-d-cartao[data-lado="maisa"] .lp3-d-nome,
+.lp-v3 .lp3-d-cartao[data-lado="maisa"] .lp3-d-preco,
+.lp-v3 .lp3-d-cartao[data-lado="maisa"] .lp3-d-nota,
+.lp-v3 .lp3-d-cartao[data-lado="maisa"] .lp3-d-txt {
+  color: var(--mk-on-brand); /* branco, 17,85:1 sobre slate-900 */
+}
+
+/* ── A TIRA DO SALDO ──
+   `margin-top: auto` gruda no pé do card: com `align-items: stretch` na grade, é o
+   que garante que ela fique na base mesmo quando a coluna vizinha for mais alta. */
+.lp-v3 .lp3-d-saldo {
+  margin: clamp(24px, 3.4svh, 38px) 0 0;
+  margin-top: auto;
+  padding: clamp(14px, 2vh, 20px) clamp(16px, 2vw, 22px);
+  border-radius: 12px;
+  background: var(--d-saldo-bg);
+  font-family: var(--mk-font-body);
+  font-size: clamp(0.9rem, 1.02vw, 1.02rem);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--mk-on-brand);
+  text-wrap: pretty;
+}
+
+.lp-v3 .lp3-d-saldo-valor {
+  font-family: var(--mk-font-display);
+  font-weight: 800;
+  font-size: clamp(1.1rem, 1.4vw, 1.3rem);
+  font-variant-numeric: tabular-nums;
+  color: var(--d-azul-claro); /* 5,78:1 sobre o blue-950 da tira */
+}
+
+/* ── A FONTE ──
+   Miúda, mas em tinta cheia: a página tem um degrau de tinta só, e "letra pequena"
+   aqui é TAMANHO, não lavagem. Ela existe porque a seção afirma um número sobre o
+   bolso de quem lê — esconder a origem seria o que a v1 fazia. */
+.lp-v3 .lp3-d-fonte {
+  position: relative;
+  z-index: 1;
+  max-width: 1180px;
+  margin: clamp(32px, 5svh, 56px) auto 0;
+  font-family: var(--mk-font-body);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--mk-ink);
+  text-wrap: pretty;
+}
+
+.lp-v3 .lp3-d-fonte a {
+  color: var(--mk-accent-ink); /* blue-700, 6,32:1 sobre branco */
+  text-underline-offset: 3px;
+}
+
+/* ── CAMADA 1: A LINHA SE DESENHANDO (rolagem) ──
+   Só quando o navegador tem `view()` E o usuário não pediu menos movimento. Sem uma
+   das duas, `--d-p` fica no `initial-value: 1` e o traço aparece INTEIRO. (O pulso é
+   independente: quem o tira do caminho no mesmo cenário é o `initial-value` do
+   `--d-corre`, não este.) É o pôster desejado, e é por isso que esta API pode entrar
+   aqui sem custo. */
+@keyframes lp3-d-risca {
+  from {
+    --d-p: 0;
+  }
+  to {
+    --d-p: 1;
+  }
+}
+
+/* ── CAMADA 2: O PERCURSO (tempo) ──
+   O pulso atravessando o fio, para sempre. Ver a nota "O MOVIMENTO, EM DUAS CAMADAS"
+   no Duelo.tsx e a matemática do dash na regra `.lp3-d-pulso`.
+
+   AQUI MOROU A `lp3-d-deriva`, um vai-e-vem de 13px em 22s no <g> do SVG. Saiu em
+   07/08/2026 junto com o <g>: o pedido era que o fio tivesse "um percurso para
+   percorrer", e deriva é oscilação, não percurso — ela balançava o fio sem levá-lo a
+   lugar nenhum. Com o pulso atravessando, a deriva virava um segundo movimento
+   competindo pelo mesmo fio, e ainda fazia a posição do pulso oscilar junto.
+
+   ⚠️ DE -0,2 A 1,2, E NÃO DE 0 A 1, e as duas folgas têm função. `-0,2` (≤ −L) faz o
+   pulso começar INTEIRO fora do caminho, senão o primeiro quadro tem meio pulso
+   colado no início. `1,2` (≥ 1+L) faz ele sair INTEIRO pela direita, senão a volta
+   começa com um pulso ainda visível no fim — um salto a cada 9s. Assim o ciclo vai de
+   invisível a invisível, e a emenda do loop não existe. */
+@keyframes lp3-d-corre {
+  from {
+    --d-corre: -0.2;
+  }
+  to {
+    --d-corre: 1.2;
+  }
+}
+
+@supports (animation-timeline: view()) {
+  @media not (prefers-reduced-motion: reduce) {
+    /* ⚠️ A ANIMAÇÃO VAI NA ARENA, NÃO NO <svg>, E ISSO FOI UM BUG MEDIDO — não é
+       arrumação de código. Vale inteiro porque é contraintuitivo.
+
+       `view()` mede O ELEMENTO EM QUE ESTÁ DECLARADA (o "subject"), e o <svg> da
+       linha tem 94px de altura (1567 × 96/1600). Declarada nele, TODA porcentagem de
+       fase passava a ser fração de 94px. Com `entry 20% cover 60%`, o fim da faixa
+       caía em scrollY 5567 numa página cuja rolagem máxima é 5431 — 136px além do
+       fim do documento, porque a <Duelo> é a ÚLTIMA seção da página e não há nada
+       depois dela para rolar.
+
+       Resultado medido em 07/08/2026 (`.claude/audita-varredura.mjs`): `--d-p` subia
+       0 → 0,764 e PARAVA. A linha ficava permanentemente 24% sem desenhar e a ponta
+       da caneta, 1,5× mais grossa, estacionada no meio dela. Nada disso dava erro —
+       e é exatamente o modo de falha que o cabeçalho desta seção se orgulha de ter
+       evitado ("lá o risco travaria pela metade"). Estava aqui, no caminho COM
+       suporte, que é o pior lugar para estar.
+
+       A ARENA TEM A ALTURA DOS CARTÕES (575px no desktop, 1025px empilhada), então:
+         · `entry 0%`   = o topo dos cartões encosta no rodapé da tela
+         · `entry 100%` = a base dos cartões encosta no rodapé da tela
+       ou seja, A LINHA SE DESENHA ENQUANTO OS CARTÕES ENTRAM, e termina no quadro em
+       que os dois estão inteiros na tela. É o mapeamento que se queria, e de graça.
+
+       E É INALCANÇÁVEL-À-PROVA, o que `cover %` nunca seria: a faixa acaba quando a
+       base dos cartões chega ao rodapé da tela, e a base dos cartões SEMPRE tem
+       documento depois dela (a linha da fonte + o padding da seção = 173px medidos).
+       Não depende da altura da viewport, não depende de a <Duelo> ser a última seção,
+       e continua valendo no dia em que o fechamento entrar depois dela.
+
+       REGRA PARA QUEM MEXER: se voltar a usar `cover %`, confira que o fim da faixa
+       é alcançável na tela MAIS ALTA que você suporta — quanto maior a viewport,
+       menor a porcentagem de `cover` que a página consegue rolar. */
+    .lp-v3 .lp3-d-arena {
+      /* `--d-p` é registrado com `inherits: true`, então animá-lo aqui desce ao <svg>
+         e aos dois <path> por herança. É o mesmo arranjo que a <Sincronia> faz com
+         `--t-p`, só que sem o rAF. */
+      animation: lp3-d-risca linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 100%;
+    }
+  }
+}
+
+/* O percurso NÃO precisa de `@supports`: é animação de tempo, funciona em tudo. Só
+   depende do respeito a `prefers-reduced-motion`, que é o único motivo do @media —
+   e sem ele o `initial-value: -0.2` do `--d-corre` deixa o pulso fora do caminho,
+   invisível, em vez de estacionado em cima do traço.
+
+   `linear` porque é travessia: qualquer ease faria o pulso desacelerar no meio do fio,
+   onde ele está ESCONDIDO atrás de um cartão — a variação de velocidade não seria
+   vista, só o resultado dela (acender fora de ritmo). 9s é o tempo cheio de ponta a
+   ponta; nas janelas visíveis dá ~1,3–1,6s de luz em cada uma. */
+@media not (prefers-reduced-motion: reduce) {
+  .lp-v3 .lp3-d-risco .lp3-d-pulso {
+    animation: lp3-d-corre 9s linear infinite;
+  }
+}
+
+/* ── UMA COLUNA ──
+   Mesmo ponto de quebra da seção das telas. Abaixo de 900px dois cartões de preço
+   lado a lado ficam com ~200px cada — largura em que o preço de 3,5rem não cabe e a
+   lista quebra em toda linha. Empilhados, a dobradiça vira divisória entre eles e o
+   destaque do card da maisa passa a ser só cor e brilho: a coluna 8% mais larga não
+   significa nada quando as duas ocupam a largura inteira da tela. */
+@media (max-width: 899px) {
+  .lp-v3 .lp3-d-grade {
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(18px, 3svh, 28px);
+  }
+  .lp-v3 .lp3-d-vs {
+    justify-self: center;
+  }
+  .lp-v3 .lp3-d-risco {
+    /* ⚠️ AQUI MORAVAM DUAS CORREÇÕES — `width: min(460px, 115%)` e `stroke-width: 14`
+       — e as duas SAÍRAM em 07/08/2026 junto com o laço, não por descuido.
+
+       Elas existiam porque o `d` era um laço: a tinta na borda e o meio vazio. A 155%
+       de uma tela de 390px o que sobrava na tela era o MIOLO VAZIO, dois cotocos
+       amarelos entrando pelos cantos, e a espessura tinha de ser recalculada porque a
+       largura havia despencado. Uma linha ABERTA não tem miolo vazio: sobra o terço
+       do meio dela, e o terço do meio de uma linha ainda é uma linha. E o `clamp` em
+       px do bloco principal já mantém a espessura na faixa sem ajuda nenhuma.
+
+       Quem repuser o laço aqui vai precisar das duas de volta. Quem mantiver a linha,
+       não — e não deve, porque cada uma é um número a divergir depois.
+
+       SOBROU SÓ O `top`: empilhados, os dois cartões têm alturas diferentes (o da
+       maisa tem a tira do saldo), então 50% da arena cai DENTRO do cartão de baixo em
+       vez de no vão. Este número foi medido, não estimado. */
+    top: 46%;
+  }
+}
+
+/* ============================ CELULAR ============================
+ * A regra do `--o-r0` INVERTE aqui, e é de propósito.
+ *
+ * No desktop o raio é limitado pela tela para a roda caber inteira. Num aparelho
+ * de 390px isso daria r0 ≈ 94px e cartões de 28px — confete, não gente. Então no
+ * celular o anel de dentro passa a ser MAIS LARGO que a tela (58vw de raio =
+ * 116% da largura em diâmetro): os cartões das 3h e das 9h saem pela borda, e o
+ * que fica à vista são dois arcos densos, em cima e embaixo, com rostos de ~68px.
+ *
+ * 760px é o ponto em que as duas regras se cruzam (24vw = 182px ≈ o piso do
+ * clamp), então a troca não dá salto de tamanho. Nada disto precisa ser repetido
+ * em JavaScript: o <Morph> lê `--o-r0` já resolvido, então esta media query
+ * chega até ele sozinha. */
+@media (max-width: 759px) {
+  .lp-v3 .lp3-roda {
+    --o-r0: clamp(160px, 58vw, 280px);
+  }
+}
+
+/* ==================== A BARRA COMPARTILHADA DO CELULAR ====================
+ * O <World> monta a StickyMobileCta de graça em toda LP. Nesta ela é errada por
+ * dois motivos independentes: ela é um SEGUNDO primário na mesma tela (a dobra
+ * já tem o dela, no oco, a 48px de alvo), e o destino dela vem do nível de funil
+ * do pathname — numa rota de topo isso aponta para "Ver como funciona", ou seja
+ * para FORA da página, coberto por cima do único botão que interessa.
+ *
+ * Neutralizada por especificidade (0-2-0 contra o 0-1-0 do compartilhado), sem
+ * `!important` e sem editar o arquivo de que as outras 5 LPs dependem.
+ *
+ * A SEGUNDA METADE É A QUE SE ESQUECE: o marketing.css também reserva 72px de
+ * `padding-bottom` no `.mkt-world`. Sem zerar isso, a pista de 200svh passa a
+ * somar 200svh + 72px e sobra uma tira vazia depois da costura. */
+@media (max-width: 560px) {
+  .lp-v3 .mk-sticky-cta {
+    display: none;
+  }
+  .lp-v3.mkt-world {
+    padding-bottom: 0;
+  }
+}
+
+/* ============================ MOVIMENTO ============================
+ * SEM MOVIMENTO NÃO PODE VIRAR SEM CONTEÚDO — nem, pior, virar 100svh de rolagem
+ * vazia. A pista encolhe para a altura do palco, o palco para de grudar, e a
+ * dobra volta a ser o pôster que já era: a roda parada nos ângulos iniciais, que
+ * já são uma distribuição válida e completa dos dois anéis.
+ *
+ * Está em CSS, e não só no JS, de propósito: `useReducedMotion()` devolve `null`
+ * no servidor, então o primeiro paint sairia com 200svh e depois daria um salto.
+ * Aqui o layout já nasce certo. O <Morph> também não põe `data-vivo` neste caso,
+ * então as keyframes acima continuam valendo — e o kill-switch global do
+ * marketing.css as congela.
+ *
+ * O que se perde: a barra de rostos não se forma. É uma perda real e assumida — a
+ * alternativa seria animar mesmo assim, que é exatamente o que a WCAG 2.3.3 pede
+ * para não fazer.
+ *
+ * A TERCEIRA REGRA, que este bloco reservou por escrito desde 06/08/2026 e que
+ * voltou com a seção das telas: a TRAVESSIA DEIXA DE EXISTIR sem movimento. Sem a
+ * barra de rostos passando por cima, a margem negativa não é gesto nenhum — é a
+ * seção seguinte subindo 16svh por cima do rodapé de uma dobra estática, ou seja
+ * uma colisão. O padrão de topo perde a compensação junto, pela mesma razão: ele
+ * existia só para o conteúdo nascer abaixo de uma barra que agora não vem.
+ *
+ * E a pilha de celulares perde o `sticky`: com o palco solto e a pista em `auto`,
+ * três aparelhos grudados empilhariam um sobre o outro sem nada os separando na
+ * rolagem — o efeito seria "duas das três telas nunca aparecem". */
+@media (prefers-reduced-motion: reduce) {
+  .lp-v3 .lp3-pista {
+    height: auto;
+  }
+  .lp-v3 .lp3-palco {
+    position: static;
+    height: 100svh;
+  }
+  .lp-v3 .lp3-t {
+    margin-top: 0;
+    padding-block: clamp(56px, 9svh, 120px);
+  }
+  .lp-v3 .lp3-t-texto,
+  .lp-v3 .lp3-t-cel {
+    position: static;
+  }
+  .lp-v3 .lp3-t-pilha {
+    gap: clamp(40px, 8svh, 80px);
+  }
+}

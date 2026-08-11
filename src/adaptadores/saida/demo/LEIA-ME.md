@@ -1,0 +1,53 @@
+# `saida/demo/` — o cadastro de mentira
+
+Cumpre a porta `RepositorioNegocio` com fixtures em memória. É o antigo
+`src/lib/data.ts`, separado do que era tipo (foi para
+[`nucleo/dominio`](../../../nucleo/dominio/LEIA-ME.md)) e do que era dado (ficou aqui).
+
+**⚠️ Esta é a peça que falta trocar para o app ser multi‑inquilino de verdade.**
+
+## Arquivos
+
+| Arquivo | O que tem |
+|---|---|
+| `index.ts` | O barrel. Reexporta os fixtures **e** o domínio inteiro — é o `import * as D` que a UI usa. |
+| `repositorio.ts` | A implementação da porta: assíncrona, recebe `ContextoTenant` (e o ignora, porque existe um negócio só). |
+| `negocio.ts` | `NEGOCIO`, `PRESTADOR`, `PERIODO`, `NUMEROS_MES`, `FATURAS`. |
+| `equipe.ts` | `EQUIPE`, `COLUNAS_AGENDA` (a allowlist), `EXPEDIENTE`, e os atalhos `atende`/`podeComecar`. |
+| `catalogo.ts` | `SERVICOS`. |
+| `clientes.ts` | `CLIENTES`, `NOTAS_INICIAIS`, `PROXIMO_NUMERO`, `TESTE_CANCELA_APOS_MS`. |
+| `conversas.ts` | `CONVERSAS`, `THREADS`, `SUGESTOES`, `FILA_CONVERSAS`, `FAQS` — 100% demonstração, o WhatsApp não está integrado. |
+| `assistente.ts` | `SECOES_AJUSTE`, `DIAS_PADRAO`, `CFG_PADRAO`, `TOGGLES_*`, `PREVIEWS`. |
+| `consultas.ts` | Buscas por id (`profissional`, `servico`, `cliente`, `conversa`) — síncronas, só para a UI. |
+
+## Duas portas de entrada para o mesmo dado, e a diferença é o ponto
+
+| Quem | Como acessa | Por quê |
+|---|---|---|
+| O núcleo | `repositorioDemo` (async, com tenant) | Vai trocar de implementação. Nunca deve saber que existe um array. |
+| A UI | `import * as D from "@/adaptadores/saida/demo"` (sync, sem tenant) | Dívida conhecida: as telas ainda leem fixture direto em vez de passar por um caso de uso. |
+
+O caminho longo do import da UI é **proposital**: ele denuncia a dívida em toda tela que
+a tem. Quando o store passar a conversar com o núcleo, esse import some sozinho.
+
+## Quando isto virar banco
+
+O que muda em `repositorio.ts`:
+
+- tabelas `negocios`, `membros`, `profissionais`, `servicos`, `clientes`, todas com
+  `tenant_id` e RLS por membro do negócio;
+- `agendasPermitidas` vira `select id from profissionais where tenant_id = …` e deixa de
+  ser constante no código;
+- `clientePorTelefone` ganha índice — é a busca quente do agente de WhatsApp (é como ele
+  vai reconhecer quem está falando antes de mexer na agenda).
+
+E em `composicao.ts`, uma linha: `const negocio = repositorioSupabase`.
+
+## Detalhes dos fixtures que não são acidente
+
+- **Um profissional só.** A agenda do Google do `pr1` é a fonte da verdade; três colegas
+  fictícios mostrariam atendimentos que não existem em lugar nenhum.
+- **`cl-teste` com CPF real.** A NFS‑e só autoriza em produção, então validar a
+  integração exige emitir uma nota de verdade — e ela se cancela sozinha em 25 s.
+- **Todos os e‑mails apontam para o dono do projeto.** Já apontaram para `@email.com`,
+  que é um domínio REAL: o convite do Google ia para a caixa de estranhos.

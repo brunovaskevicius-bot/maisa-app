@@ -1,8 +1,8 @@
 import { type NextRequest } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
+import { updateSession } from "@/adaptadores/saida/supabase/sessao";
 
 // Porta de entrada: toda requisição passa aqui. Renova a sessão e barra quem não
-// está logado (quando o Supabase está configurado). Ver src/lib/supabase/middleware.ts.
+// está logado (quando o Supabase está configurado). Ver adaptadores/saida/supabase/sessao.ts.
 export async function middleware(request: NextRequest) {
   return await updateSession(request);
 }

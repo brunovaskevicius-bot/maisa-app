@@ -1,0 +1,1 @@
+{"id":"cmmzcuu0s0ktjlh4k9a9d7dli","url":"https://ludi-lgq0.onrender.com/api/whatsapp/webhook","headers":null,"enabled":true,"events":["SEND_MESSAGE","MESSAGES_UPDATE","MESSAGES_UPSERT"],"webhookByEvents":false,"webhookBase64":false,"createdAt":"2026-03-20T20:32:11.644Z","updatedAt":"2026-05-20T13:09:38.454Z","instanceId":"1abf23a5-9a4d-44c6-9406-6a0a5d6d4db3"}

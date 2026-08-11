@@ -1,5 +1,5 @@
-import AppShell from "@/components/AppShell";
-import { StoreProvider } from "@/lib/store";
+import AppShell from "@/ui/componentes/AppShell";
+import { StoreProvider } from "@/ui/estado/store";
 
 export default function Page() {
   return (

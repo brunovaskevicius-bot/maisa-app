@@ -1,0 +1,41 @@
+# `nucleo/portas/` — os contratos
+
+Uma porta é uma **interface** declarada pelo núcleo. Ela diz o que precisa acontecer,
+nunca como. Quem cumpre é um adaptador; quem escolhe qual adaptador é
+[`src/composicao.ts`](../../composicao.ts).
+
+```
+                 ENTRADA                                  SAÍDA
+   quem CHAMA o app  ──▶ [ porta ] ──▶ núcleo ──▶ [ porta ] ──▶ o que o app CHAMA
+   HTTP, WhatsApp, cron                            Google, Focus, Supabase, fixtures
+```
+
+## `entrada/` — o que se pode pedir ao app
+
+| Arquivo | O que declara |
+|---|---|
+| `casos-de-uso.ts` | A lista COMPLETA de ações do produto: `AgendarAtendimento`, `CancelarAtendimento`, `LerAgenda`, `ListarConexoes`, `DesconectarAgenda`, `EmitirNota`, `ConsultarNota`, `CancelarNota` — com os tipos de entrada e saída de cada uma. |
+
+**Leia este arquivo como o cardápio do app.** É literalmente a lista de ferramentas que
+o agente de WhatsApp vai receber: cada caso de uso vira uma tool, com a mesma entrada e
+a mesma saída. Por isso as entradas são objetos planos e serializáveis, e não classes —
+um modelo de linguagem precisa conseguir preencher isso em JSON.
+
+## `saida/` — o que o app precisa do mundo
+
+| Arquivo | O que declara | Quem cumpre hoje |
+|---|---|---|
+| `agenda-externa.ts` | `AgendaExterna` (listar, buscar por atendimento, criar, remarcar, cancelar) e `ConexoesDeAgenda` (listar conexão, desconectar) | `adaptadores/saida/google` |
+| `emissor-fiscal.ts` | `EmissorFiscal` (emitir, consultar, cancelar + se está configurado) | `adaptadores/saida/focus` |
+| `repositorio-negocio.ts` | `RepositorioNegocio` (negócio, profissional, serviço, cliente, expediente, allowlist de agendas, cliente por telefone) | `adaptadores/saida/demo` ⚠️ fixtures |
+
+## Duas decisões que valem explicação
+
+**Nenhuma porta recebe token.** Autenticar no provedor é problema do adaptador: ele
+recebe o `ContextoAgenda` e resolve o token sozinho. Antes, o token era lido na rota e
+passado adiante — o que obrigava toda rota nova a lembrar do passo, e esquecer era
+silencioso.
+
+**Toda porta de saída recebe `ContextoTenant`**, mesmo que o adaptador de demonstração
+ignore. É a costura multi‑inquilino: quando o banco entrar, a assinatura já está certa e
+não existe caso de uso lendo cadastro sem dizer de quem.
