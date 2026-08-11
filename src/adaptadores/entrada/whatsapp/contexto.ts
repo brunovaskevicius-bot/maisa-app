@@ -56,6 +56,30 @@ const INSTANCIA = (process.env.EVOLUTION_INSTANCIA ?? "").trim();
 
 const digitos = (v: string) => v.replace(/\D/g, "");
 
+/**
+ * ⚠️ FLAG DE TESTE, DESLIGADA POR PADRÃO — e ela reabre o risco de loop.
+ *
+ * Ligada (`=1`), a MAISA passa a responder mensagens que saíram da própria conta, desde
+ * que tenham vindo de um APARELHO (ver `APARELHOS` e o bloco do `fromMe` abaixo). Serve
+ * para o caso em que o número da instância é o número do dono e ele quer testar mandando
+ * mensagem para si mesmo, sem precisar de um segundo celular.
+ *
+ * Fica atrás de flag porque a proteção passa a depender de um campo do provedor (`source`)
+ * em vez de uma regra absoluta (`fromMe` = ignore). Se a Evolution mudar o valor de
+ * `source` para envios de API numa versão futura, o resultado é a MAISA conversando
+ * consigo mesma indefinidamente, gastando token, sem ninguém do outro lado. Em produção
+ * de verdade — número do negócio ≠ número do dono — isto não deve estar ligado.
+ */
+const RESPONDER_A_SI_MESMO = process.env.MAISA_RESPONDER_A_SI_MESMO === "1";
+
+/**
+ * `source` que significa "gente digitando num app". Medido na Evolution 2.3.7:
+ * o que a API envia sai como `web`, e é justamente ele que NÃO pode estar aqui — é o eco
+ * da própria MAISA. `unknown` também fica fora: origem que não se sabe não é prova de
+ * humano, e a dúvida tem que cair para o lado do silêncio.
+ */
+const APARELHOS = new Set(["ios", "android", "desktop"]);
+
 /** Comparação pelos 8 últimos dígitos: o provedor manda `5511988887777`, o env
  *  costuma ter `(11) 98888-7777`, e DDI/nono dígito são justamente o que varia
  *  entre as duas grafias do mesmo número. */
@@ -89,6 +113,10 @@ const PERMITIDOS = (process.env.MAISA_WHATSAPP_PERMITIDOS ?? "")
 
 /** Para o diagnóstico mostrar em que modo está, sem expor número inteiro. */
 export const modoDaLista = () => (PERMITIDOS.length === 0 ? "todos" : PERMITIDOS.map((n) => `…${n.slice(-4)}`));
+
+/** Idem para o flag de responder a si mesmo — é um modo de teste, e modo de teste
+ *  ligado em produção sem ninguém ver é como ele fica ligado para sempre. */
+export const respondeASiMesmo = () => RESPONDER_A_SI_MESMO;
 
 /**
  * Este número pode conversar? Compara pelos 8 últimos dígitos, igual a `mesmoNumero`:
@@ -278,11 +306,33 @@ export function normalizar(corpo: any): Envelope | null {
      * entraria aqui para ser descartada mais adiante, por acidente. */
     if (texto(corpo.event) && !ehMensagemNova(corpo.event)) return null;
 
-    /* Eco da própria mensagem enviada. Sem este descarte, a MAISA responde a si mesma
-     * — e um loop de bot conversando consigo é caro e visível para o cliente.
-     * ⚠️ Não é hipótese: a Evolution entrega o que NÓS mandamos de volta como
-     * `messages.upsert` com `fromMe: true`, no mesmo evento das mensagens recebidas. */
-    if (d.key.fromMe) return null;
+    /* ── ECO DA PRÓPRIA MENSAGEM ──
+     * A Evolution entrega o que NÓS mandamos de volta como `messages.upsert` com
+     * `fromMe: true`, no mesmo evento das recebidas. Sem descartar, a MAISA responde a si
+     * mesma — e um bot conversando consigo é loop infinito, pago, e visível para o cliente.
+     *
+     * Por padrão, todo `fromMe` cai fora. Ponto.
+     *
+     * ⚠️ MAS existe o caso de teste em que o número da instância É o número do dono: ele
+     * quer mandar mensagem para si mesmo e ver a MAISA responder. Aí as duas coisas — o
+     * que ele digita e o que a MAISA envia — chegam com `fromMe: true`, no mesmo chat, do
+     * mesmo número. `remoteJid`, `fromMe` e `pushName` são idênticos.
+     *
+     * O que difere é `source`, e isto foi MEDIDO na Evolution 2.3.7 (não presumido):
+     *   • `"web"` ....... mandado pela API (Baileys se apresenta como dispositivo web)
+     *   • `"ios"` / `"android"` / `"desktop"` ... digitado por gente, num app de verdade
+     *
+     * Então o eco da MAISA é sempre `web`, e é isso que segura o loop mesmo com o flag
+     * ligado: não é uma heurística sobre conteúdo, é a origem do envio.
+     *
+     * LIMITAÇÃO CONHECIDA: se o dono digitar pelo **WhatsApp Web**, a mensagem dele também
+     * vem como `web` e a MAISA não responde. É indistinguível de um envio da API, e nesse
+     * empate preferimos o silêncio — errar para o outro lado é o loop.
+     */
+    if (d.key.fromMe) {
+      if (!RESPONDER_A_SI_MESMO) return null;
+      if (!APARELHOS.has(texto(d.source).toLowerCase())) return null;
+    }
 
     const jid = texto(d.key.remoteJid);
 

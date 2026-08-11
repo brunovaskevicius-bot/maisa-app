@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { modoDaLista, SEGREDO } from "@/adaptadores/entrada/whatsapp/contexto";
+import { modoDaLista, respondeASiMesmo, SEGREDO } from "@/adaptadores/entrada/whatsapp/contexto";
 import { agenteConfigurado } from "@/composicao";
 import { EVOLUTION, evolutionAvisos, evolutionFaltando, isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 import { configurarWebhook, estadoDaInstancia } from "@/adaptadores/saida/evolution/cliente";
@@ -62,6 +62,11 @@ function configuracao() {
      * mensagem para o número é atendida pela IA. Fica visível para ser conferido de
      * propósito — fail-open que ninguém consegue ver é fail-open esquecido. */
     quemPodeFalar: modoDaLista(),
+    /* Modo de teste. `true` significa que a MAISA responde mensagens da própria conta
+     * (ver `contexto.ts`) — útil para testar sem um segundo celular, e errado em produção
+     * com número de negócio separado. Aparece aqui porque flag de teste que ninguém vê é
+     * flag de teste que fica ligada para sempre. */
+    respondeASiMesmo: respondeASiMesmo(),
   };
 }
 
