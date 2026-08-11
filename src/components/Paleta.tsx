@@ -55,7 +55,7 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
       })),
       ...D.CLIENTES.map((c) => ({
         chave: c.id, titulo: c.nome, grupo: "Clientes", seed: c.id,
-        sub: `${D.nomeServico(c.servicoId)} · ${c.telefone}`,
+        sub: `${st.nomeServico(c.servicoId)} · ${c.telefone}`,
         executar: abrir(c.id, "clientes"),
       })),
       ...D.CONVERSAS.map((c) => ({
@@ -63,7 +63,9 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
         sub: `conversa · ${c.telefone}`,
         executar: () => { st.selecionarConversa(c.id); st.irPara("conversas"); fechar(); },
       })),
-      ...D.SERVICOS.map((sv) => ({
+      // st.servicos, não D.SERVICOS: um serviço que o usuário criou também se procura por aqui,
+      // e um que ele renomeou tem que se achar pelo nome NOVO — é o nome que ele lembra.
+      ...st.servicos.map((sv) => ({
         chave: sv.id, titulo: sv.nome, grupo: "Serviços", icone: "tag",
         sub: `${fmt(sv.preco)} · ${sv.duracao} min`,
         executar: abrir(sv.id, "servicos"),

@@ -150,7 +150,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
         linhas: [
           ["Tomador", c.nome],
           ["CPF", c.cpf],
-          ["Serviço", D.nomeServico(c.servicoId)],
+          ["Serviço", st.nomeServico(c.servicoId)],
           ["Atendimentos no mês", String(c.atendimentos)],
           ["Competência", D.PERIODO],
           ["Número", nota.numero ?? "sai na emissão"],
@@ -217,7 +217,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
             ["Valor da nota", fmt(c.valor)],
             ["Atendimentos", String(c.atendimentos)],
             ["CPF do tomador", c.cpf],
-            ["Serviço prestado", D.nomeServico(c.servicoId)],
+            ["Serviço prestado", st.nomeServico(c.servicoId)],
           ],
         },
         recibo,
@@ -260,7 +260,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
 
     return {
       titulo: cli.nome, seed: cli.id,
-      sub: `${D.nomeServico(cli.servicoId)} · ${cli.canal} · desde ${cli.desde}`,
+      sub: `${st.nomeServico(cli.servicoId)} · ${cli.canal} · desde ${cli.desde}`,
       blocos: [
         {
           tipo: "stats", key: "ficha", label: "Ficha",
@@ -269,7 +269,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
             ["E-mail", cli.email],
             ["CPF", cli.cpf],
             ["Atendimento", cli.canal],
-            ["Serviço principal", D.nomeServico(cli.servicoId)],
+            ["Serviço principal", st.nomeServico(cli.servicoId)],
             ["Cliente desde", cli.desde],
           ],
         },
@@ -362,7 +362,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
           // Espelho do "Quem faz" do serviço, e com a mesma correção: um id órfão
           // sai da lista em vez de derrubar a gaveta.
           itens: pr.servicoIds.flatMap((sid) => {
-            const sv = D.servico(sid);
+            const sv = st.servicoDe(sid);
             if (!sv) return [];
             return [{
               id: sid, nome: sv.nome,
@@ -389,6 +389,8 @@ export function useDetalhe(id: string | null): Detalhe | null {
     const disponiveis = st.servicos.filter((sv) => st.svcAtivo(sv.id));
     const svEscolhido = r.servicoId ? st.servicoDe(r.servicoId) : undefined;
     const completo = !!r.clienteId && !!r.servicoId;
+    const { enviando, erro } = st.rascunhoEstado;
+    const contaAg = st.googleDe(r.profissionalId);
     return {
       titulo: "Novo atendimento",
       sub: `${r.data === D.HOJE.iso ? "hoje" : D.rotuloLongo(r.data)}, ${D.hhmm(r.inicio)}, com ${D.primeiroNome(D.nomeProfissional(r.profissionalId))}`,
@@ -414,13 +416,36 @@ export function useDetalhe(id: string | null): Detalhe | null {
             },
           ],
         },
+        /* Onde isto vai parar, dito ANTES de acontecer. Marcar deixou de ser uma anotação
+         * no navegador e virou um evento na agenda de verdade — com link do Meet, e visível
+         * para quem mais tenha acesso àquela conta. Quem clica precisa saber disso pelo
+         * botão, não pelo resultado. */
+        ...(completo && !erro
+          ? [{
+            tipo: "texto" as const, key: "onde", label: "Onde vai ser criado",
+            texto: contaAg
+              ? `Na agenda do Google de ${D.primeiroNome(D.nomeProfissional(r.profissionalId))} (${contaAg.googleEmail}), com link do Meet. O cliente NÃO é convidado por e-mail.`
+              : `Na agenda do Google de ${D.primeiroNome(D.nomeProfissional(r.profissionalId))}, com link do Meet.`,
+          }]
+          : []),
         ...(completo
           ? []
           : [{ tipo: "aviso" as const, key: "falta", tone: "warn" as const, texto: "Escolha o cliente e o serviço para marcar." }]),
+        /* A falha fica NA GAVETA, não num toast. O toast some sozinho e leva embora a única
+         * explicação de por que o bloco não apareceu na grade — e aqui ela vem ao lado do
+         * botão que vai ser clicado de novo. */
+        ...(erro
+          ? [{ tipo: "aviso" as const, key: "erro", tone: "danger" as const, texto: erro }]
+          : []),
       ],
       acoes: [
         { label: "Descartar", onClick: () => st.descartarRascunho() },
-        { label: "Marcar atendimento", primaria: true, desabilitada: !completo, onClick: () => st.confirmarRascunho() },
+        {
+          label: enviando ? "Criando no Google…" : erro ? "Tentar de novo" : "Marcar atendimento",
+          primaria: true,
+          desabilitada: !completo || enviando,
+          onClick: () => st.confirmarRascunho(),
+        },
       ],
     };
   }
@@ -432,6 +457,9 @@ export function useDetalhe(id: string | null): Detalhe | null {
   const sv = st.servicoDe(id);
   if (sv) {
     const on = st.svcAtivo(sv.id);
+    // `D.servico` DE PROPÓSITO, e é o único lugar da tela que ainda pergunta ao catálogo de
+    // partida: a pergunta aqui não é "quanto custa hoje", é "este serviço nasceu com o app?".
+    // Trocar por `st.servicoDe` responderia sempre que sim e sumiria com o botão de excluir.
     const novo = !D.servico(sv.id); // criado pelo usuário → pode ser excluído
     return {
       titulo: sv.nome, sub: `${sv.categoria} · ${fmt(sv.preco)} · ${sv.duracao} min`,
@@ -555,76 +583,60 @@ export function useDetalhe(id: string | null): Detalhe | null {
     }
 
     /* ── Google Calendar + Meet ──
-     * O evento vai para a agenda do PROFISSIONAL do atendimento, então a ação só
-     * existe se aquela agenda estiver conectada. */
-    const evento = st.eventoGoogleDe(ag.id);
+     * Não há mais "criar evento": o atendimento JÁ É o evento. O que existe aqui é o que
+     * se faz com um evento que existe — mandar o link, abrir no Google, cancelar. */
     const conexaoAg = st.googleDe(ag.profissionalId);
     const ocupadoAg = st.googleOcupado(ag.id);
+    const pedindoCancelar = st.cancelarPedido === ag.id;
 
-    /* Depois de criado, a data vem do ISO GRAVADO. Antes isso era essencial porque a
-     * previsão andava 7 dias por semana; hoje as datas são reais e as duas coincidem.
-     * Continua lendo do ISO mesmo assim: o que está no Google é a verdade sobre o que
-     * está no Google, e um evento arrastado por fora do app diverge da tela. */
-    const quandoGoogle = evento?.inicioISO ? rotuloDeISO(evento.inicioISO) : D.rotuloLongo(ag.data);
-    const horaGoogle = evento?.inicioISO ? horaDeISO(evento.inicioISO) : D.hhmm(ag.inicio);
-
-    if (evento) {
-      if (evento.meetLink) {
-        const link = evento.meetLink;
-        // wa.me com texto pronto: abre o WhatsApp (app ou web) com a mensagem digitada,
-        // faltando só apertar enviar. É o envio REAL possível hoje — a MAISA que dispara
-        // sozinha depende da API oficial, que este protótipo ainda não tem.
-        const msg = `Oi, ${D.primeiroNome(ag.cliente.nome)}! Seu ${ag.servico.nome.toLowerCase()} com ${D.primeiroNome(ag.profissional.nome)} é ${quandoGoogle}, às ${horaGoogle}. Link para entrar: ${link}`;
-        const zapAg = `https://wa.me/55${ag.cliente.telefone.replace(/\D/g, "")}?text=${encodeURIComponent(msg)}`;
-        acoes.push({
-          label: "Enviar link no WhatsApp",
-          primaria: !ehHoje,
-          onClick: () => window.open(zapAg, "_blank", "noopener"),
-        });
-      }
+    if (ag.meetLink) {
+      const link = ag.meetLink;
+      // wa.me com texto pronto: abre o WhatsApp (app ou web) com a mensagem digitada,
+      // faltando só apertar enviar. É o envio REAL possível hoje — a MAISA que dispara
+      // sozinha depende da API oficial, que este protótipo ainda não tem.
+      const msg = `Oi, ${D.primeiroNome(ag.cliente.nome)}! Seu ${ag.servico.nome.toLowerCase()} com ${D.primeiroNome(ag.profissional.nome)} é ${D.rotuloLongo(ag.data)}, às ${D.hhmm(ag.inicio)}. Link para entrar: ${link}`;
+      const zapAg = `https://wa.me/55${ag.cliente.telefone.replace(/\D/g, "")}?text=${encodeURIComponent(msg)}`;
       acoes.push({
-        label: ocupadoAg ? "Removendo…" : "Remover do Google",
-        tone: "danger",
-        desabilitada: ocupadoAg,
-        onClick: () => st.cancelarEventoGoogle(ag.id),
-      });
-    } else if (conexaoAg && !passado) {
-      acoes.push({
-        label: ocupadoAg ? "Criando no Google…" : "Criar evento com Meet",
+        label: "Enviar link no WhatsApp",
         primaria: !ehHoje,
-        desabilitada: ocupadoAg,
-        onClick: () => st.criarEventoGoogle(ag.id),
+        // Cliente vindo do evento e não do catálogo pode estar sem telefone.
+        desabilitada: !ag.cliente.telefone,
+        onClick: () => window.open(zapAg, "_blank", "noopener"),
       });
     }
+    if (ag.htmlLink) {
+      const link = ag.htmlLink;
+      acoes.push({ label: "Abrir no Google Calendar", onClick: () => window.open(link, "_blank", "noopener") });
+    }
+
+    /* Cancelar em DOIS toques, na própria gaveta.
+     *
+     * É a única ação do app que apaga algo numa agenda real — e, se houver convidado, o
+     * Google dispara um aviso de cancelamento por e-mail. Um clique só, num botão que fica
+     * ao lado de "Dar chegada", é acidente esperando acontecer. O segundo toque troca o
+     * rótulo e acende o aviso logo abaixo; sair da gaveta desfaz o pedido. */
+    acoes.push({
+      label: ocupadoAg ? "Cancelando…" : pedindoCancelar ? "Confirmar cancelamento" : "Cancelar atendimento",
+      tone: "danger",
+      desabilitada: ocupadoAg,
+      onClick: () => (pedindoCancelar ? st.cancelarAtendimento(ag.id) : st.pedirCancelamento(ag.id)),
+    });
 
     if (cvAg) acoes.push({ label: "Abrir conversa", onClick: irParaConversa(cvAg.id), primaria: !ehHoje && !acoes.length });
-    else if (!acoes.length) acoes.push({ label: "Fechar", onClick: st.fechar });
 
     const quando = ehHoje ? "hoje" : D.rotuloDia(ag.data);
 
-    /* Bloco do Google. A data que ele mostra é a do evento que está LÁ — que hoje
-     * coincide com a da tela, mas pode divergir se alguém remarcar direto no Google
-     * Calendar. Quando divergir, o certo é acreditar no Google. */
-    const blocoGoogle: Bloco | null = evento
-      ? {
-        tipo: "stats", key: "gcal", label: "No Google Calendar",
-        linhas: [
-          ["Data do evento", `${quandoGoogle}, ${horaGoogle}`],
-          ["Google Meet", evento.meetLink ? "link criado" : "sem link"],
-          ["Agenda de", ag.profissional.nome],
-        ],
-      }
-      : conexaoAg && !passado
-        ? {
-          tipo: "texto", key: "gcal", label: "Google Calendar",
-          texto: `A agenda de ${D.primeiroNome(ag.profissional.nome)} está conectada (${conexaoAg.googleEmail}). O evento seria criado em ${D.rotuloLongo(ag.data)}, às ${D.hhmm(ag.inicio)}, com link do Meet.`,
-        }
-        : !conexaoAg && !passado && st.google.status === "ok"
-          ? {
-            tipo: "texto", key: "gcal", label: "Google Calendar",
-            texto: `A agenda de ${D.primeiroNome(ag.profissional.nome)} ainda não está conectada. Conecte em Minha Equipe para criar o evento e o link do Meet.`,
-          }
-          : null;
+    /* Bloco do Google. Dia e hora saem do PRÓPRIO evento, lido na última busca — não há
+     * mais previsão a conferir contra o que está lá. Se alguém remarcar direto no Google
+     * Calendar, é isto aqui que muda na leitura seguinte. */
+    const blocoGoogle: Bloco = {
+      tipo: "stats", key: "gcal", label: "No Google Calendar",
+      linhas: [
+        ["Agenda de", conexaoAg ? `${ag.profissional.nome} (${conexaoAg.googleEmail})` : ag.profissional.nome],
+        ["Google Meet", ag.meetLink ? "link criado" : "sem link"],
+        ...(ag.recorrente ? ([["Repetição", "evento que se repete"]] as [string, string][]) : []),
+      ],
+    };
 
     return {
       titulo: ag.cliente.nome, seed: ag.cliente.id,
@@ -638,7 +650,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
             ["Duração", `${ag.duracao} min`],
             ["Profissional", ag.profissional.nome],
             ["Valor", fmt(ag.servico.preco)],
-            ["Telefone", ag.cliente.telefone],
+            ["Telefone", ag.cliente.telefone || "—"],
           ],
         },
         {
@@ -657,11 +669,23 @@ export function useDetalhe(id: string | null): Detalhe | null {
                     ? "Em atendimento agora."
                     : "Confirmado pelo WhatsApp com a MAISA.",
         },
-        ...(blocoGoogle ? [blocoGoogle] : []),
+        blocoGoogle,
+        /* Serviço ou cliente que este navegador não conhece — os dados vieram gravados no
+         * próprio evento. Sem esta linha, o preço "R$ 0,00" de um serviço criado noutro
+         * aparelho pareceria um erro de cadastro em vez do que é: informação que ficou do
+         * outro lado. */
+        ...(ag.soltoDoCatalogo
+          ? [{ tipo: "texto", key: "solto", label: "Fora do catálogo deste aparelho", texto:
+              "Este atendimento foi marcado com um serviço (ou cliente) que só existe no navegador em que foi criado. O que aparece aqui é o que ficou gravado no evento do Google — nome, duração e valor da época. Ele funciona normalmente; só não está ligado ao catálogo." } as Bloco]
+          : []),
         ...(!ag.confirmado && !passado
           ? [{ tipo: "aviso", key: "av", texto: ehHoje
               ? "Sem confirmação, o horário pode furar. Vale uma ligação se estiver perto da hora."
               : "Sem confirmação ainda. Falta tempo — a MAISA cobra sozinha até lá." } as Bloco]
+          : []),
+        ...(pedindoCancelar
+          ? [{ tipo: "aviso", key: "canc", tone: "danger", texto:
+              `Cancelar apaga o evento de ${D.rotuloLongo(ag.data)}, ${D.hhmm(ag.inicio)}, da agenda do Google${ag.meetLink ? " (o link do Meet para de funcionar)" : ""}. Se houver convidado, ele recebe o aviso de cancelamento. Não dá para desfazer.` } as Bloco]
           : []),
       ],
       acoes,

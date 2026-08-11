@@ -53,7 +53,10 @@ export async function POST(request: Request) {
   if (barrado) return barrado;
 
   const body = await request.json().catch(() => ({} as any));
-  const agId = String(body?.agendamentoId ?? "");
+  // O uuid é cunhado pelo NAVEGADOR, antes do POST, e é o que torna a criação
+  // idempotente — ver `buscarPorProp` abaixo. Um id gerado aqui não serviria: ele
+  // nasceria diferente a cada tentativa, que é exatamente o problema.
+  const maisaAg = String(body?.maisaAg ?? "");
   const comMeet = body?.comMeet !== false; // padrão: com Meet
 
   // Convidar o cliente por e-mail é OPT-IN, e o padrão é NÃO convidar.
@@ -96,9 +99,19 @@ export async function POST(request: Request) {
   const doCatalogo = D.servico(servicoId);
   const duracao = Number(body?.duracao ?? doCatalogo?.duracao);
   const nomeServico = String(body?.servicoNome ?? doCatalogo?.nome ?? "Atendimento").slice(0, 120);
+  const valorServico = Number(body?.servicoValor ?? doCatalogo?.preco ?? 0);
+  // Nome e telefone do cliente também podem vir do corpo, pela mesma razão do serviço:
+  // eles serão GRAVADOS no evento (ver PROPS) para o app funcionar noutro navegador.
+  const nomeCliente = String(body?.clienteNome ?? cliente?.nome ?? "Cliente").slice(0, 120);
+  const telCliente = String(body?.clienteTelefone ?? cliente?.telefone ?? "").slice(0, 40);
 
-  if (!agId || !profissional || !Number.isFinite(inicio) || !Number.isFinite(duracao)) {
+  if (!profissional || !Number.isFinite(inicio) || !Number.isFinite(duracao)) {
     return NextResponse.json({ ok: false, status: "payload_invalido" }, { status: 400 });
+  }
+  // O uuid é a chave de idempotência: se vier vazio ou malformado, a proteção contra
+  // evento duplicado simplesmente não existe, e é melhor recusar do que criar às cegas.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(maisaAg)) {
+    return NextResponse.json({ ok: false, status: "payload_invalido", info: "Identificador do atendimento ausente." }, { status: 400 });
   }
   // Só profissional que é coluna da Agenda — as três rotas usam o mesmo critério.
   // Com D.profissional() sozinho, "pr4" (existe na equipe, não tem coluna) passava
@@ -141,10 +154,30 @@ export async function POST(request: Request) {
   try {
     const { token, email } = await acessoValido(profissionalId);
 
-    const nomeCliente = cliente?.nome ?? "Cliente";
+    /* IDEMPOTÊNCIA — pergunta antes de criar.
+     *
+     * O caminho que isto cobre não é o duplo clique (a trava no cliente já pega esse):
+     * é o POST que CHEGOU ao Google, criou o evento, e perdeu a resposta na volta — rede
+     * caindo, aba fechando, timeout do runtime. Sem esta consulta, a tentativa seguinte
+     * cria um segundo evento às 14h para o mesmo cliente, e nada na tela explica de onde
+     * saiu o segundo. O `requestId` do Meet, que já existia, dedupla a CONFERÊNCIA e não
+     * o evento — proteção parecida o bastante para enganar, e no lugar errado. */
+    const jaExiste = await G.buscarPorProp({
+      token, chave: G.PROPS.ag, valor: maisaAg, perto: inicioISO,
+    });
+    if (jaExiste) {
+      return NextResponse.json({
+        ok: true, status: "ja_existia", googleEmail: email,
+        eventId: jaExiste.eventId,
+        meetLink: jaExiste.meetLink ?? null,
+        htmlLink: jaExiste.htmlLink ?? null,
+        inicioISO, semMeet: comMeet && !jaExiste.meetLink,
+      });
+    }
+
     const ev = await G.criar({
       token,
-      chave: `maisa-${agId}`, // estável ⇒ retry não duplica a conferência
+      chave: `maisa-${maisaAg}`, // estável ⇒ retry não duplica a conferência
       inicio: inicioISO,
       fim: instanteISO(data, inicio + duracao / 60),
       // Etiqueta de dono no TÍTULO, não só na descrição.
@@ -159,10 +192,25 @@ export async function POST(request: Request) {
       descricao: [
         `Agendado pela MAISA · ${D.NEGOCIO.nome}`,
         `Profissional: ${profissional.nome}`,
-        cliente?.telefone ? `Telefone: ${cliente.telefone}` : "",
+        telCliente ? `Telefone: ${telCliente}` : "",
       ].filter(Boolean).join("\n"),
       emails: convidarCliente && cliente?.email ? [cliente.email] : [],
       comMeet,
+      // As marcas que fazem este evento voltar da leitura como ATENDIMENTO e não como
+      // compromisso pessoal. Sem elas o app criaria o evento e depois o leria em cinza,
+      // sem cliente e sem serviço — o pior dos dois mundos.
+      props: {
+        [G.PROPS.marca]: "1",
+        [G.PROPS.ag]: maisaAg,
+        [G.PROPS.pro]: profissionalId,
+        [G.PROPS.cli]: clienteId,
+        [G.PROPS.cliNome]: nomeCliente,
+        ...(telCliente ? { [G.PROPS.cliTel]: telCliente } : {}),
+        [G.PROPS.svc]: servicoId,
+        [G.PROPS.svcNome]: nomeServico,
+        [G.PROPS.svcDur]: String(duracao),
+        [G.PROPS.svcVal]: String(valorServico),
+      },
     });
 
     return NextResponse.json({

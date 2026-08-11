@@ -21,6 +21,30 @@ export function unsplash(id: string, w: number = 1600): string {
   return `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=${w}&q=80`;
 }
 
+/**
+ * Retrato 4:5 recortado NO ROSTO pelo próprio Unsplash (`fit=facearea`, do imgix).
+ *
+ * POR QUE NÃO É O `unsplash()` DE CIMA. Aquele devolve o quadro inteiro e deixa o
+ * recorte para o `object-fit: cover` do CSS, que corta pelo CENTRO GEOMÉTRICO. Em
+ * retrato vertical o rosto vive no terço de cima, então um cartão 4:5 cortado ao
+ * centro entrega testa cortada e muito peito — e num cartão de 80px isso não é
+ * "enquadramento discutível", é a foto não ter mais assunto. `facearea` detecta o
+ * rosto e centra nele; `facepad=3.2` é o quanto de folga entra em volta (1 = só o
+ * rosto, colado; acima de ~4 vira retrato de corpo). 3,2 dá cabeça + ombros.
+ *
+ * O CUIDADO QUE ISSO EXIGE, e ele NÃO é o que este comentário dizia antes: quando
+ * o detector não acha rosto, a URL responde **200** e cai calada num corte central.
+ * Medido com quatro fotos sem uma única pessoa (quarto vazio, parede com relógio,
+ * canto com plantas, sofá) — todas 200. Ou seja, o status HTTP não é teste de rosto;
+ * ele só pega ID inexistente (que é de onde vêm os 404 de verdade: IDs de
+ * `premium_photo-`/`flagged/`, que não existem sob `/photo-`).
+ * Então aqui vale a mesma regra do resto do arquivo, e com mais força: ID entra
+ * depois de OLHADO no navegador **já neste recorte**, não depois de um 200.
+ */
+export function unsplashRosto(id: string, w: number = 240, facepad = 3.2, razao = 1.25): string {
+  return `https://images.unsplash.com/photo-${id}?auto=format&fit=facearea&facepad=${facepad}&w=${w}&h=${Math.round(w * razao)}&q=80`;
+}
+
 /** Monta a URL do Pexels na largura pedida.
  *
  *  POR QUE EXISTE UMA SEGUNDA FONTE, num arquivo cuja primeira linha diz "Unsplash".
@@ -53,6 +77,40 @@ export function srcSetDe(construtor: (w: number) => string, larguras: number[]):
 
 /* --------------------------------- BARBEIROS ------------------------------- */
 export const imagensBarbeiros = {
+  /** O ato 2 da v3 — o cliente que saiu da fila.
+   *
+   *  ⚠️ TROCADA DUAS VEZES, E OS DOIS MOTIVOS IMPORTAM PARA QUEM FOR TROCAR DE NOVO.
+   *
+   *  1. O FUNDO TEM DE SER BRANCO, e isso é o requisito nº 1 — acima do assunto. A
+   *  figura é servida com `mix-blend-mode: multiply` sobre o fundo claro da seção, e
+   *  `multiply(fundo, 1) = fundo` é identidade algébrica: um estúdio de fundo BRANCO
+   *  devolve o fundo exato, sem uma linha de calibragem e sem PNG recortado. Fundo
+   *  cinza, bege, parede visível ou vinheta devolve um retângulo sujo flutuando.
+   *  (A foto anterior tinha fundo PRETO, que era o requisito quando a página era
+   *  escura e usava `screen`. Trocar o tema sem trocar a foto inverte o efeito.)
+   *  Medido: os quatro cantos desta são exatamente (255,255,255).
+   *
+   *  2. TEM DE TER CABELO À MOSTRA. A anterior usava boné, o que numa página de
+   *  barbearia é a única coisa que não pode estar na cabeça do cliente.
+   *
+   *  RECORTE PELO ROSTO, e aqui `unsplashRosto` é o certo (a versão anterior desta
+   *  nota dizia o contrário, porque a foto anterior era enquadrada em meio corpo e o
+   *  `facearea` jogava fora o gesto dos braços). O acervo do Unsplash quase não tem
+   *  busto masculino em fundo branco puro: o que existe é corpo inteiro isolado —
+   *  esta é uma delas —, e num corpo inteiro a cabeça sai do tamanho de uma moeda.
+   *  `facepad=5` devolve cabeça + ombros + torso, que é o enquadramento da seção.
+   *  Vale integralmente o aviso do `unsplashRosto`: quando o detector não acha rosto
+   *  a URL responde 200 e cai calada num corte central, então este recorte foi
+   *  OLHADO, não testado por status.
+   *
+   *  Conferida com o olho no recorte que vai ao ar: sem marca d'água, sem texto, sem
+   *  logo de terceiro, e a sombra do piso do estúdio fica FORA do corte (ela existe
+   *  no quadro inteiro e, sob `multiply`, viraria uma mancha cinza). */
+  figuraAto2: {
+    url: unsplashRosto("1666358086975-a98c4c908603", 900, 5, 4 / 3),
+    alt: "Rapaz jovem de cabelo curto degradê e barba aparada, camiseta escura, olhando para fora do quadro sobre fundo branco.",
+    srcSet: srcSetDe((w) => unsplashRosto("1666358086975-a98c4c908603", w, 5, 4 / 3), [420, 640, 900, 1200]),
+  },
   /** herói — a craft em close, luz quente e baixa */
   hero: {
     url: unsplash("1503951914875-452162b0f3f1"),
@@ -126,6 +184,120 @@ export const clientesBarbeiros: MktImagem[] = [
     url: unsplash("1500648767791-00dcc994a43e", 480),
     alt: "Retrato de um homem de cabelo escuro e suéter cinza, sobre fundo neutro.",
   },
+];
+
+/** Os rostos da RODA da dobra (v3 de barbeiros; a v2 usava os mesmos doze
+ *  primeiros). São rapazes na faixa que a barbearia atende todo dia, em close, e
+ *  é isso que a peça precisa: a 70px de largura, plano aberto não tem rosto, tem
+ *  mancha.
+ *
+ *  TRINTA E DOIS, e o número tem uma razão de desenho: a roda desenha 64 cartões,
+ *  então 32 fotos é o ponto em que cada rosto aparece DUAS vezes na peça inteira e
+ *  o anel de dentro (26 cartões) não repete ninguém. Com doze — como era na v2 —
+ *  cada pessoa aparecia cinco vezes e a coroa lia como padrão de estampa em vez de
+ *  multidão. Acrescentar mais reduz a repetição na mesma proporção.
+ *
+ *  TODOS FORAM ABERTOS E OLHADOS, um por um, JÁ NO RECORTE `facearea` em que
+ *  aparecem na tela — não no quadro original. É a diferença que importa: o crop do
+ *  rosto é outro enquadramento, e candidatos ótimos no quadro cheio viram olho e
+ *  boca sem cabeça no facepad usado. Também saem os preto-e-branco (a roda fica
+ *  manchada de cinza no meio da cor), os de perfil extremo, e os de 28+ anos, que
+ *  puxam a peça para "homem de negócios" em vez de "quem senta na cadeira".
+ *
+ *  ⚠️ CORREÇÃO DE UMA ARMADILHA QUE ESTAVA DOCUMENTADA ERRADA AQUI. A versão
+ *  anterior deste comentário dizia que `fit=facearea` responde 404 quando não
+ *  detecta rosto, e que por isso o status HTTP servia de filtro. É FALSO, e foi
+ *  medido: quarto vazio, parede com relógio e canto com plantas — quatro fotos sem
+ *  uma única pessoa — respondem 200 nessa URL. O imgix cai calado num corte
+ *  central. O 404 real vem de outra coisa: IDs de `plus.unsplash.com/premium_photo-`
+ *  e de `images.unsplash.com/flagged/photo-`, que simplesmente não existem sob
+ *  `/photo-` (é o que acontece quando se monta a lista a partir de qualquer
+ *  `urls.raw` da busca, sem filtrar o prefixo).
+ *  Consequência prática: **200 não é prova de rosto**. Só o olho é. O status serve
+ *  para pegar ID inexistente, e nada mais.
+ *
+ *  ANÔNIMOS, e aqui isso é mais do que boa prática: veja o cabeçalho do
+ *  v3/dados.ts sobre a frase que fica no centro da roda. */
+/* ══════════════════════════════════════════════════════════════════════════
+ * OS DEZESSEIS PRIMEIROS SÃO O CONJUNTO DE BARBEARIA (08/08/2026).
+ *
+ * ⚠️ A ORDEM DESTE TRECHO É CONTRATO, NÃO ARRUMAÇÃO. `v3/Orbita.tsx` faz
+ * `rostosOrbita.slice(0, 16)` — quem reordenar o arquivo troca a dobra da v3 sem
+ * nenhum erro aparecer. `completa-v2/Orbita.tsx` usa a lista INTEIRA (lê `.length` e
+ * indexa), então os antigos continuam abaixo: apagá-los reduziria a variedade do
+ * anel de 26 cartões de lá e faria as pessoas se repetirem.
+ *
+ * POR QUE TROCAR. Os rostos antigos eram retratos genéricos de rua e estúdio. A LP é
+ * de BARBEARIA, e o que se quer no anel é gente com corte visível ou dentro da
+ * barbearia — a peça precisa dizer do que trata antes de qualquer texto ser lido.
+ *
+ * ⚠️ EMENDA À REGRA DE IDADE ESCRITA LOGO ACIMA. O comentário original manda excluir
+ * "os de 28+ anos, que puxam a peça para 'homem de negócios' em vez de quem senta na
+ * cadeira". A regra era certa quando os retratos eram genéricos: ali, homem de terno
+ * de meia-idade lia como executivo. Com foto DENTRO da barbearia o sinal se inverte —
+ * o senhor de cabelo branco na cadeira (índice 10) e o menino de capa (índice 11) são
+ * exatamente "quem senta na cadeira", e são a faixa que mais volta ao barbeiro.
+ * LIMITE DA EXCEÇÃO: vale para retrato com contexto de barbearia. Retrato de estúdio
+ * de homem 28+ sem corte visível continua fora, pelo motivo original.
+ *
+ * TODOS FORAM OLHADOS no recorte `facearea` real, em folha de contato gerada por
+ * `.claude/rostos-candidatos.mjs` — que existe justamente porque, como está
+ * documentado acima, 200 não é prova de rosto. Dos 92 candidatos que as buscas
+ * trouxeram, ~20 responderam 200 com quadro cinza e vários eram nuca, mão com
+ * máquina ou cabelo no chão. Nenhum deles está aqui.
+ * ══════════════════════════════════════════════════════════════════════════ */
+export const rostosOrbita: MktImagem[] = [
+  { url: unsplashRosto("1456327102063-fb5054efe647"), alt: "Homem de barba curta e corte degradê nas laterais, olhando para a câmera." },
+  { url: unsplashRosto("1542909168-82c3e7fdca5c"), alt: "Rapaz asiático de cabelo escuro e corte curto, retrato de frente sobre fundo neutro." },
+  { url: unsplashRosto("1560787313-5dff3307e257"), alt: "Homem negro de corte baixo e barba rente, retrato fechado ao ar livre." },
+  { url: unsplashRosto("1654097800183-574ba7368f74"), alt: "Cliente de capa listrada na cadeira da barbearia, com o corte recém-terminado." },
+  { url: unsplashRosto("1600603406200-5b2a104684ac"), alt: "Rapaz sorrindo de camiseta clara e corte curto, contra parede de tijolo branco." },
+  { url: unsplashRosto("1562004760-aceed7bb0fe3"), alt: "Homem de camisa escura e corte degradê, ajeitando a barba diante de parede de tijolos." },
+  { url: unsplashRosto("1599834562135-b6fc90e642ca"), alt: "Rapaz de topete e barba aparada, sob luz quente de fim de tarde." },
+  { url: unsplashRosto("1703792684940-a05aa0f1188f"), alt: "Homem de corte degradê alto e gola amarela, olhando para baixo." },
+  { url: unsplashRosto("1619182597083-17bda72c1d56"), alt: "Rapaz de corrente prateada e cabelo escuro penteado para cima, retrato de frente." },
+  { url: unsplashRosto("1614010966237-74489a16848b"), alt: "Homem negro de barba cheia e camisa preta, retrato sob luz baixa." },
+  { url: unsplashRosto("1544169099-f50a2d7457d8"), alt: "Senhor de cabelo branco sentado na cadeira da barbearia, de camisa azul-clara." },
+  { url: unsplashRosto("1704072650662-76df3af134a7"), alt: "Menino de capa branca na cadeira da barbearia, esperando o corte terminar." },
+  { url: unsplashRosto("1516646720587-727f6728837d"), alt: "Rapaz de cachos escuros e camiseta branca, dentro da barbearia sob luminária pendente." },
+  { url: unsplashRosto("1564564244660-5d73c057f2d2"), alt: "Homem sorrindo de camiseta branca e barba curta, ao ar livre." },
+  { url: unsplashRosto("1547558345-af5db4fe45ec"), alt: "Rapaz de camisa listrada e barba aparada, retrato de frente com fundo esverdeado." },
+  { url: unsplashRosto("1740102075520-fe22a53035cf"), alt: "Rapaz de cabelo comprido e ondulado, de camiseta clara, retrato de frente." },
+
+  /* ── daqui para baixo, o conjunto antigo (retratos genéricos). Continua servindo o
+     anel de 26 cartões da completa-v2; a v3 não chega a ver nenhum deles. ── */
+  { url: unsplashRosto("1681097561932-36d0df02b379"), alt: "Rapaz asiático de camiseta branca, cabelo curto, sobre fundo amarelo." },
+  { url: unsplashRosto("1604494747044-2e080876c5f1"), alt: "Rapaz de cabelo cacheado volumoso olhando para o lado, prédios ao fundo." },
+  { url: unsplashRosto("1747373354116-671ba01db71b"), alt: "Rapaz de bigode fino e suéter cinza, olhar direto para a câmera." },
+  { url: unsplashRosto("1536548665027-b96d34a005ae"), alt: "Rapaz sorrindo de camiseta azul escrita Brasil, ao ar livre." },
+  { url: unsplashRosto("1596478454926-473e1a88a639"), alt: "Rapaz negro de camiseta clara, com um mapa antigo na parede atrás." },
+  { url: unsplashRosto("1761358531581-06e457ed7744"), alt: "Rapaz de camisa de futebol branca fotografado de baixo, contra o céu azul." },
+  { url: unsplashRosto("1783305785910-20d54c918bff"), alt: "Rapaz loiro de perfil, brinco na orelha e camiseta preta." },
+  { url: unsplashRosto("1521817760127-e15c26f67fd2"), alt: "Rapaz de cabelo black power e regata verde, olhando para a câmera." },
+  { url: unsplashRosto("1616651630258-e3b5b01f416d"), alt: "Rapaz de jaqueta escura sob luz baixa, corte alto e degradê nas laterais." },
+  { url: unsplashRosto("1779497056467-d21bd2203946"), alt: "Rapaz de cabelo cacheado e camisa rosa, com o sol batendo de trás." },
+  { url: unsplashRosto("1610637403807-2418ebb6c337"), alt: "Rapaz com a mão no queixo, camisa verde-clara, luz quente e fundo desfocado." },
+  { url: unsplashRosto("1518809595274-1471d16319b7"), alt: "Rapaz negro de gola alta escura, retrato fechado sobre fundo preto." },
+  { url: unsplashRosto("1776111848018-1f0c49e2864b"), alt: "Rapaz de polo cor de pêssego agachado contra fundo branco, olhando direto para a câmera." },
+  { url: unsplashRosto("1783379793595-e2790e191285"), alt: "Jovem negro de brinco e jaqueta estampada escura, mão perto do queixo, sob luz lateral." },
+  { url: unsplashRosto("1633112639964-f8c9d360dc75"), alt: "Rapaz de cachos volumosos, brinco e camiseta cinza-escura, com sorriso leve em fundo claro." },
+  { url: unsplashRosto("1726140871959-89036cd0d6a3"), alt: "Rapaz de cabelo cacheado castanho-claro e camiseta preta, encostado numa parede de concreto." },
+  { url: unsplashRosto("1780362697057-4c0ad1603cdc"), alt: "Rapaz de óculos redondos de metal e camiseta preta, com luzes da cidade desfocadas ao entardecer." },
+  { url: unsplashRosto("1764532140242-9be85f61a417"), alt: "Rapaz de jaqueta escura sobre camiseta branca de gola com botões, em fundo cinza-claro." },
+  { url: unsplashRosto("1653055645127-54ec96add7b5"), alt: "Rapaz de cabelo escuro penteado para trás e camisa florida, com folhagem desfocada atrás." },
+  { url: unsplashRosto("1570003179394-40b59f9b4a5a"), alt: "Rapaz asiático de óculos redondos e camiseta branca, com um prédio amarelo ao fundo." },
+  { url: unsplashRosto("1653324502559-ae8d4aa4dd57"), alt: "Rapaz negro de camisa esportiva amarela, posando numa rua com fundo desfocado." },
+  { url: unsplashRosto("1642929548399-4056fa2ec086"), alt: "Rapaz negro de dreads sob gorro preto e camiseta preta, sorrindo em fundo cinza de estúdio." },
+  { url: unsplashRosto("1578537434069-61a689064b4d"), alt: "Rapaz asiático de jaqueta escura junto a uma janela, com a cidade desfocada ao fundo." },
+  { url: unsplashRosto("1784816836381-10ced6608354"), alt: "Rapaz negro de jaqueta jeans sobre camiseta branca, sentado em banco branco com fundo bege." },
+  { url: unsplashRosto("1782069327238-c154984f06ac"), alt: "Rapaz indiano de barba rala e polo azul-marinho, retrato em fundo preto." },
+  { url: unsplashRosto("1735317146081-f8671e25855c"), alt: "Rapaz negro sorrindo largo, de camisa escura, sobre fundo azul vibrante." },
+  { url: unsplashRosto("1754639627042-5fdc896d7242"), alt: "Rapaz de cabelo black power e suéter branco de gola alta, em fundo azul-acinzentado." },
+  { url: unsplashRosto("1779760129536-538dac0e0891"), alt: "Rapaz de camisa social azul-clara ao ar livre, com vegetação desfocada atrás." },
+  { url: unsplashRosto("1599418175586-9355fef5c483"), alt: "Rapaz de camisa xadrez vermelha e preta, de pé perto de árvores verdes." },
+  { url: unsplashRosto("1690543364186-973ade5dd0c1"), alt: "Rapaz sorrindo aberto, de camiseta azul-esverdeada com alça de mochila no ombro." },
+  { url: unsplashRosto("1758214872926-7806dbb81e69"), alt: "Rapaz negro de dreads curtos com miçangas roxas e camiseta azul viva." },
+  { url: unsplashRosto("1773236237553-0950d3c31d20"), alt: "Rapaz negro de cabelo black power e óculos de grau, com jaqueta jeans clara ao ar livre." },
 ];
 
 /* -------------------------------- TERAPEUTAS ------------------------------- */

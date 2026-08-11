@@ -186,7 +186,16 @@ export default function FluxoHoje() {
     return (
       <div className="m-enter" style={s("flex:1;min-height:0;overflow-y:auto;padding:2px 16px 24px;display:flex;flex-direction:column;gap:14px")}>
         {st.fila.length > 0 && (
-          <div style={s("border:1px solid var(--border);border-radius:16px;background:var(--surface);display:flex;flex-direction:column;overflow:hidden")}>
+          /* `flex-shrink:0` não é enfeite: sem ele o painel some no celular assim que o dia tem
+             atendimento. Este contêiner é uma PÁGINA que rola (overflow-y:auto acima), então nada
+             aqui dentro deveria encolher — mas o `overflow:hidden` daqui (que existe só para o
+             raio arredondado cortar o cabeçalho) desliga a proteção do `min-height:auto` do
+             flexbox, e este vira o único filho encolhível da coluna. As seções de atendimento
+             abaixo não encolhem, então a sobra toda era descontada daqui: o painel ia a 2px (só as
+             bordas), com o texto ainda no DOM e legível por innerText — some da tela, não da
+             árvore, que é o que fazia o bug parecer coisa de estado e não de layout.
+             Com o dia vazio não havia disputa por espaço, e por isso ele nunca aparecia em perfil limpo. */
+          <div style={s("border:1px solid var(--border);border-radius:16px;background:var(--surface);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0")}>
             <PrecisaDeVoce />
           </div>
         )}

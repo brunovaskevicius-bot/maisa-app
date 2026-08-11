@@ -209,7 +209,13 @@ body:has(.mundo-terapeutas) {
 }
 .mkt-world p { margin: 0; }
 .mkt-world img { display: block; max-width: 100%; }
-.mkt-world a { color: inherit; text-decoration: none; }
+/* `:where()` tem especificidade ZERO, e aqui isso é o ponto, não um detalhe.
+   Escrito como `.mkt-world a` (0,1,1) este reset VENCIA `.mk-skip` (0,1,0) e pintava o
+   link de pular com a tinta do mundo em cima do fundo azul do CTA: medido, #0F172A
+   sobre #2563EB = 3,45:1, contra os 4,5 que 15,2px/700 exige. Justo o elemento que só
+   existe por acessibilidade era o único que reprovava. Com `:where`, qualquer classe
+   que declare `color` passa a ganhar, que é o que um reset deve fazer. */
+.mkt-world :where(a) { color: inherit; text-decoration: none; }
 .mkt-world :where(h1, h2, h3) { text-wrap: balance; }
 .mk-balance { text-wrap: balance; }
 .mk-pretty { text-wrap: pretty; }

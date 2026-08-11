@@ -81,6 +81,15 @@ export const EQUIPE: Profissional[] = [
  *  Nasce com horário e profissional (vieram do clique no vago); cliente e serviço faltam. */
 export type RascunhoAgendamento = {
   id: string;
+  /**
+   * uuid cunhado quando o rascunho nasce, e mandado ao servidor na criação.
+   *
+   * É a chave de IDEMPOTÊNCIA: o servidor procura um evento com esta marca antes de
+   * inserir. Nasce aqui, e não na hora de enviar, justamente para sobreviver a uma
+   * falha — "Tentar de novo" reusa a mesma chave e encontra o evento que a primeira
+   * tentativa talvez tenha criado, em vez de criar um segundo.
+   */
+  maisaAg: string;
   /** Data ISO em que o clique caiu — com Semana e Mês na tela, o vago já não é sempre hoje. */
   data: string;
   profissionalId: string;
@@ -647,6 +656,9 @@ export const conversa = (id: string) => CONVERSAS.find((c) => c.id === id);
 
 export const nomeProfissional = (id: string) => profissional(id)?.nome ?? "—";
 export const primeiroNome = (nome: string) => nome.split(" ")[0];
+/* Só o catálogo DE PARTIDA — não enxerga o que o usuário renomeou. Nenhuma tela usa mais este:
+ * quem tem o store à mão usa `st.nomeServico`. Continua exportado para quem NÃO tem (a rota do
+ * Google, que roda no servidor), e lá é fallback de um nome que o cliente já manda pronto. */
 export const nomeServico = (id: string) => servico(id)?.nome ?? "—";
 export const nomeCliente = (id: string) => cliente(id)?.nome ?? "—";
 

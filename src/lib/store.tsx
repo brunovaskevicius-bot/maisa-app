@@ -27,9 +27,21 @@ export type AbaConversa = "todas" | "espera" | "maisa" | "ok";
 
 export type Assistente = { nome: string; tom: D.Tom; saudacao: string; ativa: boolean };
 
-/** Agendamento com tudo já resolvido — o que as telas consomem. */
+/**
+ * Um atendimento com tudo resolvido — o que as telas consomem.
+ *
+ * ⚠️ Ele **É** um evento do Google Calendar. Não existe atendimento fora de lá: o `id`
+ * deriva do `eventId`, e a única coisa que o app guarda por cima é a etapa do kanban.
+ * Apagou no Google, sumiu daqui. Abriu noutro navegador, está lá.
+ *
+ * Aqui morava um `EventoGoogle`, que era o VÍNCULO entre um agendamento do localStorage
+ * e o evento correspondente lá. Vínculo pressupõe dois lados; agora há um só.
+ */
 export type AgendamentoVivo = {
+  /** "ag:<eventId>". O prefixo é o que separa, na Gaveta, um atendimento de um
+   *  bloqueio (`bloq:`) e de um rascunho ainda não criado (`novo-…`). */
   id: string;
+  eventId: string;
   /** Data ISO, "YYYY-MM-DD". */
   data: string;
   inicio: number;
@@ -41,31 +53,34 @@ export type AgendamentoVivo = {
   cliente: D.Cliente;
   confirmado: boolean;
   etapa: D.Etapa;
-};
-
-/** Evento criado no Google Calendar para um agendamento.
- *
- *  Mora no localStorage, junto do resto: o Supabase guarda só os TOKENS. Os
- *  agendamentos deste app são o que o usuário marca no navegador — não existe tabela
- *  de agendamentos para pendurar um google_event_id. Manter o vínculo aqui é o que
- *  permite a integração ser real sem transformar o protótipo inteiro num app com banco.
- *
- *  ⚠️ Vínculo é o que ele é, e vínculo pressupõe DOIS lados. Na fatia 4 o atendimento
- *  passa a NASCER no Google (com `extendedProperties.private`) e deixa de haver um par
- *  para ligar — este tipo some junto. */
-export type EventoGoogle = {
-  eventId: string;
   meetLink?: string;
   htmlLink?: string;
-  /** De quem era a agenda — necessário para cancelar depois. */
+  /** Instância de série recorrente. A MAISA nunca cria uma — se houver, veio de fora. */
+  recorrente: boolean;
+  /** O catálogo local não conhece este serviço (ou cliente): os dados vieram gravados no
+   *  próprio evento. Acontece ao abrir noutro navegador um atendimento marcado com um
+   *  serviço que o usuário criou. Renderiza igual; a gaveta é que avisa. */
+  soltoDoCatalogo: boolean;
+};
+
+/** Um atendimento como o Google devolveu, antes de resolver profissional/serviço/cliente. */
+type AtendimentoLido = {
+  eventId: string;
+  data: string;
+  inicio: number;
+  fim: number;
+  duracao: number;
   profissionalId: string;
-  /** Instante REAL do evento ("2026-08-21T14:30:00-03:00"), como o servidor criou.
-   *
-   *  Gravado porque a previsão não serve depois: `semanasDeslocadas` depende de
-   *  Date.now() e salta 7 dias uma vez por semana. Sem isto, a gaveta passaria a
-   *  mostrar — e o WhatsApp a anunciar — uma data 7 dias à frente do evento que
-   *  está de fato no Google. */
-  inicioISO?: string;
+  clienteId: string;
+  clienteNome: string;
+  clienteTel: string;
+  servicoId: string;
+  servicoNome: string;
+  servicoValor: number;
+  confirmado: boolean;
+  meetLink?: string;
+  htmlLink?: string;
+  recorrente: boolean;
 };
 
 /** Um compromisso lido da agenda do Google que NÃO é um atendimento da MAISA.
@@ -101,26 +116,20 @@ type Persistido = {
   svcEdit: Record<string, Partial<D.Servico>>;
   /** Serviços criados pelo usuário — não existem em D.SERVICOS. */
   svcNovos: D.Servico[];
-  /** Os atendimentos. Não "os novos" — com os exemplos fora, esta lista é a única que o
-   *  app tem. O nome fica até a fatia 4, quando marcar passar a criar direto no Google.
+  /* Aqui moravam `novosAgendamentos` (os atendimentos) e `googleEventos` (o vínculo com
+   * o Google). Os dois saíram na fatia 4, e a razão é a mesma: o atendimento AGORA É o
+   * evento do Google. Guardar uma cópia local seria manter uma segunda verdade que
+   * começa igual e diverge no primeiro arrasto feito direto no Google Calendar.
    *
-   *  Aqui do lado morava um `posicoes`, um mapa que guardava o resultado de cada arrasto
-   *  POR FORA do agendamento. Ele existia por um motivo que deixou de valer: os exemplos
-   *  eram regerados por função pura, não havia registro para editar, só uma camada de
-   *  correções por cima. Agora há registro — arrastar edita o próprio atendimento.
-   *
-   *  E a camada precisava SUMIR, não só ficar sem uso. No dia em que o Google mandar nas
-   *  datas, uma posição local velha ganharia da real: o Bruno moveria o evento no Google
-   *  Calendar e o app o moveria de volta, sozinho, sem nada na tela explicando por quê. */
-  novosAgendamentos: D.Agendamento[];
+   * O que sobrou por cima do evento é `etapas`, chaveado por `ag:<eventId>`. Fica aqui e
+   * não lá de propósito: pôr a etapa no Google transformaria cada arrasto do kanban num
+   * PATCH numa agenda real. */
   cliAtivo: Record<string, boolean>;
   assumidas: Record<string, boolean>;
   resolvidos: Record<string, boolean>;
   enviadas: Record<string, D.Msg[]>;
   notas: Record<string, D.Nota>;
   proximoNumero: number;
-  /** Eventos já criados no Google, por id de agendamento. */
-  googleEventos: Record<string, EventoGoogle>;
   assistente: Assistente;
   dias: D.Dia[];
   cfg: Record<D.ChaveCfg, boolean>;
@@ -171,6 +180,53 @@ const SEM_BLOQUEIO: Bloqueio[] = [];
  *  cache passa a ser por profissional. */
 const PID_AGENDA = D.COLUNAS_AGENDA[0];
 
+/* ── quando o catálogo local não conhece o que veio do Google ──
+ *
+ * O caso real não é exótico: o Bruno marca no computador com um serviço que ele mesmo
+ * criou (que vive só no localStorage dali) e abre o app no celular. O `maisaSvc` do evento
+ * aponta para um id que aquele navegador nunca viu.
+ *
+ * Sem isto o atendimento simplesmente não renderizaria — some da grade sem aviso, e some
+ * DEPOIS de ter aparecido no outro aparelho. Com as cópias gravadas no próprio evento (ver
+ * PROPS em calendario.ts) ele renderiza inteiro; o que se perde é a ligação com o catálogo,
+ * e é isso que `soltoDoCatalogo` marca para a gaveta poder dizer. */
+const servicoDoEvento = (e: AtendimentoLido): D.Servico => ({
+  id: e.servicoId || `sv-google-${e.eventId}`,
+  nome: e.servicoNome,
+  categoria: "Extra",
+  preco: e.servicoValor,
+  duracao: e.duracao,
+  profissionalIds: [e.profissionalId],
+  // `ativo: false` — ele não está no catálogo, então não deve aparecer como opção para
+  // marcar o PRÓXIMO atendimento. Serve só para descrever este.
+  ativo: false,
+});
+
+const clienteDoEvento = (e: AtendimentoLido): D.Cliente => ({
+  id: e.clienteId || `cl-google-${e.eventId}`,
+  nome: e.clienteNome,
+  telefone: e.clienteTel,
+  email: "",
+  cpf: "",
+  canal: "Online",
+  ativo: true,
+  desde: "—",
+  servicoId: e.servicoId,
+  atendimentos: 0,
+  valor: 0,
+});
+
+/** uuid v4. `randomUUID` existe em todo navegador com https (ou localhost); o fallback é
+ *  para o resto e não precisa ser criptográfico — só precisa não repetir. */
+function uuid(): string {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = (Math.random() * 16) | 0;
+    return (ch === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 const INICIAL: Persistido = {
   __v: 3,
   etapas: {},
@@ -178,14 +234,12 @@ const INICIAL: Persistido = {
   svcAtivo: {},
   svcEdit: {},
   svcNovos: [],
-  novosAgendamentos: [],
   cliAtivo: {},
   assumidas: {},
   resolvidos: {},
   enviadas: {},
   notas: {},
   proximoNumero: D.PROXIMO_NUMERO,
-  googleEventos: {},
   assistente: {
     nome: "MAISA",
     tom: "amigável",
@@ -208,10 +262,14 @@ const INICIAL: Persistido = {
  *   novosAgendamentos — mesmo problema: `dia: 22` não aponta para lugar nenhum.
  *   etapas            — chaveado por ids (`ag-17-3`) que o gerador não produz mais.
  *
+ * `googleEventos` entrou na lista dos descartados depois, na fatia 4: ele era o VÍNCULO
+ * entre um agendamento local e um evento do Google, e agora não há agendamento local para
+ * vincular. Os eventos que ele apontava seguem de pé no Google — e são LIDOS de volta,
+ * que é justamente por que o vínculo deixou de ser necessário. Não se perde nada.
+ *
  * O que ATRAVESSA é o que custa caro perder: `notas` guarda referências REAIS da Focus
  * e números de NFS-e que foram emitidos de verdade na prefeitura — apagar isso seria
- * apagar documento fiscal do histórico da tela. `googleEventos` guarda eventIds de
- * eventos que estão de pé no Google Calendar agora.
+ * apagar documento fiscal do histórico da tela.
  *
  * ⚠️ A v2 NÃO é apagada. Ela fica como a única saída de emergência se esta conversão
  * estiver errada de um jeito que só apareça em uso. Sai numa versão futura.
@@ -220,19 +278,24 @@ function migrarDaV2(): string | null {
   const velho = localStorage.getItem(CHAVE_ANTIGA);
   if (!velho) return null;
   try {
-    // `posicoes` já não existe no formato de hoje, mas existia no v2 e é justamente um dos
-    // campos a DESCARTAR — o tipo precisa admiti-lo para o destructuring poder recusá-lo.
-    const v2 = JSON.parse(velho) as Partial<Persistido> & { posicoes?: Record<string, unknown> };
-    const { posicoes, novosAgendamentos, etapas, ...atravessa } = v2;
+    // Estes três já não existem no formato de hoje, mas existiam no v2 e são justamente
+    // campos a DESCARTAR — o tipo precisa admiti-los para o destructuring poder recusá-los.
+    const v2 = JSON.parse(velho) as Partial<Persistido> & {
+      posicoes?: Record<string, unknown>;
+      novosAgendamentos?: unknown[];
+      googleEventos?: Record<string, unknown>;
+    };
+    const { posicoes, novosAgendamentos, etapas, googleEventos, ...atravessa } = v2;
     const novo = JSON.stringify({ ...atravessa, __v: 3 });
     localStorage.setItem(CHAVE, novo);
     const perdidos = [
       Object.keys(posicoes ?? {}).length && "posições de arrasto",
       (novosAgendamentos ?? []).length && "atendimentos marcados no protótipo",
       Object.keys(etapas ?? {}).length && "etapas do kanban",
+      Object.keys(googleEventos ?? {}).length && "vínculos com eventos do Google (os eventos seguem lá)",
     ].filter(Boolean);
     if (perdidos.length) {
-      console.info(`[store] migrado v2 → v3. Não veio junto (era do calendário fixo): ${perdidos.join(", ")}.`);
+      console.info(`[store] migrado v2 → v3. Não veio junto: ${perdidos.join(", ")}.`);
     }
     return novo;
   } catch {
@@ -258,7 +321,11 @@ export type StoreValue = {
   agendamentoPorId: (id: string) => AgendamentoVivo | undefined;
   moverEtapa: (id: string, etapa: D.Etapa) => void;
   avancarEtapa: (id: string) => void;
-  reposicionar: (id: string, profissionalId: string, inicio: number, data?: string) => void;
+  /** Id do atendimento com um cancelamento à espera do segundo toque. */
+  cancelarPedido: string | null;
+  pedirCancelamento: (id: string) => void;
+  /** ⚠️ APAGA o evento na agenda real e avisa quem estiver convidado. Peça confirmação. */
+  cancelarAtendimento: (id: string) => void;
   /** Itens da fila "Precisa de você" que ainda não foram resolvidos. */
   fila: D.ItemFila[];
   resolverFila: (alvo: string) => void;
@@ -289,6 +356,8 @@ export type StoreValue = {
   /** Catálogo vivo: D.SERVICOS + edições + criados. As telas leem daqui, não de D.SERVICOS. */
   servicos: D.Servico[];
   servicoDe: (id: string) => D.Servico | undefined;
+  /** Nome pelo catálogo vivo. Prefira este a `D.nomeServico`, que só lê o catálogo de partida. */
+  nomeServico: (id: string) => string;
   editarServico: (id: string, patch: Partial<D.Servico>) => void;
   criarServico: () => void;
   excluirServico: (id: string) => void;
@@ -330,10 +399,13 @@ export type StoreValue = {
   /** Data ISO que a Agenda está mostrando. Começa em hoje. */
   diaSel: string;
   verDia: (data: string) => void;
-  /** Atendimento sendo marcado (clique num horário vago), antes de virar agendamento. */
+  /** Atendimento sendo marcado (clique num horário vago), antes de virar evento no Google. */
   rascunho: D.RascunhoAgendamento | null;
+  /** O POST em voo, e o que voltou se ele falhou. Quem mostra é a gaveta. */
+  rascunhoEstado: { enviando: boolean; erro?: string };
   novoAgendamento: (profissionalId: string, inicio: number, data: string) => void;
   editarRascunho: (patch: Partial<D.RascunhoAgendamento>) => void;
+  /** ⚠️ CRIA o evento na agenda real do profissional. */
   confirmarRascunho: () => void;
   descartarRascunho: () => void;
 
@@ -345,10 +417,6 @@ export type StoreValue = {
   /** Manda o navegador para o consentimento do Google (sai do app e volta). */
   conectarGoogle: (profissionalId: string) => void;
   desconectarGoogle: (profissionalId: string) => void;
-  /** Evento já criado para um agendamento, se houver. */
-  eventoGoogleDe: (agendamentoId: string) => EventoGoogle | undefined;
-  criarEventoGoogle: (agendamentoId: string) => void;
-  cancelarEventoGoogle: (agendamentoId: string) => void;
   /** Há chamada em voo para este id (agendamento ou profissional)? Desabilita o botão. */
   googleOcupado: (id: string) => boolean;
 
@@ -438,11 +506,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       const cru = localStorage.getItem(CHAVE) ?? migrarDaV2();
       if (cru) {
-        // `posicoes` saiu do formato (ver Persistido). Um v3 gravado antes disso ainda o
-        // traz, e o spread abaixo o devolveria ao disco a cada gravação — dado morto se
-        // reescrevendo em silêncio. Não vale uma v4: nada mais mudou de forma.
-        const { posicoes: _saiuDoFormato, ...p } =
-          JSON.parse(cru) as Partial<Persistido> & { posicoes?: unknown };
+        /* Campos que saíram do formato (ver Persistido). Um v3 gravado antes deles ainda os
+         * traz, e o spread abaixo os devolveria ao disco a cada gravação — dado morto se
+         * reescrevendo em silêncio. Não vale uma v4: o resto do formato não mudou.
+         *
+         * `novosAgendamentos` é o único que dói: são atendimentos que o usuário marcou
+         * quando o app ainda guardava agenda própria. Eles NÃO foram para o Google (o
+         * botão da gaveta é que fazia isso, um a um), então não há para onde levá-los sem
+         * escrever numa agenda real por conta própria — coisa que este código não faz sem
+         * alguém pedir. Ficam registrados no console, com data e cliente, para poderem ser
+         * remarcados à mão. */
+        const {
+          posicoes: _saiuDoFormato,
+          novosAgendamentos: agLocais,
+          googleEventos: _vinculoSemPar,
+          ...p
+        } = JSON.parse(cru) as Partial<Persistido> & {
+          posicoes?: unknown;
+          novosAgendamentos?: { data?: string; inicio?: number; clienteId?: string }[];
+          googleEventos?: unknown;
+        };
+        if (agLocais?.length) {
+          console.info(
+            `[store] ${agLocais.length} atendimento(s) do formato antigo não vieram — o app agora só ` +
+            `guarda atendimento no Google Calendar. Eram: ` +
+            agLocais.map((a) => `${a.data ?? "?"} ${D.hhmm(a.inicio ?? 0)} ${D.nomeCliente(a.clienteId ?? "")}`).join("; "),
+          );
+        }
         setDb((prev) => ({
           ...prev,
           ...p,
@@ -470,6 +560,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* --- volátil --- */
   const [tela, setTela] = useState<TelaId>("fluxo");
   const [sel, setSel] = useState<string | null>(null);
+  /** De qual atendimento há um "Cancelar" à espera de confirmação. Ver cancelarAtendimento. */
+  const [cancelarPedido, setCancelarPedido] = useState<string | null>(null);
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [alvoSolta, setAlvoSolta] = useState<string | null>(null);
   const [convSel, setConvSel] = useState<string>(D.CONVERSAS[0].id);
@@ -495,9 +587,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const janela = useMemo(() => D.janelaDoMes(D.mesDe(diaSel)), [diaSel]);
 
   /* ── navegação ── */
-  const irPara = useCallback((t: TelaId) => { setTela(t); setSel(null); }, []);
-  const abrir = useCallback((id: string) => setSel(id), []);
-  const fechar = useCallback(() => setSel(null), []);
+  // Trocar de tela ou de item descarta um "Cancelar" pela metade — ver cancelarAtendimento.
+  const irPara = useCallback((t: TelaId) => { setTela(t); setSel(null); setCancelarPedido(null); }, []);
+  const abrir = useCallback((id: string) => { setSel(id); setCancelarPedido(null); }, []);
+  const fechar = useCallback(() => { setSel(null); setCancelarPedido(null); }, []);
 
   // Esc fecha a gaveta — atalho único, vale nas duas formas (modal e folha).
   useEffect(() => {
@@ -507,57 +600,97 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [sel]);
 
+  /* CATÁLOGO VIVO. D.SERVICOS é o ponto de partida; o que o usuário edita ou cria vem por cima.
+   * Antes o catálogo era imutável e a gaveta do serviço só mostrava — com um chip prometendo
+   * "abrir e editar". Preço e duração são a razão de existir de uma tela de catálogo.
+   *
+   * Está declarado AQUI, longe dos outros toggles, porque o memo dos atendimentos logo abaixo
+   * resolve o serviço de cada cartão por ele. Enquanto vivia lá embaixo, aquele memo não tinha
+   * como enxergá-lo e lia `D.servico` direto: renomear "Corte" trocava o nome na tela Serviços e
+   * NÃO trocava no cartão do atendimento. E o nome era o menor dos problemas — a duração antiga
+   * continuava ditando `fim`, ou seja, a ALTURA do cartão na grade da Agenda. */
+  const servicos = useMemo<D.Servico[]>(
+    () => [
+      ...D.SERVICOS.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
+      ...db.svcNovos.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
+    ],
+    [db.svcEdit, db.svcNovos],
+  );
+  const servicoDe = useCallback(
+    (id: string) => servicos.find((sv) => sv.id === id),
+    [servicos],
+  );
+  /** O `D.nomeServico` do catálogo VIVO. O de data.ts enxerga só o catálogo de partida: usar
+   *  aquele numa tela é imprimir o nome que o usuário acabou de trocar. Quem tem o store à mão
+   *  usa este. */
+  const nomeServico = useCallback((id: string) => servicoDe(id)?.nome ?? "—", [servicoDe]);
+
+  /** Os atendimentos como o Google os devolveu, acumulados por janela já lida.
+   *
+   *  Declarado aqui em cima, longe do bloco de leitura lá embaixo, só por ordem de hooks:
+   *  o memo logo abaixo depende dele. Quem o ESCREVE é `lerAgenda`. */
+  const [atendimentos, setAtendimentos] = useState<AtendimentoLido[]>([]);
+
   /* ── os atendimentos ──
    *
-   * Uma origem só: o que o usuário marcou. Eram três — os nove de hoje escritos à mão, o
-   * mês inteiro gerado sob demanda, e estes. Some junto o recorte por janela: o gerador
-   * precisava saber qual mês desenhar, e por isso o Fluxo de hoje esvaziava quando a
-   * Agenda navegava para setembro (hoje entrava "fora da janela" e tinha que ser
-   * reinjetado à mão). Uma lista que já existe inteira não tem esse problema. */
+   * Uma origem só, e ela é o Google Calendar. Já foram três (os nove de hoje escritos à
+   * mão, o mês gerado sob demanda, e os marcados no navegador); as duas primeiras morreram
+   * com os exemplos, a terceira morreu aqui — marcar agora cria o evento lá, e o que a
+   * tela mostra é o que voltou da leitura.
+   *
+   * O que este memo faz é RESOLVER: pegar os ids que vieram gravados no evento e trocá-los
+   * pelos objetos do catálogo vivo, caindo nas cópias do próprio evento quando o catálogo
+   * local não conhece o id (ver servicoDoEvento).
+   *
+   * A duração vem do EVENTO (`e.duracao`, a diferença entre start e end), não do catálogo.
+   * São coisas diferentes desde que o horário passou a poder mudar por fora: se alguém
+   * esticar o evento no Google Calendar, o bloco na grade tem que esticar junto. */
   const agendamentos = useMemo<AgendamentoVivo[]>(() => {
-    return db.novosAgendamentos.flatMap((a) => {
-      const profissionalId = a.profissionalId;
-      const inicio = a.inicio;
-      const sv = D.servico(a.servicoId) ?? db.svcNovos.find((s) => s.id === a.servicoId);
-      const pf = D.profissional(profissionalId);
-      const cl = D.cliente(a.clienteId);
-
-      /* Aqui havia três `!`. Eles são promessa de compilação e não valem nada em
-       * runtime: um agendamento apontando para profissional/serviço/cliente que não
-       * existe mais devolvia `undefined`, e a primeira leitura de `.nome` derrubava
-       * a tela INTEIRA — inclusive o Fluxo de hoje, que é a porta de entrada.
-       *
-       * Isso deixou de ser hipótese quando a equipe encolheu para uma pessoa: basta
-       * um registro velho no localStorage citando `pr2`. Some da lista e avisa no
-       * console; um atendimento a menos é muito melhor que tela branca. */
-      if (!sv || !pf || !cl) {
-        console.warn(
-          `[store] agendamento ${a.id} ignorado — ` +
-          [!pf && `profissional ${profissionalId}`, !sv && `serviço ${a.servicoId}`, !cl && `cliente ${a.clienteId}`]
-            .filter(Boolean).join(", ") + " não existe(m)",
-        );
+    return atendimentos.flatMap((e) => {
+      const pf = D.profissional(e.profissionalId);
+      /* Sem profissional não dá para desenhar: `.nome` aparece no cartão, na gaveta e no
+       * aria-label. Sumir da lista com aviso no console é muito melhor que tela branca —
+       * foi a lição de quando a equipe encolheu para uma pessoa e sobrou `pr2` no
+       * localStorage. Serviço e cliente NÃO caem aqui: para eles existe a cópia gravada
+       * no evento, que é justamente a razão de ela existir. */
+      if (!pf) {
+        console.warn(`[store] evento ${e.eventId} ignorado — profissional ${e.profissionalId} não existe`);
         return [];
       }
+      const doCatalogo = servicoDe(e.servicoId);
+      const cl = D.cliente(e.clienteId);
+      const id = `ag:${e.eventId}`;
 
       return [{
-        id: a.id,
-        data: a.data ?? D.HOJE.iso,
-        inicio,
-        duracao: sv.duracao,
-        fim: inicio + sv.duracao / 60,
-        profissionalId,
+        id,
+        eventId: e.eventId,
+        data: e.data,
+        inicio: e.inicio,
+        fim: e.fim,
+        duracao: e.duracao,
+        profissionalId: e.profissionalId,
         profissional: pf,
-        servico: sv,
-        cliente: cl,
-        confirmado: a.confirmado,
-        etapa: db.etapas[a.id] ?? a.etapaInicial,
+        // O nome e o preço vêm do catálogo quando ele conhece o serviço (assim renomear em
+        // Serviços reflete no cartão); a duração vem do evento, sempre.
+        servico: doCatalogo ? { ...doCatalogo, duracao: e.duracao } : servicoDoEvento(e),
+        cliente: cl ?? clienteDoEvento(e),
+        confirmado: e.confirmado,
+        // Passado sem etapa gravada nasce "feito": ninguém volta ao kanban de terça-feira
+        // para arrastar o que já aconteceu, e deixá-los todos em "Chegando" encheria a
+        // primeira coluna de gente que já foi embora.
+        etapa: db.etapas[id] ?? (e.data < D.HOJE.iso ? "feito" : "chegando"),
+        meetLink: e.meetLink,
+        htmlLink: e.htmlLink,
+        recorrente: e.recorrente,
+        soltoDoCatalogo: !doCatalogo || !cl,
       }];
       // Comparar duas datas ISO com `<` JÁ é comparação cronológica — campos de largura
       // fixa, do mais significativo para o menos. É a razão de o formato ter sido escolhido.
     }).sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : x.inicio - y.inicio));
-    // novosAgendamentos e svcNovos entram nas deps: sem elas o memo ficava preso na lista antiga e
-    // um atendimento recém-marcado era gravado no localStorage sem NUNCA aparecer na grade.
-  }, [db.etapas, db.novosAgendamentos, db.svcNovos]);
+    // `servicoDe` nas deps cobre svcNovos E svcEdit de uma vez: é ele que muda de identidade
+    // quando o catálogo muda. Listar `db.svcNovos` à mão era meia dependência — pegava o
+    // serviço criado e perdia o serviço editado.
+  }, [atendimentos, db.etapas, servicoDe]);
 
   /** Índice por data. A grade de mês pergunta 42 vezes por render (uma por célula, e o hover
    *  re-renderiza a cada célula que o mouse cruza); com `.filter()` cada pergunta varria o mês
@@ -582,18 +715,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [agendamentos],
   );
 
-  /** O registro CRU de um atendimento — o objeto gravado, antes de resolver profissional,
-   *  serviço e cliente. Um lugar só agora; eram três, e esquecer o terceiro fazia os toasts
-   *  caírem no genérico "Atendimento →" justo para os que o próprio usuário tinha marcado. */
-  const registroDe = useCallback(
-    (id: string) => db.novosAgendamentos.find((a) => a.id === id),
-    [db.novosAgendamentos],
-  );
-
-  /** Etapa atual de um agendamento, com o default do dado de origem. */
+  /** Etapa atual. O padrão já foi calculado pelo memo (ver `etapa` lá em cima), então aqui
+   *  é só perguntar ao atendimento resolvido — antes isto reimplementava o mesmo default e
+   *  as duas cópias podiam discordar. */
   const etapaDe = useCallback(
-    (id: string): D.Etapa => db.etapas[id] ?? registroDe(id)?.etapaInicial ?? "chegando",
-    [db.etapas, registroDe],
+    (id: string): D.Etapa => agendamentoPorId(id)?.etapa ?? "chegando",
+    [agendamentoPorId],
   );
 
   /* As três ações abaixo eram IRREVERSÍVEIS E SILENCIOSAS: arrastar um cartão para "Feito hoje"
@@ -605,69 +732,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const moverEtapa = useCallback((id: string, etapa: D.Etapa) => {
-    const antes = etapaDe(id);
+    const a = agendamentoPorId(id);
+    const antes = a?.etapa ?? "chegando";
     patch((d) => ({ etapas: { ...d.etapas, [id]: etapa } }));
     setArrastando(null);
     setAlvoSolta(null);
     if (antes === etapa) return;
-    const a = registroDe(id);
     toast(
-      `${a ? D.nomeCliente(a.clienteId) : "Atendimento"} → ${ROTULO_ETAPA[etapa]}`,
+      `${a?.cliente.nome ?? "Atendimento"} → ${ROTULO_ETAPA[etapa]}`,
       { label: "Desfazer", onClick: () => patch((d) => ({ etapas: { ...d.etapas, [id]: antes } })) },
     );
-  }, [patch, etapaDe, registroDe]);
+  }, [patch, agendamentoPorId]);
 
   const avancarEtapa = useCallback((id: string) => {
-    const antes = etapaDe(id);
+    const a = agendamentoPorId(id);
+    const antes = a?.etapa ?? "chegando";
     const i = D.ETAPAS.indexOf(antes);
     const prox = D.ETAPAS[Math.min(i + 1, D.ETAPAS.length - 1)];
     if (prox === antes) return;
     patch((d) => ({ etapas: { ...d.etapas, [id]: prox } }));
-    const a = registroDe(id);
     toast(
-      `${a ? D.nomeCliente(a.clienteId) : "Atendimento"} → ${ROTULO_ETAPA[prox]}`,
+      `${a?.cliente.nome ?? "Atendimento"} → ${ROTULO_ETAPA[prox]}`,
       { label: "Desfazer", onClick: () => patch((d) => ({ etapas: { ...d.etapas, [id]: antes } })) },
     );
-  }, [patch, etapaDe, registroDe]);
+  }, [patch, agendamentoPorId]);
 
-  /**
-   * Remarca: muda hora, profissional e — desde a visão de Semana — o DIA.
-   * `data` é opcional e o fallback é a data atual do agendamento.
+  /* Aqui morava `reposicionar` — arrastar um bloco para outro horário.
    *
-   * Agora EDITA o atendimento. Antes gravava num mapa `posicoes` paralelo, porque o
-   * atendimento de exemplo era regerado por função pura e não havia objeto para mexer —
-   * o mapa era uma camada de correções por cima de um dado imutável. Com os exemplos
-   * fora, a correção e o corrigido viraram a mesma coisa, e "Desfazer" reescreve os
-   * mesmos três campos.
+   * Ele saiu junto com o atendimento local, e o motivo é que não sobrou nada para editar:
+   * o atendimento é o evento do Google, então remarcar é um PATCH numa agenda real. Isso
+   * chega na fatia 5, e precisa de uma peça que ainda não existe — uma FILA DE ESCRITA
+   * serializada por evento. Arrastar 10h→11h→12h dispara dois PATCH que podem chegar fora
+   * de ordem, e o que fica no calendário é o penúltimo. Numa agenda de verdade isso é o
+   * cliente aparecendo na hora errada.
    *
-   * ⚠️ Só mexe no que vive no app. Compromisso lido do Google é `bloq:…`, não é
-   * arrastável (ver BlocoBloqueio na Agenda) e não chega aqui — um PATCH disparado por
-   * engano mexeria no compromisso pessoal de alguém.
-   */
-  const reposicionar = useCallback((id: string, profissionalId: string, inicio: number, data?: string) => {
-    const orig = registroDe(id);
-    // Solta e não faz nada, mas encerra o arrasto: deixar `arrastando` setado congelaria o
-    // cartão translúcido e a coluna destacada até o próximo clique.
-    setArrastando(null);
-    setAlvoSolta(null);
-    if (!orig) {
-      console.warn(`[store] reposicionar(${id}) ignorado — não é um atendimento deste app`);
-      return;
-    }
-
-    const antes = { profissionalId: orig.profissionalId, inicio: orig.inicio, data: orig.data };
-    const destino = data ?? orig.data ?? D.HOJE.iso;
-    const mover = (p: Partial<D.Agendamento>) => patch((d) => ({
-      novosAgendamentos: d.novosAgendamentos.map((a) => (a.id === id ? { ...a, ...p } : a)),
-    }));
-
-    mover({ profissionalId, inicio, data: destino });
-    const quando = destino === D.HOJE.iso ? D.hhmm(inicio) : `${D.rotuloDia(destino)}, ${D.hhmm(inicio)}`;
-    toast(
-      `${D.nomeCliente(orig.clienteId)} → ${quando} com ${D.primeiroNome(D.nomeProfissional(profissionalId))}`,
-      { label: "Desfazer", onClick: () => mover(antes) },
-    );
-  }, [patch, registroDe]);
+   * Enquanto isso não vem, o bloco NÃO é arrastável (ver Bloco na Agenda) e a barra da
+   * grade não promete que seja. Um arrasto que não faz nada seria pior que a ausência dele:
+   * a tela diria que remarcou e o Google discordaria em silêncio. Para remarcar hoje: no
+   * Google Calendar, e o app mostra a mudança na leitura seguinte. */
 
   /* ── fila "precisa de você" ──
    *
@@ -765,20 +867,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  /* CATÁLOGO VIVO. D.SERVICOS é o ponto de partida; o que o usuário edita ou cria vem por cima.
-   * Antes o catálogo era imutável e a gaveta do serviço só mostrava — com um chip prometendo
-   * "abrir e editar". Preço e duração são a razão de existir de uma tela de catálogo. */
-  const servicos = useMemo<D.Servico[]>(
-    () => [
-      ...D.SERVICOS.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
-      ...db.svcNovos.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
-    ],
-    [db.svcEdit, db.svcNovos],
-  );
-  const servicoDe = useCallback(
-    (id: string) => servicos.find((sv) => sv.id === id),
-    [servicos],
-  );
+  /* `servicos`, `servicoDe` e `nomeServico` — o catálogo vivo — moraram aqui. Subiram para
+   * antes do memo dos atendimentos, que precisa deles para resolver o serviço de cada cartão. */
 
   const svcAtivo = useCallback(
     (id: string) => db.svcAtivo[id] ?? servicoDe(id)?.ativo ?? false,
@@ -786,7 +876,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
   const alternarSvc = useCallback((id: string) => {
     setDb((d) => {
-      const base = D.servico(id)?.ativo ?? d.svcNovos.find((s) => s.id === id)?.ativo ?? false;
+      // Mesma conta de `svcAtivo`, inclusive o svcEdit — se as duas divergissem, o primeiro
+      // clique no toggle podia "virar" para o valor que a tela já mostrava, sem efeito visível.
+      const doCatalogo = D.servico(id) ?? d.svcNovos.find((s) => s.id === id);
+      const base = d.svcEdit[id]?.ativo ?? doCatalogo?.ativo ?? false;
       const atual = d.svcAtivo[id] ?? base;
       return { ...d, svcAtivo: { ...d.svcAtivo, [id]: !atual } };
     });
@@ -816,53 +909,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setSel(null); // trocar de dia fecha a gaveta: o que estava aberto é de outro dia
   }, []);
 
-  /* CRIAR ATENDIMENTO. A Agenda tinha 40 zonas de soltura que só aceitavam `onDrop`: não existia
-   * caminho nenhum para MARCAR um horário — a ação nº1 de qualquer agenda. Clicar num vago agora
-   * abre a gaveta num rascunho com o horário e o profissional já preenchidos (é o que o clique
-   * disse), faltando só cliente e serviço. */
-  const [rascunho, setRascunho] = useState<D.RascunhoAgendamento | null>(null);
-
-  const novoAgendamento = useCallback((profissionalId: string, inicio: number, data: string) => {
-    // A data entra no id junto com profissional e hora: com Semana e Mês na tela, "pr1 às 14h" já
-    // não identifica um vago — existe um por dia.
-    const id = `novo-${data}-${profissionalId}-${inicio}`;
-    setRascunho({ id, data, profissionalId, inicio, clienteId: "", servicoId: "" });
-    setSel(id);
-  }, []);
-
-  const editarRascunho = useCallback((p: Partial<D.RascunhoAgendamento>) => {
-    setRascunho((r) => (r ? { ...r, ...p } : r));
-  }, []);
-
-  const confirmarRascunho = useCallback(() => {
-    // Lê `rascunho` direto, NÃO de dentro de um `setRascunho(r => …)`: gravar e emitir toast são
-    // efeitos, e um updater de estado precisa ser puro — em desenvolvimento o React o invoca duas
-    // vezes, e o atendimento entrava duplicado no localStorage. Pego no teste, não na leitura.
-    const r = rascunho;
-    if (!r || !r.clienteId || !r.servicoId) return;
-    const novo: D.Agendamento = {
-      id: `ag-novo-${r.data}-${r.profissionalId}-${r.inicio}`,
-      data: r.data,
-      clienteId: r.clienteId,
-      servicoId: r.servicoId,
-      profissionalId: r.profissionalId,
-      inicio: r.inicio,
-      // marcado por você, na sua frente: já nasce confirmado
-      confirmado: true,
-      etapaInicial: "chegando",
-    };
-    // id derivado de profissional+hora, e não de Date.now(): idempotente, então mesmo se este
-    // caminho rodar duas vezes o resultado é UM agendamento.
-    patch((d) => ({
-      novosAgendamentos: [...d.novosAgendamentos.filter((a) => a.id !== novo.id), novo],
-    }));
-    setRascunho(null);
-    setSel(null);
-    const quando = r.data === D.HOJE.iso ? "hoje" : D.rotuloDia(r.data);
-    toast(`${D.nomeCliente(r.clienteId)} marcado para ${quando} às ${D.hhmm(r.inicio)}`);
-  }, [patch, rascunho]);
-
-  const descartarRascunho = useCallback(() => { setRascunho(null); setSel(null); }, []);
+  /* CRIAR ATENDIMENTO desceu para o bloco do Google Calendar, lá embaixo.
+   *
+   * Não é organização: marcar um horário virou uma ESCRITA numa agenda real, e este
+   * callback passou a precisar de `conectado` e de `lerStatusGoogle`, que só existem
+   * depois. Deixá-lo aqui exigiria um ref só para furar a ordem dos hooks — e o lugar
+   * honesto de uma função que faz POST no Google é junto das outras que fazem. */
 
   const excluirServico = useCallback((id: string) => {
     // Só apaga o que o usuário criou. Serviço do catálogo de partida se despublica pelo toggle,
@@ -989,7 +1041,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({
           pid: clienteId,
           valor: c.valor,
-          discriminacao: `${D.nomeServico(c.servicoId)} — ${c.atendimentos} atendimentos · ${D.PERIODO}`,
+          // catálogo vivo, e aqui não é cosmético: a discriminação é o que a prefeitura imprime
+          // no documento. Com `D.nomeServico` a nota saía com o nome que o usuário já trocou.
+          discriminacao: `${nomeServico(c.servicoId)} — ${c.atendimentos} atendimentos · ${D.PERIODO}`,
           tomador: {
             cpf: c.cpf.replace(/\D/g, ""),
             nome: c.nome,
@@ -1018,7 +1072,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setNota(clienteId, { status: "erro", erro: "Sem conexão com o servidor de notas." });
     }
-  }, [notaDe, setNota, numeroLocal, acompanhar, agendarCancelamentoDeTeste]);
+  }, [notaDe, setNota, numeroLocal, acompanhar, agendarCancelamentoDeTeste, nomeServico]);
 
   const fechamento = useMemo(
     () => D.CLIENTES.filter((c) => cliAtivo(c.id) && c.valor > 0),
@@ -1179,95 +1233,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [lerStatusGoogle]);
 
-  const eventoGoogleDe = useCallback((agId: string) => db.googleEventos[agId], [db.googleEventos]);
+  /* ── cancelar um atendimento ──
+   *
+   * Era "Remover do Google", e o nome fazia sentido quando o atendimento vivia aqui e o
+   * evento era uma cópia dele lá. Agora são a mesma coisa: apagar o evento É cancelar o
+   * atendimento, e chamar isso de "remover do Google" faria parecer que o atendimento
+   * continua marcado em algum lugar.
+   *
+   * É a única ação DESTRUTIVA em agenda real que o app tem, então pede confirmação — em
+   * dois toques na própria gaveta, e não num diálogo novo. `cancelarPedido` guarda de
+   * qual atendimento é o pedido, e abrir/fechar a gaveta o descarta: um "Confirmar" que
+   * sobrevive à navegação é um clique acidental esperando acontecer.
+   */
+  const pedirCancelamento = useCallback((id: string) => setCancelarPedido(id), []);
 
-  const criarEventoGoogle = useCallback(async (agId: string) => {
-    const ag = agendamentoPorId(agId);
-    if (!ag || db.googleEventos[agId] || googleEmVoo.current.has(agId)) return;
+  const cancelarAtendimento = useCallback(async (id: string) => {
+    const ag = agendamentoPorId(id);
+    if (!ag || googleEmVoo.current.has(id)) return;
 
-    googleEmVoo.current.add(agId);
-    marcarOcupado(agId, true);
-    try {
-      const r = await fetch("/api/google/evento", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agendamentoId: agId,
-          // Agendamento criado pelo usuário não existe no catálogo de exemplo: o servidor
-          // não teria como resolvê-lo sozinho, então mandamos os campos. Ele valida
-          // tudo de novo contra o catálogo antes de usar.
-          data: ag.data,
-          inicio: ag.inicio,
-          profissionalId: ag.profissionalId,
-          servicoId: ag.servico.id,
-          clienteId: ag.cliente.id,
-          // Serviço criado pelo usuário não existe no catálogo do servidor: sem estes
-          // dois, o POST voltaria "Faltam dados do atendimento" sem dizer por quê.
-          duracao: ag.servico.duracao,
-          servicoNome: ag.servico.nome,
-          comMeet: true,
-        }),
-      }).then((x) => x.json());
-
-      if (r.ok) {
-        patch((d) => ({
-          googleEventos: {
-            ...d.googleEventos,
-            [agId]: {
-              eventId: r.eventId,
-              meetLink: r.meetLink ?? undefined,
-              htmlLink: r.htmlLink ?? undefined,
-              profissionalId: ag.profissionalId,
-              inicioISO: r.inicioISO ?? undefined,
-            },
-          },
-        }));
-        toast(r.semMeet ? "Evento criado — o Google não devolveu link do Meet" : "Evento criado com link do Meet");
-        return;
-      }
-
-      if (r.status === "reconectar") {
-        toast("O acesso ao Google expirou — conecte a agenda de novo");
-        await lerStatusGoogle();
-        return;
-      }
-      toast(RESPOSTA_GOOGLE[r.status] ?? r.info ?? "Não foi possível criar o evento");
-    } catch {
-      toast("Sem conexão com o servidor");
-    } finally {
-      googleEmVoo.current.delete(agId);
-      marcarOcupado(agId, false);
-    }
-  }, [agendamentoPorId, db.googleEventos, patch, lerStatusGoogle]);
-
-  const cancelarEventoGoogle = useCallback(async (agId: string) => {
-    const ev = db.googleEventos[agId];
-    if (!ev || googleEmVoo.current.has(agId)) return;
-
-    googleEmVoo.current.add(agId);
-    marcarOcupado(agId, true);
+    googleEmVoo.current.add(id);
+    marcarOcupado(id, true);
     try {
       const r = await fetch(
-        `/api/google/evento?eventId=${encodeURIComponent(ev.eventId)}&pid=${encodeURIComponent(ev.profissionalId)}`,
+        `/api/google/evento?eventId=${encodeURIComponent(ag.eventId)}&pid=${encodeURIComponent(ag.profissionalId)}`,
         { method: "DELETE" },
       ).then((x) => x.json());
 
       if (r.ok) {
-        patch((d) => {
-          const { [agId]: _, ...resto } = d.googleEventos;
-          return { googleEventos: resto };
-        });
-        toast("Evento removido do Google");
+        // Tira da lista local na hora. A rota trata 404/410 como sucesso (o evento já não
+        // estava lá), então este caminho também cobre "alguém apagou pelo Google antes".
+        setAtendimentos((prev) => prev.filter((e) => e.eventId !== ag.eventId));
+        setCancelarPedido(null);
+        setSel(null);
+        toast(`${ag.cliente.nome} — atendimento cancelado e evento removido do Google`);
         return;
       }
-      toast(RESPOSTA_GOOGLE[r.status] ?? "Não foi possível remover o evento");
+      toast(RESPOSTA_GOOGLE[r.status] ?? r.info ?? "Não foi possível cancelar o atendimento");
     } catch {
       toast("Sem conexão com o servidor");
     } finally {
-      googleEmVoo.current.delete(agId);
-      marcarOcupado(agId, false);
+      googleEmVoo.current.delete(id);
+      marcarOcupado(id, false);
     }
-  }, [db.googleEventos, patch]);
+  }, [agendamentoPorId]);
 
   /* ── LER a agenda do Google ──
    * A metade que faltava. Até aqui o app só ESCREVIA no Google e nunca olhava de volta:
@@ -1294,22 +1302,45 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const r = await fetch(`/api/google/agenda?pid=${PID_AGENDA}&de=${de}&ate=${ate}`).then((x) => x.json());
 
       if (r.ok) {
-        const novos: Bloqueio[] = (r.eventos ?? []).map((e: any) => ({
-          id: `bloq:${e.eventId}`,
-          eventId: e.eventId,
-          data: e.data,
-          inicio: e.inicio,
-          fim: e.fim,
-          duracao: e.duracao,
-          titulo: e.titulo,
-          recorrente: !!e.recorrente,
-          meetLink: e.meetLink ?? undefined,
-          htmlLink: e.htmlLink ?? undefined,
-        }));
+        /* A MESMA resposta traz as duas coisas, e a marca `maisa` é o que as separa: o
+         * evento criado por este app vira ATENDIMENTO (colorido, com cliente e serviço); o
+         * resto vira BLOQUEIO (cinza, só leitura). Ver PROPS em calendario.ts.
+         *
+         * Sem essa separação, um atendimento marcado aqui voltaria da leitura como
+         * bloqueio cinza sem cliente — o app criaria o evento e depois não se reconheceria
+         * nele. */
+        const novosAtend: AtendimentoLido[] = [];
+        const novosBloq: Bloqueio[] = [];
+        for (const e of (r.eventos ?? []) as any[]) {
+          const base = {
+            eventId: String(e.eventId), data: e.data, inicio: e.inicio, fim: e.fim,
+            duracao: e.duracao, recorrente: !!e.recorrente,
+            meetLink: e.meetLink ?? undefined, htmlLink: e.htmlLink ?? undefined,
+          };
+          if (e.maisa) {
+            novosAtend.push({
+              ...base,
+              profissionalId: e.maisa.profissionalId || PID_AGENDA,
+              clienteId: e.maisa.clienteId ?? "",
+              clienteNome: e.maisa.clienteNome ?? "Cliente",
+              clienteTel: e.maisa.clienteTel ?? "",
+              servicoId: e.maisa.servicoId ?? "",
+              servicoNome: e.maisa.servicoNome ?? "Atendimento",
+              servicoValor: Number(e.maisa.servicoValor) || 0,
+              // A única fonte real de "confirmado" que existe: a resposta de quem foi
+              // convidado. Sem convidados ninguém deve nada, então está confirmado.
+              confirmado: !e.aguardandoResposta,
+            });
+          } else {
+            novosBloq.push({ ...base, id: `bloq:${base.eventId}`, titulo: e.titulo });
+          }
+        }
         /* Cache ACUMULATIVO: só o pedaço que acabou de chegar é substituído. Navegar
          * para setembro e voltar para agosto não refaz request, e — mais importante —
          * o Fluxo de hoje continua com os dados de hoje enquanto a Agenda passeia. */
-        setBloqueios((prev) => [...prev.filter((b) => b.data < r.de || b.data > r.ate), ...novos]);
+        const foraDaJanela = (d: string) => d < r.de || d > r.ate;
+        setBloqueios((prev) => [...prev.filter((b) => foraDaJanela(b.data)), ...novosBloq]);
+        setAtendimentos((prev) => [...prev.filter((a) => foraDaJanela(a.data)), ...novosAtend]);
         lidoEm.current = Date.now();
         setAgendaGoogle({ status: "ok", jaLeu: true });
         return;
@@ -1352,6 +1383,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!conectado) {
       setAgendaGoogle({ status: "nao_conectado", jaLeu: false });
       setBloqueios([]);
+      // Os atendimentos vão junto: eles SÃO os eventos daquela agenda. Deixá-los na tela
+      // depois de desconectar mostraria uma agenda que o app já não tem como ler nem mexer.
+      setAtendimentos([]);
       return;
     }
     void lerAgenda(janela.de, janela.ate);
@@ -1383,6 +1417,145 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     void lerAgenda(janela.de, janela.ate);
   }, [lerAgenda, janela.de, janela.ate]);
 
+  /* ══ MARCAR UM ATENDIMENTO ══
+   *
+   * Clicar num vago abre um rascunho na gaveta com dia, hora e profissional já resolvidos
+   * pelo clique; falta escolher quem e o quê. Confirmar CRIA O EVENTO NO GOOGLE — não
+   * existe mais um passo "criar evento" separado, e não existe mais atendimento que só
+   * viva aqui. Era duas entradas para a mesma coisa: quem marcasse e não clicasse no botão
+   * da gaveta ficava com um horário que o Google nunca soube que existia.
+   *
+   * Mora nesta altura do arquivo porque depende de `conectado` e de `lerStatusGoogle`. */
+  const [rascunho, setRascunho] = useState<D.RascunhoAgendamento | null>(null);
+  /** Enquanto o POST está no ar, e o que voltou se ele falhou. A gaveta é quem mostra. */
+  const [rascunhoEstado, setRascunhoEstado] = useState<{ enviando: boolean; erro?: string }>({ enviando: false });
+  const criacaoEmVoo = useRef(false);
+
+  const novoAgendamento = useCallback((profissionalId: string, inicio: number, data: string) => {
+    /* Recusa cedo e explica. Sem isto o clique abriria a gaveta, o usuário escolheria
+     * cliente e serviço, e só então descobriria que não há para onde mandar. O ambiente
+     * local é exatamente esse caso: `.env.local` vazio ⇒ Google `nao_configurado`. */
+    if (!conectado) {
+      toast(
+        google.status === "ok"
+          ? "Conecte a agenda do Google em Minha Equipe — é lá que o atendimento é criado"
+          : (MOTIVO_GOOGLE[google.status] ?? "O Google Calendar não está disponível agora"),
+      );
+      return;
+    }
+    // A data entra no id junto com profissional e hora: com Semana e Mês na tela, "pr1 às 14h" já
+    // não identifica um vago — existe um por dia.
+    const id = `novo-${data}-${profissionalId}-${inicio}`;
+    /* O uuid nasce AQUI, com o rascunho, e não na hora de enviar. É o que faz a
+     * retentativa depois de uma falha reusar a mesma chave — o servidor consulta por ela
+     * antes de inserir (ver buscarPorProp), então "Tentar de novo" depois de um timeout
+     * não cria um segundo evento. Um uuid sorteado por tentativa não protegeria de nada. */
+    setRascunho({ id, maisaAg: uuid(), data, profissionalId, inicio, clienteId: "", servicoId: "" });
+    setRascunhoEstado({ enviando: false });
+    setSel(id);
+  }, [conectado, google.status]);
+
+  const editarRascunho = useCallback((p: Partial<D.RascunhoAgendamento>) => {
+    setRascunho((r) => (r ? { ...r, ...p } : r));
+    // Mexeu em algo depois de falhar: some o erro velho, que já não descreve o que há na tela.
+    setRascunhoEstado((e) => (e.erro ? { enviando: false } : e));
+  }, []);
+
+  const confirmarRascunho = useCallback(async () => {
+    /* Lê `rascunho` direto, NÃO de dentro de um `setRascunho(r => …)`: disparar POST e
+     * emitir toast são efeitos, e um updater de estado precisa ser puro — em
+     * desenvolvimento o React o invoca duas vezes. Antes isso duplicava o atendimento no
+     * localStorage; agora duplicaria um evento numa agenda real. */
+    const r = rascunho;
+    if (!r || !r.clienteId || !r.servicoId) return;
+    // Trava SÍNCRONA. `rascunhoEstado.enviando` só desabilita o botão no próximo render, e
+    // entre o clique e ele cabe um segundo clique. Ver o mesmo padrão em `googleEmVoo`.
+    if (criacaoEmVoo.current) return;
+
+    const sv = servicoDe(r.servicoId);
+    const cl = D.cliente(r.clienteId);
+    if (!sv || !cl) return;
+
+    criacaoEmVoo.current = true;
+    setRascunhoEstado({ enviando: true });
+    try {
+      const resp = await fetch("/api/google/evento", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          maisaAg: r.maisaAg,
+          data: r.data,
+          inicio: r.inicio,
+          profissionalId: r.profissionalId,
+          servicoId: sv.id,
+          clienteId: cl.id,
+          // Nome, telefone, duração e valor vão junto porque serão GRAVADOS no evento: um
+          // serviço criado pelo usuário só existe neste navegador, e sem a cópia o
+          // atendimento não renderizaria em nenhum outro. Ver PROPS em calendario.ts.
+          duracao: sv.duracao,
+          servicoNome: sv.nome,
+          servicoValor: sv.preco,
+          clienteNome: cl.nome,
+          clienteTelefone: cl.telefone,
+          comMeet: true,
+        }),
+      }).then((x) => x.json());
+
+      if (resp.ok) {
+        /* Entra na lista JÁ CONFIRMADO — não é inserção otimista, é o resultado do POST.
+         * Poderia ser um refetch da janela, mas seria um segundo round-trip para saber o
+         * que a resposta já disse. A leitura seguinte reconcilia de qualquer forma. */
+        setAtendimentos((prev) => [
+          ...prev.filter((e) => e.eventId !== resp.eventId),
+          {
+            eventId: String(resp.eventId),
+            data: r.data,
+            inicio: r.inicio,
+            fim: r.inicio + sv.duracao / 60,
+            duracao: sv.duracao,
+            profissionalId: r.profissionalId,
+            clienteId: cl.id, clienteNome: cl.nome, clienteTel: cl.telefone,
+            servicoId: sv.id, servicoNome: sv.nome, servicoValor: sv.preco,
+            confirmado: true,
+            meetLink: resp.meetLink ?? undefined,
+            htmlLink: resp.htmlLink ?? undefined,
+            recorrente: false,
+          },
+        ]);
+        setRascunho(null);
+        setRascunhoEstado({ enviando: false });
+        setSel(null);
+        const quando = r.data === D.HOJE.iso ? "hoje" : D.rotuloDia(r.data);
+        toast(
+          resp.status === "ja_existia"
+            ? `${cl.nome} já estava marcado ${quando} às ${D.hhmm(r.inicio)}`
+            : `${cl.nome} marcado ${quando} às ${D.hhmm(r.inicio)}${resp.semMeet ? " — sem link do Meet" : " · na sua agenda do Google"}`,
+        );
+        return;
+      }
+
+      if (resp.status === "reconectar") {
+        setRascunhoEstado({ enviando: false, erro: "O acesso ao Google expirou. Reconecte a agenda em Minha Equipe e tente de novo." });
+        void lerStatusGoogle();
+        return;
+      }
+      setRascunhoEstado({ enviando: false, erro: RESPOSTA_GOOGLE[resp.status] ?? resp.info ?? "Não foi possível marcar." });
+    } catch {
+      /* Rede caiu. O evento PODE ter sido criado — por isso o erro fala em "tentar de
+       * novo" e não em "não foi criado": só o `maisaAg` sabe a verdade, e ele garante que
+       * a segunda tentativa encontre o primeiro em vez de criar outro. */
+      setRascunhoEstado({ enviando: false, erro: "Sem conexão com o servidor. Tentar de novo é seguro — não cria duplicado." });
+    } finally {
+      criacaoEmVoo.current = false;
+    }
+  }, [rascunho, servicoDe, lerStatusGoogle]);
+
+  const descartarRascunho = useCallback(() => {
+    setRascunho(null);
+    setRascunhoEstado({ enviando: false });
+    setSel(null);
+  }, []);
+
   /** Índice por data — mesma razão do `porDia`: a grade do mês pergunta 42 vezes por render. */
   const bloqPorDia = useMemo(() => {
     const m = new Map<string, Bloqueio[]>();
@@ -1401,12 +1574,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* ── valor ── */
   const value = useMemo<StoreValue>(() => ({
     tela, irPara, sel, abrir, fechar,
-    agendamentos, agendamentosDoDia, agendamentoPorId, moverEtapa, avancarEtapa, reposicionar,
+    agendamentos, agendamentosDoDia, agendamentoPorId, moverEtapa, avancarEtapa,
+    cancelarPedido, pedirCancelamento, cancelarAtendimento,
     fila, resolverFila,
     arrastando, alvoSolta, iniciarArrasto, encerrarArrasto, marcarAlvo,
     convSel, selecionarConversa, abaConv, setAbaConv, estadoConversa, threadDe, assumir, devolver, enviar,
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
-    servicos, servicoDe, editarServico, criarServico, excluirServico,
+    servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, setFiltroSvc, filtroCli, setFiltroCli,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
@@ -1416,19 +1590,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cfg: db.cfg, alternarCfg,
     salvo, salvar,
     diaSel, verDia,
-    rascunho, novoAgendamento, editarRascunho, confirmarRascunho, descartarRascunho,
-    google, googleDe, conectarGoogle, desconectarGoogle,
-    eventoGoogleDe, criarEventoGoogle, cancelarEventoGoogle, googleOcupado,
+    rascunho, rascunhoEstado, novoAgendamento, editarRascunho, confirmarRascunho, descartarRascunho,
+    google, googleDe, conectarGoogle, desconectarGoogle, googleOcupado,
     bloqueiosDoDia, bloqueioPorId, agendaGoogle, recarregarAgenda,
     railAberto, setRailAberto,
   }), [
     tela, irPara, sel, abrir, fechar,
-    agendamentos, agendamentosDoDia, agendamentoPorId, moverEtapa, avancarEtapa, reposicionar,
+    agendamentos, agendamentosDoDia, agendamentoPorId, moverEtapa, avancarEtapa,
+    cancelarPedido, pedirCancelamento, cancelarAtendimento,
     fila, resolverFila,
     arrastando, alvoSolta, iniciarArrasto, encerrarArrasto, marcarAlvo,
     convSel, selecionarConversa, abaConv, estadoConversa, threadDe, assumir, devolver, enviar,
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
-    servicos, servicoDe, editarServico, criarServico, excluirServico,
+    servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, filtroCli,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
@@ -1437,9 +1611,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     db.dias, alternarDia, setHorario,
     db.cfg, alternarCfg,
     salvo, salvar,
-    diaSel, rascunho,
-    google, googleDe, conectarGoogle, desconectarGoogle,
-    eventoGoogleDe, criarEventoGoogle, cancelarEventoGoogle, googleOcupado,
+    diaSel, rascunho, rascunhoEstado, novoAgendamento, editarRascunho, confirmarRascunho, descartarRascunho,
+    google, googleDe, conectarGoogle, desconectarGoogle, googleOcupado,
     bloqueiosDoDia, bloqueioPorId, agendaGoogle, recarregarAgenda,
     railAberto,
   ]);

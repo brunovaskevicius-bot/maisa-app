@@ -81,7 +81,7 @@ export function Clientes() {
                 key={c.id}
                 seed={c.id}
                 titulo={c.nome}
-                sub={`${D.nomeServico(c.servicoId)} · ${c.canal}`}
+                sub={`${st.nomeServico(c.servicoId)} · ${c.canal}`}
                 tag={on ? { label: "ativo", tom: "success" } : { label: "inativo", tom: "neutral" }}
                 atenuado={!on}
                 onClick={() => st.abrir(c.id)}
@@ -154,7 +154,7 @@ export function Faturamento() {
                 titulo={c.nome}
                 // O erro da prefeitura sobe para o corpo do cartão: era o único estado que pede
                 // ação imediata e vivia só no `resumo`, que `hover:none` apaga no celular.
-                sub={nota.status === "erro" ? (nota.erro ?? "A emissão falhou.") : `${c.atendimentos} atendimentos · ${D.nomeServico(c.servicoId)}`}
+                sub={nota.status === "erro" ? (nota.erro ?? "A emissão falhou.") : `${c.atendimentos} atendimentos · ${st.nomeServico(c.servicoId)}`}
                 meta={fmt(c.valor)}
                 tag={tag}
                 onClick={() => st.abrir(`nf-${c.id}`)}
@@ -177,7 +177,7 @@ export function Faturamento() {
             {
               chave: "nome", label: "Cliente", largura: "minmax(0,1.7fr)",
               ordenar: (c) => c.nome,
-              celula: (c) => <CelulaNome nome={c.nome} seed={c.id} sub={c.teste ? "tomador de teste fiscal" : D.nomeServico(c.servicoId)} />,
+              celula: (c) => <CelulaNome nome={c.nome} seed={c.id} sub={c.teste ? "tomador de teste fiscal" : st.nomeServico(c.servicoId)} />,
             },
             {
               chave: "atend", label: "Atend.", num: true, largura: "90px", secundaria: true,
@@ -263,7 +263,7 @@ export function Equipe() {
                    chips, e saber que a agenda está ligada muda o que dá para fazer
                    com aquele profissional — quais serviços ele faz, não. */
                 chips={(st.googleDe(p.id) ? ["Google"] : [])
-                  .concat(p.servicoIds.slice(0, 2).map((sid) => D.nomeServico(sid)))
+                  .concat(p.servicoIds.slice(0, 2).map((sid) => st.nomeServico(sid)))
                   .concat(p.servicoIds.length > 2 ? [`+${p.servicoIds.length - 2}`] : [])}
               />
             );

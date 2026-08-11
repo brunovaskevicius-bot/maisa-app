@@ -107,11 +107,17 @@ function Regua() {
   );
 }
 
-/** As zonas de soltura de uma coluna — uma a cada 30 min.
+/** Os horários vagos de uma coluna — um a cada 30 min.
+ *
  *  São <button> e não <div>: as 20 zonas só aceitavam `onDrop`, então MARCAR um horário — a ação
  *  nº1 de uma agenda — não existia em lugar nenhum do app. Clicar num vago abre a gaveta com dia,
  *  hora e profissional já resolvidos pelo próprio clique. Como <button>, também entram na ordem de
- *  Tab: é o único caminho de teclado que esta grade tem. */
+ *  Tab: é o único caminho de teclado que esta grade tem.
+ *
+ *  ⚠️ Aqui havia `onDragOver`/`onDrop` — remarcar arrastando. Saíram na fatia 4, quando o
+ *  atendimento virou o próprio evento do Google: remarcar passou a ser PATCH numa agenda
+ *  real e precisa da fila de escrita serializada que a fatia 5 traz. Enquanto isso, nada
+ *  na tela promete que dá para arrastar. */
 function Vagos({ data, profissionalId, chaveCol }: { data: string; profissionalId?: string; chaveCol: string }) {
   const st = useStore();
   const fatias = D.AGENDA_HORAS / PASSO;
@@ -120,7 +126,6 @@ function Vagos({ data, profissionalId, chaveCol }: { data: string; profissionalI
       {Array.from({ length: fatias }, (_, i) => {
         const inicio = D.AGENDA_INICIO + i * PASSO;
         const chave = `${chaveCol}@${inicio}`;
-        const alvo = st.alvoSolta === chave && !!st.arrastando;
         const horaCheia = i % 2 === 0;
         // Na coluna de um PROFISSIONAL (visão de Dia) quem marca é ele. Na coluna de um DIA
         // (visão de Semana) o clique tem que ESCOLHER alguém — antes caía sempre em
@@ -130,46 +135,24 @@ function Vagos({ data, profissionalId, chaveCol }: { data: string; profissionalI
         const livre = !!dono && D.podeComecar(dono, data, inicio);
         const risco = s(`width:100%;height:${LINHA * PASSO}px;padding:0;border:none;border-bottom:1px ${horaCheia ? "dotted" : "solid"} var(--line)`);
 
-        // Fora do expediente de todo mundo: continua aceitando SOLTURA (arrastar é uma decisão
-        // consciente sua, e encaixe fora de hora existe), mas não convida com um clique que
-        // criaria um atendimento sem ninguém para atender.
+        // Fora do expediente de todo mundo: faixa cinza, sem clique. Um clique aqui criaria
+        // um atendimento sem ninguém para atender.
         //
         // A faixa é maior desde que a grade abriu para 07–22 para caber a agenda real: as
         // duas horas antes das 9 e as três depois das 19 ficam nesse cinza. É o desenho do
         // expediente aparecendo, e é o que impede o compromisso das 8h de renderizar fora
         // da grade.
         if (!livre) {
-          return (
-            <div
-              key={chave}
-              onDragOver={(e) => { e.preventDefault(); st.marcarAlvo(chave); }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const id = e.dataTransfer.getData("text/plain") || st.arrastando;
-                const prof = profissionalId ?? (id ? st.agendamentoPorId(id)?.profissionalId : undefined);
-                if (id && prof) st.reposicionar(id, prof, inicio, data);
-              }}
-              style={{ ...risco, background: alvo ? "var(--primary-soft)" : "var(--surface-2)", opacity: alvo ? 1 : 0.5, transition: "background-color var(--dur-fast) var(--ease-out)" }}
-            />
-          );
+          return <div key={chave} style={{ ...risco, background: "var(--surface-2)", opacity: 0.5 }} />;
         }
 
         return (
           <button
             key={chave}
-            onDragOver={(e) => { e.preventDefault(); st.marcarAlvo(chave); }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const id = e.dataTransfer.getData("text/plain") || st.arrastando;
-              if (!id) return;
-              // Quem foi arrastado mantém o profissional dele quando a coluna é um dia.
-              const prof = profissionalId ?? st.agendamentoPorId(id)?.profissionalId;
-              if (prof) st.reposicionar(id, prof, inicio, data);
-            }}
             onClick={() => st.novoAgendamento(dono, inicio, data)}
             aria-label={`Marcar atendimento em ${D.rotuloDia(data)} às ${D.hhmm(inicio)} com ${D.primeiroNome(D.nomeProfissional(dono))}`}
-            className="m-focus"
-            style={{ ...risco, background: alvo ? "var(--primary-soft)" : "transparent", cursor: "pointer", transition: "background-color var(--dur-fast) var(--ease-out)" }}
+            className="m-focus m-hov-bg"
+            style={{ ...risco, background: "transparent", cursor: "pointer", transition: "background-color var(--dur-fast) var(--ease-out)" }}
           />
         );
       })}
@@ -177,35 +160,34 @@ function Vagos({ data, profissionalId, chaveCol }: { data: string; profissionalI
   );
 }
 
-/** Um atendimento posicionado na grade de tempo. */
+/** Um atendimento posicionado na grade de tempo.
+ *
+ *  ⚠️ Não é `draggable` desde a fatia 4. Ele deixou de ser um registro local e passou a ser
+ *  o evento do Google: mover o bloco é PATCH numa agenda real, o que exige a fila de
+ *  escrita da fatia 5. Um `draggable` que não escreve seria pior que a ausência dele — a
+ *  tela mostraria o bloco no horário novo e o Google continuaria com o antigo, calado. */
 function Bloco({ ag, recuo, mostrarProf }: { ag: AgendamentoVivo; recuo: number; mostrarProf?: boolean }) {
   const st = useStore();
   const tom = tomDoBloco(ag);
   const alto = ag.duracao >= 40;
   return (
     <div
-      draggable
-      // Ver comentário em FluxoHoje: o id do arrasto vai no payload do evento; o estado
-      // só serve para o realce visual.
-      onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ag.id); st.iniciarArrasto(ag.id); }}
-      onDragEnd={st.encerrarArrasto}
       onClick={() => st.abrir(ag.id)}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); st.abrir(ag.id); } }}
       aria-label={`${ag.cliente.nome}, ${D.hhmm(ag.inicio)}, ${ag.servico.nome}, ${D.primeiroNome(ag.profissional.nome)}`}
-      className="m-drag m-focus m-lift"
+      className="m-focus m-lift"
       style={{
         // borda COMPLETA na cor do tom, não faixa lateral: `border-left:3px` como acento colorido
         // é ban explícito, e o elemento acumulava dois (side-stripe + ghost-card). O estado agora
         // vem do tint de fundo + a aresta inteira.
-        ...s(`position:absolute;border-radius:12px;padding:8px 11px;overflow:hidden;background:${tom.bg};border:1px solid ${tom.ac};box-shadow:var(--shadow-card)`),
+        ...s(`position:absolute;border-radius:12px;padding:8px 11px;overflow:hidden;cursor:pointer;background:${tom.bg};border:1px solid ${tom.ac};box-shadow:var(--shadow-card)`),
         top: (ag.inicio - D.AGENDA_INICIO) * LINHA + 3,
         height: Math.max((ag.duracao / 60) * LINHA - 6, 42),
         left: 6 + recuo * 12,
         right: 6,
         zIndex: 5 + recuo,
-        opacity: st.arrastando === ag.id ? 0.4 : 1,
       }}
     >
       <div style={s(`font-size:var(--t-sm);font-weight:var(--w-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${tom.fg};line-height:1.25`)}>
@@ -890,7 +872,10 @@ export default function Agenda() {
       {!mobile && visao !== "mes" && (
         <div style={s("flex-shrink:0;display:flex;align-items:center;gap:8px;padding:9px 16px;border-top:1px solid var(--line);font-size:var(--t-label);color:var(--muted)")}>
           <Icon name="clock" size={15} sw={1.9} />
-          arraste para remarcar · clique num vago para marcar
+          {/* Já dizia "arraste para remarcar". Parou de ser verdade quando o atendimento
+              virou o evento do Google — ver o comentário em Bloco. Uma barra que promete
+              um gesto que não existe é pior que uma barra com menos texto. */}
+          clique num vago para marcar · remarcar, por enquanto, é no Google Calendar
         </div>
       )}
     </section>
