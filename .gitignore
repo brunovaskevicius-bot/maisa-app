@@ -68,3 +68,8 @@ next-env.d.ts
 /.auditoria-perfil*/
 /.claude/auditoria/
 /.claude/dev.log
+.env*
+
+# O Vercel CLI acrescentou `.env*` acima, e regra posterior vence — o que voltaria a
+# ignorar o exemplo. Ele é rastreado de propósito: é a documentação das variáveis.
+!.env.local.example
