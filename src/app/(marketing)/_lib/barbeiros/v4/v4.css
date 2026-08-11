@@ -1,0 +1,169 @@
+/* ============================================================================
+ * /barbeiros/v4 — A EMENDA DA v3, NÃO UMA CÓPIA DELA.
+ *
+ * ⚠️ ESTE ARQUIVO NÃO SE SUSTENTA SOZINHO. Ele é carregado DEPOIS do v3.css, e a
+ * página põe as duas classes no <World>: `lp-v3 lp-v4`. Tudo o que desenha a v4 —
+ * a dobra, as telas, o duelo, os planos, os tokens, as 202 regras `.lp-v3` — vem
+ * do v3.css. Aqui mora só a diferença.
+ *
+ * ── POR QUE NÃO UM v4.css INTEIRO, COM AS REGRAS RENOMEADAS.
+ * A alternativa era copiar os 149KB do v3.css trocando `lp-v3` por `lp-v4`. Seria
+ * uma sed de dez segundos e a decisão errada, por um motivo que este projeto já
+ * pagou uma vez: o v3.css não é folha de estilo, é o REGISTRO das medições que
+ * sustentam a página — a prova da órbita, a rampa do véu medida em contraste, a
+ * tabela do passo da <Telas>, o porquê de `minmax(0, 1fr)`. Duplicar isso cria duas
+ * memórias que divergem no primeiro conserto, e a segunda passa a mentir. O pedido
+ * também foi explícito: "igual a v3, mas com um vídeo na hero". Compartilhar a
+ * folha é o único jeito de "igual" continuar verdade daqui a três semanas.
+ *
+ * O PREÇO, dito na cara: v3 e v4 estão acopladas. Mexer no v3.css mexe na v4. Isso
+ * é vantagem enquanto a v4 for a v3 com vídeo, e vira dívida no dia em que ela
+ * seguir caminho próprio. O sinal para desacoplar é este arquivo passar de ~100
+ * linhas: aí a v4 já é outra página e merece a folha dela.
+ *
+ * ── A CONTA QUE A TROCA DE CAMADA INVALIDOU.
+ * Uma coisa a v4 não herda de graça: a rampa do `.lp3-veu`. Ela foi medida contra
+ * os tons DA FOTO (parede ~#EDE3D2 no terço superior → #F7F2EA sob o véu → 15,9:1
+ * com --mk-ink). O vídeo tem tons próprios E eles mudam ao longo da reprodução —
+ * é a diferença entre medir uma imagem e medir 240 imagens. A régua está em
+ * `.claude/mede-video-dobra.mjs`, que amostra o vídeo de meio em meio segundo,
+ * compõe o mesmo véu por cima e calcula o contraste real atrás da manchete, do
+ * subtítulo e do botão. O veredito está no bloco `O VÉU`, mais abaixo.
+ * ========================================================================== */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * A CAMADA DE FUNDO FILMADA
+ *
+ * O enquadramento não está aqui — está no `.lp3-foto` do v3.css, que o <video>
+ * também veste: `inset: 0`, `object-fit: cover` e `object-position: 62% 50%`. Esse
+ * 62% foi escolhido para preservar a parede à esquerda num recorte de celular, e
+ * vale para o vídeo pela mesma razão que valia para a foto: é o fundo que a
+ * manchete precisa. Se o enquadramento do vídeo pedir outro ponto, o lugar de
+ * mudar é AQUI (sobrescrevendo `object-position`), nunca no v3.css — lá isso
+ * mudaria a foto da v3 junto.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.lp-v4 .lp4-video {
+  /* Ele é cenário. Sem isto, arrastar sobre a dobra pode virar interação com o
+     player em vez de rolagem da página, e em alguns navegadores o clique com o
+     botão direito abre o menu de contexto de vídeo em cima da LP. */
+  pointer-events: none;
+  user-select: none;
+
+  /* ⚠️ FUNDO EXPLÍCITO, E NÃO É DETALHE. Um <video> é TRANSPARENTE antes do
+     primeiro quadro decodificado. A `.lp3-dobra` é `isolation: isolate` e não
+     declara fundo (de propósito: a v3 precisava do branco da página atrás das
+     partículas). Resultado, se este fundo não existisse: na janela entre o poster
+     sair e o primeiro quadro entrar, a dobra pisca BRANCO — e o véu, que é branco
+     sobre branco, não segura nada. O tom é o da parede da foto no terço superior,
+     o mesmo que a régua de contraste já aprovou. */
+  background-color: #ede3d2;
+
+  /* O <video> nasce inline: sem isto ele ganha a folga de linha-base embaixo e a
+     caixa fica alguns pixels mais alta que a seção. Com `position: absolute` do
+     `.lp3-foto` o sintoma é sutil — é justamente por isso que é chato de achar. */
+  display: block;
+}
+
+/* Nada de controles nativos vazando: o iOS desenha o botão de play por cima do
+   pôster mesmo com `controls={false}`, e o Chrome pode oferecer o de
+   picture-in-picture no hover. Os dois seriam um botão falso no meio da dobra,
+   competindo com o único botão que a página quer que seja clicado. */
+.lp-v4 .lp4-video::-webkit-media-controls,
+.lp-v4 .lp4-video::-webkit-media-controls-start-playback-button,
+.lp-v4 .lp4-video::-webkit-media-controls-panel {
+  display: none !important;
+  -webkit-appearance: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * MOVIMENTO REDUZIDO
+ *
+ * Quem pede `prefers-reduced-motion: reduce` recebe a dobra PARADA — o vídeo não
+ * toca, e é o VideoDobra.tsx que garante isso (pausa e volta ao tempo zero). Não
+ * há regra de CSS aqui porque não existe uma: CSS não pausa vídeo.
+ *
+ * ⚠️ O QUE ESSA PESSOA VÊ É O QUADRO 1, NÃO O `poster`. Assim que o navegador
+ * decodifica dados, o quadro corrente substitui o pôster — pausar não o traz de
+ * volta. Na prática o resultado é o certo (uma imagem estática, zero movimento),
+ * e a diferença visual entre o quadro 1 e a foto é justamente por que ela existe.
+ * O custo honesto: o arquivo é baixado para virar uma foto. Evitar isso exigiria
+ * decidir no servidor uma preferência que só o cliente conhece — e o remendo
+ * (arrancar o `src` na hidratação) trocaria 2,7MB por um pisca de pôster em quem
+ * NÃO pediu movimento reduzido. Não compensa.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * O MIOLO FICA ANCORADO NO TOPO — TENTADO CENTRAR EM 10/08/2026, E REVERTIDO.
+ *
+ * O v3.css ancora o bloco no topo (`place-self: start center` + ~4,2svh de respiro)
+ * e justifica pela FOTO: "Centrado, o bloco caía sobre as cadeiras e o balcão — a
+ * parte cheia da imagem — e a manchete perdia o fundo liso."
+ *
+ * O raciocínio de centrar era que o vídeo desarma essa premissa: ele não tem UM
+ * enquadramento, tem 240, então não haveria mais "a parte cheia da imagem" fixa da
+ * qual fugir. Foi testado. ⚠️ FICOU PIOR — o veredito na tela foi "muito esquisito",
+ * e a razão é que o argumento estava certo sobre a imagem e errado sobre a PEÇA:
+ * centrado, o texto passa a dividir a tela ao meio com a cena e os dois competem;
+ * ancorado no topo, a manchete é a legenda do pôster e a cena fica inteira embaixo
+ * dela. A altura do bloco nunca foi o problema.
+ *
+ * FICA REGISTRADO PARA NÃO SE TENTAR DE NOVO: a v4 NÃO sobrescreve `.lp3-miolo`, e
+ * herda o posicionamento da v3 de propósito. Quem for mexer nisso mexe no véu junto
+ * — a rampa abaixo foi medida para o texto na faixa 4–45%, e o v3.css é categórico:
+ * "o véu é refeito sempre que o texto se move, e não o contrário".
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * O VÉU — VEREDITO DA MEDIÇÃO, E POR QUE ELE PRECISOU MUDAR
+ *
+ * A régua rodou (`node .claude/mede-video-dobra.mjs`), 17 quadros por viewport, e
+ * REPROVOU o véu da v3 aplicado ao vídeo:
+ *
+ *              pior quadro (desktop 1440)      pior quadro (celular 390)
+ *   manchete   6,86:1  aos 5,5s                8,82:1
+ *   subtítulo  4,59:1  aos 6,5s                7,51:1
+ *
+ * A regra desta página é fechar ≥ 7:1 com --mk-ink, e o desktop não fechava em
+ * nenhum dos dois. O subtítulo a 4,59:1 é o caso feio: passa raspando no mínimo AA
+ * (4,5) e some para quem lê em tela clara ou com brilho baixo.
+ *
+ * ⚠️ E ISSO NÃO APARECIA NO SCREENSHOT. Nos quadros 0 e 1 — os que uma captura
+ * pegaria — os dois textos estavam confortáveis. O buraco abre aos 5,5–6,5s, quando
+ * a câmera chega numa parte escura da cena e ela passa POR TRÁS do bloco de texto.
+ * É a diferença entre medir uma foto e medir um vídeo, e é a razão de esta seção
+ * existir: uma imagem parada tem um pior caso, um vídeo tem um por segundo.
+ *
+ * ── O QUE FOI FEITO, E O QUE FOI RECUSADO.
+ * RECUSADO: pôr uma tarja atrás do texto. Seria a correção mais fácil e mais barata
+ * em contraste, e é exatamente o recurso que o cliente REPROVOU nesta página em
+ * 06/08/2026 — o mesmo motivo que fez o card da maisa no <Duelo> virar luz em vez de
+ * tarja. Não se reintroduz pela porta dos fundos um elemento reprovado pela frente.
+ *
+ * FEITO: a rampa do véu ficou mais forte ONDE HÁ TEXTO e mais curta onde não há. As
+ * paradas até 38% subiram (é onde moram manchete e subtítulo) e o véu passou a zerar
+ * em 55% em vez de 56%. O saldo importa: abaixo de 55% a imagem fica IGUAL à da v3 —
+ * as cadeiras azuis mantêm o azul cheio, que era a queixa registrada no v3.css
+ * quando uma versão anterior desceu a rampa até 78% e lavou a foto. Esta versão paga
+ * o contraste no terço de cima e devolve a imagem inteira embaixo.
+ *
+ * ── DE ONDE SAEM OS NÚMEROS. Não são gosto: são o alfa mínimo que leva o pior pixel
+ * medido até 7:1. No pior quadro o pixel atrás do subtítulo é praticamente preto, e
+ * com fundo preto o composto é 255·α — daí α ≥ 0,64 para chegar aos ~162 de luma que
+ * 7:1 exige contra #0F172A. As paradas abaixo são esse mínimo com folga.
+ *
+ * ⚠️ REFAÇA A CONTA SE O VÍDEO MUDAR. Outra tomada, outros tons, outro pior quadro —
+ * e a régua é a mesma linha de comando. Ela lê o gradiente REAL da página, então
+ * basta editar aqui e rodar de novo.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.lp-v4 .lp3-veu {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.8) 0%,
+    rgba(255, 255, 255, 0.74) 22%,
+    rgba(255, 255, 255, 0.66) 38%,
+    rgba(255, 255, 255, 0.34) 47%,
+    rgba(255, 255, 255, 0) 55%
+  );
+}

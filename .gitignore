@@ -33,3 +33,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# auditoria headless — sobra de execução, não fonte.
+# Os scripts .mjs de .claude/ SÃO versionados: eles são a prova que acompanha a LP.
+# O que fica de fora é só o que cada corrida cospe de novo.
+/.auditoria-perfil*/
+/.claude/auditoria/
+/.claude/dev.log

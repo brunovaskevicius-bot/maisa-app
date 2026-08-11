@@ -1,0 +1,210 @@
+/* ============================================================================
+ * GLASS BUTTON — a folha de estilo que NÃO veio junto com o componente.
+ *
+ * O componente chegou como TSX de um registry estilo shadcn: `cva` + utilitários
+ * do Tailwind + quatro nomes de classe (`glass-button-wrap`, `glass-button`,
+ * `glass-button-text`, `glass-button-shadow`) que carregavam o vidro inteiro numa
+ * CSS que não veio. Este projeto não tem Tailwind nem `class-variance-authority`
+ * (package.json: next, react, motion, supabase — e só), então instalar a `cva`
+ * daria um botão sem estilo nenhum: ela só junta strings de classe, e as classes
+ * que ela juntaria (`px-6`, `py-3.5`, `rounded-full`) não existiriam.
+ * Aqui está o vidro, escrito à mão, com os mesmos nomes — trocar por Tailwind um
+ * dia é apagar este arquivo, não reescrever o componente.
+ *
+ * ── AS DUAS ARMADILHAS DO `backdrop-filter`, e a segunda custa uma tarde ──
+ *
+ * 1. `isolation: isolate` NO WRAP MATA O VIDRO. `isolate` cria um *backdrop root*:
+ *    o `backdrop-filter` do filho passa a enxergar o backdrop DAQUELE grupo, que é
+ *    vazio, e o desfoque vira uma declaração que não faz absolutamente nada — sem
+ *    erro, sem warning, e sem diferença visual quando se mexe nela. O componente
+ *    de origem pede `relative isolate` no BOTÃO, o que é inofensivo (um elemento
+ *    não é backdrop root de si mesmo), mas no wrap seria fatal. Por isso o wrap
+ *    aqui é só `position: relative`.
+ *
+ * 2. VIDRO SOBRE BRANCO NÃO É VIDRO. Desfocar branco dá branco. É por isso que a
+ *    legibilidade daqui NÃO se apoia no vidro: o aro e a tinta são cor CHAPADA, e é
+ *    isso que segura o contraste com ou sem backdrop. O vidro é acabamento, nunca
+ *    portador de contraste.
+ *
+ *    MEDIDO no primeiro consumidor (a dobra de /barbeiros/v3, 06/08/2026): a
+ *    superfície do botão, composta sobre o que está atrás dela, dá **#ffffff** —
+ *    idêntica ao fundo da página. E os 64 cartões da roda foram testados contra o
+ *    retângulo do botão em p = 0,0 … 1,0: **nenhum passa atrás dele em nenhum ponto
+ *    da rolagem**. Ou seja, naquela página o `backdrop-filter` não tem o que
+ *    mostrar em instante nenhum, e o que se vê é uma pílula branca de aro azul.
+ *    Isso não é defeito do componente — é o que vidro faz sobre fundo chapado. Para
+ *    ele virar botão sólido, `--gb-vidro: var(--mk-brand)` (e aí o rótulo tem de
+ *    virar `--mk-on-brand`, senão são 1,0:1 de azul sobre azul).
+ *
+ * ── EMENDA AO DS, escrita porque a regra existe e está sendo excedida ──
+ * O mundo barbeiros define `--mk-btn-radius: 8px` ("firme/urbano — cantos mais
+ * retos", marketing.css:97). Este botão é PÍLULA, `999px`, porque foi pedido assim,
+ * nominalmente, com `rounded-full` no componente de origem. Limites da exceção:
+ *   · vale para quem optar pelo `.glass-button-wrap` — nenhum outro botão do mundo
+ *     barbeiros muda de raio;
+ *   · o raio é token (`--gb-raio`), então voltar ao DS é uma linha;
+ *   · nada mais do DS é excedido aqui: cor, foco e alvo de toque seguem as regras.
+ * ========================================================================== */
+
+.glass-button-wrap {
+  /* ── os tokens do vidro. Trocar UM deles é trocar o material inteiro ──
+     `--gb-vidro` é a única superfície com alfa da peça, e é o parâmetro que decide
+     se este botão é vidro ou pílula chapada: pôr `var(--mk-brand)` aqui apaga o
+     desfoque (superfície opaca não tem o que refratar) e devolve um botão sólido,
+     sem tocar em mais nada. */
+  --gb-raio: 999px;
+  --gb-vidro: oklch(1 0 0 / 0.62);
+  --gb-tinta: var(--mk-brand);
+  --gb-aro: var(--mk-brand);
+  --gb-brilho: oklch(1 0 0 / 0.95);
+  --gb-sombra: 0 14px 30px -8px oklch(0.45 0.06 260 / 0.32);
+  --gb-sombra-alta: 0 22px 42px -10px oklch(0.45 0.06 260 / 0.42);
+
+  /* `relative` e NÃO `isolate` — ver a armadilha 1 no cabeçalho. Ele existe para
+     dar o bloco de contenção da sombra, que é irmã do botão no DOM. */
+  position: relative;
+  display: inline-block;
+  border-radius: var(--gb-raio);
+  cursor: pointer;
+}
+
+/* O RESET É PONTUAL, e o `all: unset` do componente de origem não valia nada: ele
+   vinha escrito como `all-unset`, que não é utilitário do Tailwind — a regra nunca
+   chegou ao CSS. Zerar tudo aqui também seria pior do que não zerar: `all: unset`
+   apaga o comportamento de foco do <button> junto com a moldura, e este projeto
+   depende do `:focus-visible` (marketing.css:233). */
+.glass-button {
+  position: relative;
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  text-align: inherit;
+  text-decoration: none;
+  cursor: inherit;
+  border-radius: inherit;
+
+  background: var(--gb-vidro);
+  color: var(--gb-tinta);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  backdrop-filter: blur(14px) saturate(180%);
+
+  /* O aro e o brilho são as duas arestas do vidro: a de baixo é cor de marca
+     CHAPADA (é ela que desenha o botão contra o branco quando o desfoque não tem o
+     que mostrar) e a de cima é a luz que faz a superfície parecer espessa. */
+  box-shadow:
+    inset 0 0 0 1.5px var(--gb-aro),
+    inset 0 1.5px 0 var(--gb-brilho);
+
+  transition:
+    transform 200ms var(--mk-ease, ease),
+    box-shadow 240ms var(--mk-ease, ease),
+    background-color 220ms var(--mk-ease, ease);
+}
+
+/* A SOMBRA É UM ELEMENTO, e não um `box-shadow` a mais no botão, porque o botão já
+   gasta o seu `box-shadow` nas duas arestas internas — e porque assim ela pode
+   crescer no hover sem competir com o aro. `z-index: -1` fica preso no contexto de
+   empilhamento do ancestral (na dobra da v3, o `.lp3-miolo`), então ela nunca cai
+   atrás dos cartões da roda. */
+.glass-button-shadow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--gb-sombra);
+  transition: box-shadow 240ms var(--mk-ease, ease);
+}
+
+.glass-button-text {
+  position: relative;
+  display: block;
+  user-select: none;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+/* ── estados ──
+   O hover LEVANTA e adensa a sombra; não mexe em cor. Trocar o alfa do vidro no
+   hover seria hierarquia por meio-tom, que é justamente o que esta LP baniu. */
+.glass-button-wrap:hover .glass-button {
+  transform: translateY(-2px);
+}
+.glass-button-wrap:hover .glass-button-shadow {
+  box-shadow: var(--gb-sombra-alta);
+}
+.glass-button-wrap:active .glass-button {
+  transform: translateY(0) scale(0.985);
+}
+.glass-button-wrap:active .glass-button-shadow {
+  box-shadow: var(--gb-sombra);
+}
+
+/* ⚠️ O FOCO PRECISA DESTA LINHA. O `.mk-focus:focus-visible` compartilhado impõe
+   `border-radius: 6px` para o anel acompanhar o formato do elemento — o que numa
+   pílula ESQUADRA o botão no instante em que ele recebe foco de teclado. Devolver o
+   raio aqui mantém as duas coisas: o anel do DS e o formato do botão. */
+.glass-button.mk-focus:focus-visible {
+  border-radius: var(--gb-raio);
+}
+
+/* Sem movimento, sem levitação — o resto (aro, brilho, sombra) continua inteiro. */
+@media (prefers-reduced-motion: reduce) {
+  .glass-button,
+  .glass-button-shadow {
+    transition: none;
+  }
+  .glass-button-wrap:hover .glass-button,
+  .glass-button-wrap:active .glass-button {
+    transform: none;
+  }
+}
+
+/* ── tamanhos ──
+   Os respiros são em `em` de propósito, e é a diferença que faz este botão servir a
+   uma dobra cujo corpo vem de `--o-r0`: quem define a escala põe UM `font-size` e o
+   botão inteiro acompanha. Em `px` (como no componente de origem, `px-6 py-3.5`) a
+   caixa ficaria presa enquanto a letra crescesse. Os múltiplos são a conversão exata
+   dos utilitários originais na base 16px: 24/16 = 1,5em e 14/16 = 0,875em.
+
+   ⚠️ A CLASSE DE TAMANHO VIVE NO WRAP, NÃO NO BOTÃO, e isso é o que faz a escala
+   externa funcionar. Com ela no botão (que é onde o componente de origem a punha),
+   `.glass-button--lg { font-size: 1.125rem }` fica NO MESMO ELEMENTO que herdaria a
+   escala do wrap — e declaração no elemento sempre vence herança, por mais específico
+   que seja o seletor de fora. Medido: a dobra pedia 23px pelo `--o-r0` e o botão saía
+   a 18px, calado. No wrap, `.lp-v3 .lp3-cta` (0-2-0) ganha de `.glass-button--lg`
+   (0-1-0) na disputa normal de especificidade, e o botão herda o resultado por causa
+   do `font: inherit` do reset. */
+.glass-button--sm {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.glass-button--sm .glass-button-text {
+  padding: 0.571em 1.143em;
+}
+.glass-button--default {
+  font-size: 1rem;
+  font-weight: 500;
+}
+.glass-button--default .glass-button-text {
+  padding: 0.875em 1.5em;
+}
+.glass-button--lg {
+  font-size: 1.125rem;
+  font-weight: 500;
+}
+.glass-button--lg .glass-button-text {
+  padding: 0.889em 1.778em;
+}
+.glass-button--icon .glass-button-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+}
