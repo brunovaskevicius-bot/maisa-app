@@ -59,17 +59,24 @@ export const ICPS: Record<ICP, IcpConfig> = {
     mundoClass: "mundo-barbeiros",
     rotulo: "para barbearias",
     publico: "barbearia",
-    home: "/barbeiros",
+    /* ⚠️ O MUNDO BARBEIROS TEM UMA PÁGINA SÓ, e por isso os três níveis apontam para
+       o mesmo lugar. Até 11/08/2026 aqui havia um funil de três rotas (`/barbeiros`,
+       `/barbeiros/como-funciona`, `/barbeiros/comecar`) mais duas variações completas;
+       todas foram apagadas — a v3 é a única LP de barbeiro aprovada, e a v4 é ela com
+       outra dobra. Uma one-pager não tem topo, meio e base: ela é os três numa rolagem.
+       Manter os campos apontando para páginas mortas seria deixar 404 escrito na
+       configuração, esperando que algum componente novo os renderizasse. */
+    home: "/barbeiros/v3",
     rotas: {
-      topo: "/barbeiros",
-      meio: "/barbeiros/como-funciona",
-      base: "/barbeiros/comecar",
+      topo: "/barbeiros/v3",
+      meio: "/barbeiros/v3",
+      base: "/barbeiros/v3#planos",
     },
-    nav: [
-      { label: "Como funciona", href: "/barbeiros/como-funciona", nivel: "meio" },
-      { label: "Recursos", href: "/barbeiros/como-funciona#recursos" },
-      { label: "Planos", href: "/barbeiros/comecar", nivel: "base" },
-    ],
+    /* A <MarketingNav> não é renderizada em nenhuma página de barbeiro — a v3 decidiu
+       não ter nav ("uma one-pager não navega para nada", cabeçalho do page.tsx dela).
+       A lista fica com a única âncora que existe, em vez de vazia, para que quem ligar
+       a nav um dia não herde três links quebrados. */
+    nav: [{ label: "Planos", href: "/barbeiros/v3#planos", nivel: "base" }],
     ctaLabel: "Ativar minha agenda",
     ctaMensagem: barbeirosCta,
     ctaUrl: whatsappUrl(barbeirosCta),
@@ -120,7 +127,15 @@ export function nivelDoPath(pathname: string | null | undefined): Nivel {
   // pode ter lido tudo. Classificada como topo, a barra fixa do mobile (StickyMobileCta) servia o
   // CTA mais fraco — "Ver como funciona" — apontando para FORA da one-pager, para uma página cujo
   // conteúdo ela contém inteiro. Era o único CTA permanentemente visível no celular.
-  if (sub === "completa") return "base";
+  //
+  // ⚠️ A v3 E A v4 ENTRARAM NESTA LINHA EM 11/08/2026, E O BUG ERA ANTIGO. Esta regra
+  // nasceu para a `completa` e nunca foi estendida às one-pagers que vieram depois: no
+  // celular, o único CTA sempre visível da v3 dizia "Ver como funciona" e apontava para
+  // /barbeiros/como-funciona — OUTRA LP. É exatamente a fuga que o cabeçalho da v3
+  // combate ("numa one-pager isso é vazamento"), acontecendo na barra que ela não
+  // controlava. A remoção daquela rota tornou o bug visível: o link viraria 404.
+  // As duas são one-pagers pelo mesmo motivo que a `completa` era, então: "base".
+  if (sub === "completa" || sub === "v3" || sub === "v4") return "base";
   return "topo";
 }
 

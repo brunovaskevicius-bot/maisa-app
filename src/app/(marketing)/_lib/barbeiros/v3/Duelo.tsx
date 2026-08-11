@@ -1,5 +1,5 @@
 import React from "react";
-import { Frase } from "../completa/Maisa";
+import { Frase } from "./Maisa";
 import { Chamada } from "./Chamada";
 import {
   CTA_SECAO,

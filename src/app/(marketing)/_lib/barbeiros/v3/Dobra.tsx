@@ -1,6 +1,6 @@
 import React from "react";
 import { GlassButton } from "../../GlassButton";
-import { Maisa } from "../completa/Maisa";
+import { Maisa } from "./Maisa";
 import { CTA_ROTULO, FRASE_DOBRA, HREF_PLANOS, SUB_DOBRA, frase } from "./dados";
 
 /* ----------------------------------------------------------------------------
@@ -87,8 +87,13 @@ export function Dobra() {
           é piso de legibilidade com contraste medido, não filtro de clima. */}
       <div className="lp3-veu" aria-hidden="true" />
 
-      {/* Importado de ../completa/Maisa — o mesmo wordmark das outras LPs, de
-          propósito. Recriá-lo aqui seria mais uma grafia da marca no projeto, e a
+      {/* ⚠️ O WORDMARK MUDOU DE ENDEREÇO EM 11/08/2026, e não de dono: ele vinha de
+          `../completa/Maisa`, e a pasta `completa/` foi apagada junto com as outras
+          LPs de barbeiro. O arquivo veio inteiro para cá (`./Maisa`) porque a v3 e a
+          v4 eram os dois únicos consumidores que sobraram — e a v4 já importa desta
+          pasta, então a direção da dependência não mudou.
+          O motivo de ele ser importado em vez de reescrito continua o mesmo:
+          recriá-lo aqui seria mais uma grafia da marca no projeto, e a
           cor pararia de vir de --mk-wordmark — que é exatamente o token que esta
           página redefine para virar azul no tema claro (ver o topo do v3.css). Um
           wordmark com cor escrita à mão teria continuado dourado sobre branco. */}

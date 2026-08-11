@@ -1,6 +1,6 @@
 import React from "react";
 import { GlassButton } from "../../GlassButton";
-import { Maisa } from "../completa/Maisa";
+import { Maisa } from "../v3/Maisa";
 import { CTA_ROTULO, FRASE_DOBRA, HREF_PLANOS, SUB_DOBRA, frase } from "../v3/dados";
 import { VideoDobra } from "./VideoDobra";
 
@@ -10,7 +10,7 @@ import { VideoDobra } from "./VideoDobra";
  * ⚠️ LEIA O Dobra.tsx DA v3 ANTES DE MEXER AQUI. Este arquivo é uma cópia dele com
  * UMA troca, e todas as decisões que ele documenta continuam de pé: por que a
  * camada de fundo é um elemento no HTML e não `background-image`, por que o véu
- * clareia só o topo, por que o wordmark é importado de `../completa/Maisa` em vez
+ * clareia só o topo, por que o wordmark é importado de `../v3/Maisa` em vez
  * de reescrito, por que o <h1> é bloco e não <br>, e por que o botão aponta para
  * `HREF_PLANOS` e não para outra LP. Nada disso mudou — repetir aqui só criaria
  * duas versões do mesmo texto para saírem de sincronia depois.
