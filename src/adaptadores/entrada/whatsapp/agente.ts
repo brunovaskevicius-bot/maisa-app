@@ -30,7 +30,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type { LembrarCliente } from "@/nucleo/portas/entrada/casos-de-uso";
-import type { RepositorioHistorico } from "@/nucleo/portas/saida/memoria-cliente";
+import type { RepositorioConversas, RepositorioHistorico } from "@/nucleo/portas/saida/memoria-cliente";
 import type { CanalDeMensagens } from "@/nucleo/portas/saida/canal-mensagens";
 import type {
   ModeloDeConversa, ResultadoDeFerramenta, TurnoDeConversa,
@@ -85,11 +85,26 @@ export type RespostaDoAgente = {
   voltas: number;
 };
 
-export type Dependencias = Omit<DepsFerramentas, "config"> & {
+/**
+ * De onde vem o que a MAISA sabe do negócio — resolvido POR INQUILINO, a cada mensagem.
+ *
+ * Era um objeto estático, e isso era o bug que impedia a feature inteira: montado uma vez
+ * com os fixtures, ele anunciava `(id: sv1)` no prompt enquanto o cadastro real já falava
+ * uuid. Ver o comentário de `ContextoDoTurno` em `ferramentas.ts` para a cadeia completa.
+ *
+ * Função e não objeto porque a MAISA é multi-inquilino por natureza: o mesmo processo
+ * atende terapeutas e barbeiros, e "qual é o catálogo" só tem resposta depois de saber de
+ * quem é a mensagem.
+ */
+export type ResolvedorDeConfiguracao = (t: ContextoTenant) => Promise<ConfiguracaoDoAgente>;
+
+export type Dependencias = DepsFerramentas & {
   modelo: ModeloDeConversa;
-  config: ConfiguracaoDoAgente;
+  config: ResolvedorDeConfiguracao;
   lembrarCliente: LembrarCliente;
   historico: RepositorioHistorico;
+  /** Quem conduz a conversa. O agente LÊ e nunca escreve: assumir é gesto do dono. */
+  conversas: RepositorioConversas;
   canal: CanalDeMensagens;
 };
 
@@ -103,37 +118,126 @@ const paraTurnos = (msgs: Msg[]): TurnoDeConversa[] =>
       : { papel: "assistente", texto: m.txt },
   );
 
+/**
+ * O prompt estável, memorizado por inquilino.
+ *
+ * ⚠️ Existe por causa do PROMPT CACHE, e o motivo é sutil. Cache é casamento de PREFIXO:
+ * o provedor só reusa o trabalho se os primeiros bytes forem idênticos. `parteEstavel` é
+ * determinística, então remontá-la daria a mesma string — mas ela é montada a partir de
+ * LISTAS QUE VÊM DO BANCO, e o Postgres não promete ordem sem `order by`. Duas consultas
+ * que devolvessem os mesmos serviços em ordem diferente produziriam dois prompts
+ * diferentes, o cache erraria toda vez, e o único sintoma seria a fatura.
+ *
+ * (Hoje `listarServicos` e `listarProfissionais` ordenam por nome, então o risco está
+ * coberto do outro lado também. Cinto e suspensório: este cache também evita remontar uma
+ * string de alguns milhares de tokens a cada mensagem.)
+ *
+ * A validade curta é o preço: quando o dono mexe no preço, a MAISA leva até um minuto para
+ * anunciar o valor novo. Um cache eterno faria o preço velho sobreviver ao redeploy;
+ * remontar sempre custaria o cache do provedor. Um minuto é o intervalo em que nenhuma das
+ * duas coisas incomoda.
+ */
+const VALIDADE_PROMPT_MS = 60_000;
+const promptPorInquilino: Record<string, { texto: string; em: number }> = {};
+
+function promptEstavel(tenantId: string, config: ConfiguracaoDoAgente): string {
+  const cacheado = promptPorInquilino[tenantId];
+  if (cacheado && Date.now() - cacheado.em < VALIDADE_PROMPT_MS) return cacheado.texto;
+  const texto = parteEstavel(config);
+  promptPorInquilino[tenantId] = { texto, em: Date.now() };
+  return texto;
+}
+
 export function criarAgente(deps: Dependencias) {
   const executar = criarExecutor(deps);
-
-  /* Montado UMA VEZ, na criação. Não é micro-otimização: é o que garante que a string
-   * seja byte-a-byte idêntica entre requisições, que é a condição para o cache de
-   * prompt pegar. Remontar por mensagem com o mesmo dado geraria a mesma string na
-   * prática — e uma vírgula a mais em qualquer refatoração futura mataria o cache em
-   * silêncio, sem nenhum sintoma além da fatura. */
-  const sistemaEstavel = parteEstavel(deps.config);
 
   return async function responder(t: ContextoTenant, recebida: MensagemRecebida): Promise<RespostaDoAgente> {
     const vazia = (extra: Partial<RespostaDoAgente> = {}): RespostaDoAgente => ({
       bolhas: [], escalou: false, trilha: [], modelo: deps.modelo.nome, voltas: 0, ...extra,
     });
 
-    /* ── 0. a MAISA está ligada? ──
-     * Guardrail de produto, e o primeiro de todos: o dono pode desligar a assistente na
-     * tela "A MAISA". Desligada significa desligada — nem uma mensagem de "estou fora do
-     * ar", que já seria a MAISA falando com o cliente dele. */
-    if (!deps.config.assistente.ativa) {
-      return vazia({ escalou: true, motivo: "assistente desligada" });
-    }
-
     const texto = limparEntrada(recebida.texto);
     if (!texto) return vazia();
 
+    /* ── 0. o que a MAISA sabe deste negócio ──
+     * Vem antes de tudo porque o catálogo, a equipe e o liga/desliga da assistente moram
+     * aqui. Note o `try`: resolver isto agora fala com o banco, e antes não falava.
+     *
+     * ⚠️ ESTE CATCH É A DIFERENÇA ENTRE UM BUG VISÍVEL E UM INVISÍVEL. Se a config não
+     * resolve — falta `SUPABASE_SERVICE_ROLE_KEY`, o inquilino não tem linha em `negocios`,
+     * o banco caiu — sem ele a exceção sobe até a rota e o cliente recebe SILÊNCIO, que é o
+     * pior modo de falha deste canal: ninguém sabe que algo quebrou. Escalando, o dono
+     * recebe a causa no WhatsApp dele e o cliente recebe atendimento humano. */
+    let config: ConfiguracaoDoAgente;
+    try {
+      config = await deps.config(t);
+    } catch (e) {
+      const causa = e instanceof Error ? e.message : String(e);
+      console.error(`[whatsapp/agente] não foi possível carregar a configuração do inquilino ${t.tenantId}: ${causa}`);
+      await deps.canal.escalar(t, { telefone: recebida.de, motivo: `a MAISA não conseguiu ler o cadastro do negócio: ${causa}` });
+      return vazia({ escalou: true, motivo: `configuração indisponível: ${causa}` });
+    }
+
     /* ── 1. quem está falando ──
      * Antes de qualquer token. O telefone vem do envelope da mensagem, nunca do conteúdo
-     * dela: quem se identifica no corpo pode se identificar como outro. */
+     * dela: quem se identifica no corpo pode se identificar como outro.
+     *
+     * ⚠️ ISTO SUBIU PARA CIMA DO "a MAISA está ligada?", que era o passo 0b. Motivo: sem o
+     * perfil não há telefone, e sem telefone não há como REGISTRAR a mensagem — então toda
+     * conversa em que a MAISA não responde era uma conversa que o painel nunca via. Custa uma
+     * leitura de memória num caminho que vai devolver silêncio, e paga com a única coisa que o
+     * dono tem naquele momento: saber que alguém escreveu. */
     const perfil = await deps.lembrarCliente(t, recebida.de);
-    const anteriores = await deps.historico.ler(t, perfil.telefone, HISTORICO);
+
+    /* As duas juntas: tabelas diferentes, nenhuma depende da outra, e este é o caminho quente
+     * — o cliente está com a tela aberta esperando. Em série seria um round-trip a mais. */
+    const [anteriores, posse] = await Promise.all([
+      deps.historico.ler(t, perfil.telefone, HISTORICO),
+      deps.conversas.posse(t, perfil.telefone),
+    ]);
+
+    /* ── 1b. A FALA DO CLIENTE ENTRA NA THREAD AGORA ──
+     *
+     * ⚠️ ANTES DE QUALQUER DECISÃO, e essa é a correção mais consequente deste arquivo para o
+     * painel. Antes a gravação era o passo 4, depois de responder — então TODO caminho de
+     * desistência (`return` antecipado) descartava a pergunta do cliente junto com a resposta
+     * que não houve: assistente desligada, conteúdo recusado pelo provedor, seis voltas sem
+     * conclusão, e o pior de todos — "tentou marcar e não conseguiu".
+     *
+     * O resultado era o inverso do necessário: a conversa que mais exige o dono era a ÚNICA
+     * invisível na tela dele. Ele recebia o aviso de escalada no WhatsApp e não achava a
+     * conversa em lugar nenhum no painel.
+     *
+     * Gravar aqui também torna o registro independente de o resto do turno dar certo: se o
+     * modelo estourar, a pergunta continua na thread. Custa um INSERT a mais por turno (as
+     * bolhas da resposta vão num segundo, no passo 4) — e é o INSERT que faz a tela de
+     * Conversas ser um retrato do WhatsApp em vez de um retrato dos turnos bem-sucedidos. */
+    await deps.historico.anexar(t, perfil.telefone, [{ de: "cliente", txt: texto }]);
+
+    /* ── 1c. a MAISA está ligada? ──
+     * Guardrail de produto: o dono pode desligar a assistente na tela "A MAISA".
+     * Desligada significa desligada — nem uma mensagem de "estou fora do ar", que já
+     * seria a MAISA falando com o cliente dele. */
+    if (!config.assistente.ativa) {
+      return vazia({ escalou: true, motivo: "assistente desligada" });
+    }
+
+    /* ── 1d. ESTA CONVERSA É DO DONO ──
+     *
+     * Ele clicou em "Assumir" no painel, ou respondeu à mão (responder É assumir — ver
+     * `criarResponderConversa`). A MAISA cala a boca até ele devolver.
+     *
+     * Este é o passo que faz o botão parar de mentir. Enquanto a posse morava no
+     * `localStorage`, o toast dizia "a MAISA não responde mais aqui" e o webhook nunca soube:
+     * o dono respondia, o cliente respondia de volta, e a MAISA falava por cima dele — duas
+     * vozes na mesma conversa, que é exatamente o que a tela de Conversas foi desenhada para
+     * impedir. Ver `RepositorioConversas`.
+     *
+     * NÃO escala: escalar avisaria o dono de uma conversa que ele já está conduzindo. E não
+     * responde nada ao cliente — quem responde é o dono, e ele já está lá. */
+    if (posse.assumidaEm) {
+      return vazia({ motivo: "conversa assumida pelo dono" });
+    }
 
     const sistemaVolatil = parteDoCliente({ perfil, hojeISO: hojeISO() });
     const turnos: TurnoDeConversa[] = [...paraTurnos(anteriores), { papel: "cliente", texto }];
@@ -146,7 +250,7 @@ export function criarAgente(deps: Dependencias) {
     /* ── 2. o loop ── */
     for (voltas = 1; voltas <= MAX_VOLTAS; voltas++) {
       const resposta = await deps.modelo.conversar({
-        sistemaEstavel,
+        sistemaEstavel: promptEstavel(t.tenantId, config),
         sistemaVolatil,
         ferramentas: FERRAMENTAS,
         turnos,
@@ -170,7 +274,7 @@ export function criarAgente(deps: Dependencias) {
 
       const resultados: ResultadoDeFerramenta[] = [];
       for (const chamada of resposta.chamadas) {
-        const r = await executar(t, perfil, estado, chamada.nome, chamada.argumentos);
+        const r = await executar({ t, perfil, estado, config }, chamada.nome, chamada.argumentos);
         resultados.push({ id: chamada.id, nome: chamada.nome, texto: r.texto, erro: r.erro });
         trilha.push({ ferramenta: chamada.nome, entrada: chamada.argumentos, resultado: r.texto, erro: r.erro });
       }
@@ -189,6 +293,49 @@ export function criarAgente(deps: Dependencias) {
       return vazia({ escalou: true, motivo: "sem resposta do agente", trilha, voltas });
     }
 
+    /* ── 3b. ELE TENTOU MARCAR, NÃO CONSEGUIU, E ESTÁ RESPONDENDO COMO SE TIVESSE ──
+     *
+     * ⚠️ O GUARDRAIL MAIS IMPORTANTE DESTE ARQUIVO, e o único que nasceu de um caso
+     * observado em conversa real de teste. A MAISA respondeu "Pronto, Carla! Agendado para
+     * amanhã às 09:00 com o Rafael" com a agenda vazia: `agendar` havia sido recusado pelo
+     * guardrail de oferta, o modelo consultou os horários, recebeu 09:00 livre — e escreveu
+     * a confirmação em vez de chamar `agendar` de novo. Como o turno terminou sem chamada de
+     * ferramenta, o loop deu por encerrado e a frase seguiu para o cliente.
+     *
+     * Por que não dá para resolver lendo o texto: "Pronto, agendado!" e "Consigo às 09:00,
+     * confirma?" são, para qualquer heurística de string, a mesma frase com uma palavra
+     * diferente — e errar para o lado permissivo é entregar a mentira. O sinal ESTRUTURAL é
+     * confiável e não depende de redação nenhuma: houve tentativa de marcar, não houve
+     * sucesso, então nada que o modelo escreva agora pode ser tratado como confirmação.
+     *
+     * Escalar em vez de deixar passar é a escolha de risco óbvia quando se olha os dois
+     * erros: um falso positivo custa uma conversa que vai para o dono sem precisar; um falso
+     * negativo custa o cliente aparecendo num horário que não existe, o dono com o horário
+     * livre e ninguém sabendo até o dia. Não é simétrico.
+     *
+     * ⚠️ Não afrouxe isto para "só quando o texto parecer confirmação". A camada de texto é
+     * a camada 3, e ela é sugestão. */
+    /* `jaEstavaMarcado` desarma o FALSO POSITIVO, e é a única saída deste `if` que não
+     * exige um agendamento novo neste turno. Ele não afrouxa nada: só é ligado depois de uma
+     * LEITURA DA AGENDA encontrar a marca da MAISA naquele horário com o telefone deste
+     * cliente (ver `ferramentas.ts` → `jaMarcadoPara`). Continua sendo sinal estrutural,
+     * não heurística de texto — o caso "o modelo inventou um horário" segue escalando.
+     *
+     * Sem isto, reconfirmar um atendimento no turno seguinte era tratado como mentira: o
+     * dono era chamado no meio de um atendimento que deu certo e o cliente recebia silêncio
+     * depois de dizer o próprio nome. Medido em produção em 12/08/2026. */
+    if (estado.tentouAgendar && !estado.marcou && !estado.jaEstavaMarcado) {
+      console.error(
+        `[whatsapp/agente] o modelo tentou marcar, não conseguiu, e respondeu como se tivesse marcado — ` +
+          `resposta descartada (inquilino ${t.tenantId}, telefone ${perfil.telefone}): ${ultimoTexto.slice(0, 200)}`,
+      );
+      await deps.canal.escalar(t, {
+        telefone: perfil.telefone,
+        motivo: "a MAISA tentou marcar e não conseguiu — confirme o horário com o cliente à mão antes de qualquer coisa",
+      });
+      return vazia({ escalou: true, motivo: "confirmação sem agendamento", trilha, voltas });
+    }
+
     const saida = bolhas(ultimoTexto);
 
     /* ── 4. gravar o que aconteceu ──
@@ -201,11 +348,9 @@ export function criarAgente(deps: Dependencias) {
       await deps.anotarFato(t, { telefone: perfil.telefone, escolha: estado.marcou });
     }
 
-    const registro: Msg[] = [
-      { de: "cliente", txt: texto },
-      ...saida.map((txt) => ({ de: "bot" as const, txt })),
-    ];
-    await deps.historico.anexar(t, perfil.telefone, registro);
+    /* Só as bolhas da MAISA: a fala do cliente foi gravada no passo 1b, antes de o turno ter
+     * qualquer chance de desistir. Repeti-la aqui duplicaria a pergunta na tela. */
+    await deps.historico.anexar(t, perfil.telefone, saida.map((txt) => ({ de: "bot" as const, txt })));
 
     await deps.canal.enviar(t, perfil.telefone, saida);
 

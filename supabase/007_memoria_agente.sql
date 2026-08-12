@@ -119,21 +119,35 @@ create unique index if not exists mensagens_agente_sem_duplicata
 alter table public.memoria_cliente   enable row level security;
 alter table public.mensagens_agente  enable row level security;
 
+-- ⚠️ CORRIGIDO: estas quatro expressões diziam `m.usuario_id`, e essa coluna NÃO EXISTE —
+-- em `002_multitenant.sql` a coluna de `membros` chama-se `user_id`. O erro não é sutil no
+-- efeito: `create policy` valida a expressão na hora, então este bloco abortava com
+-- 'column m.usuario_id does not exist' e as DUAS tabelas ficavam com
+-- `enable row level security` (linhas acima, que rodam antes) e POLÍTICA NENHUMA.
+--
+-- Tabela com RLS ligada e zero políticas nega tudo para `authenticated`. Ou seja: o painel
+-- não lia nem escrevia memória, e o agente continuava funcionando (service role ignora RLS)
+-- — a combinação que faz o problema passar despercebido. Quem rodou o arquivo e não leu o
+-- erro no SQL Editor ficou com o schema pela metade.
+--
+-- Passa a usar `public.negocios_do_usuario()`, o helper de `003_rls.sql`, pelos dois motivos
+-- que o 003 documenta: é o mesmo vocabulário do resto do schema, e nesta forma
+-- (`tenant_id in (select ...)`) o Postgres avalia UMA vez por consulta em vez de por linha.
 do $$
 begin
   if not exists (select 1 from pg_policies where tablename = 'memoria_cliente' and policyname = 'membro_ve_memoria') then
     create policy membro_ve_memoria on public.memoria_cliente
       for all
-      using (exists (select 1 from public.membros m where m.tenant_id = memoria_cliente.tenant_id and m.usuario_id = auth.uid()))
-      with check (exists (select 1 from public.membros m where m.tenant_id = memoria_cliente.tenant_id and m.usuario_id = auth.uid()));
+      using (tenant_id in (select public.negocios_do_usuario()))
+      with check (tenant_id in (select public.negocios_do_usuario()));
     raise notice 'policy membro_ve_memoria criada';
   end if;
 
   if not exists (select 1 from pg_policies where tablename = 'mensagens_agente' and policyname = 'membro_ve_mensagens') then
     create policy membro_ve_mensagens on public.mensagens_agente
       for all
-      using (exists (select 1 from public.membros m where m.tenant_id = mensagens_agente.tenant_id and m.usuario_id = auth.uid()))
-      with check (exists (select 1 from public.membros m where m.tenant_id = mensagens_agente.tenant_id and m.usuario_id = auth.uid()));
+      using (tenant_id in (select public.negocios_do_usuario()))
+      with check (tenant_id in (select public.negocios_do_usuario()));
     raise notice 'policy membro_ve_mensagens criada';
   end if;
 end $$;

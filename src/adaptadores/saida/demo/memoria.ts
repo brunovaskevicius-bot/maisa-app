@@ -16,22 +16,41 @@
  * feedback é a única coisa que ajusta o tom de um agente conversacional.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { RepositorioHistorico, RepositorioMemoria } from "@/nucleo/portas/saida/memoria-cliente";
+import type {
+  ConversaGravada, RepositorioConversas, RepositorioHistorico, RepositorioMemoria,
+} from "@/nucleo/portas/saida/memoria-cliente";
 import type { CanalDeMensagens } from "@/nucleo/portas/saida/canal-mensagens";
 import type { MemoriaCliente } from "@/nucleo/dominio/memoria";
-import type { Msg } from "@/nucleo/dominio/conversas";
+import type { Msg, PosseDaConversa } from "@/nucleo/dominio/conversas";
+import { soDigitos } from "@/nucleo/dominio/clientes";
 
 /* A chave inclui o tenant mesmo havendo um negócio só. Não é cerimônia: é o que faz
  * este adaptador ter o MESMO comportamento observável que o do Supabase vai ter. Um
- * dublê que ignora o inquilino esconde exatamente o bug que o multi-tenant introduz. */
-const chave = (tenantId: string, telefone: string) => `${tenantId}::${telefone}`;
+ * dublê que ignora o inquilino esconde exatamente o bug que o multi-tenant introduz.
+ *
+ * ⚠️ E POR ISSO ELA REDUZ O TELEFONE AOS 8 ÚLTIMOS DÍGITOS, como `telefone_chave` no banco.
+ * Antes a chave era a string crua que chegava, e enquanto só o agente escrevia isso funcionou
+ * — ele sempre passa o número inteiro do envelope. O painel passa a CHAVE (é o id da conversa
+ * na tela), e num Map cru "5511981234567" e "81234567" são duas conversas: a tela abriria
+ * vazia, sem erro nenhum, só no modo demonstração. Dublê que normaliza diferente do original
+ * é dublê que esconde bug em vez de revelar. */
+const chave = (tenantId: string, telefone: string) =>
+  `${tenantId}::${soDigitos(telefone).slice(-8)}`;
 
 const PERFIS = new Map<string, MemoriaCliente>();
 const THREADS = new Map<string, Msg[]>();
+/** O último número COMPLETO visto para cada chave — o espelho da coluna `telefone` do 009.
+ *  É o que o painel usa para responder; de 8 dígitos não se remonta DDD nem DDI. */
+const NUMEROS = new Map<string, string>();
+const POSSE = new Map<string, PosseDaConversa>();
 
 /** Teto do log em memória. Sem ele, uma conversa longa segura RAM do processo
  *  indefinidamente — e ninguém repara, porque não aparece em lugar nenhum. */
 const MAX_GUARDADO = 200;
+
+/** Só o inquilino corrente. O prefixo da chave é a "cláusula where" deste adaptador. */
+const doTenant = <V>(m: Map<string, V>, tenantId: string) =>
+  Array.from(m.entries()).filter(([k]) => k.startsWith(`${tenantId}::`));
 
 export const memoriaDemo: RepositorioMemoria = {
   async ler(t, telefone) {
@@ -54,8 +73,70 @@ export const historicoDemo: RepositorioHistorico = {
 
   async anexar(t, telefone, msgs) {
     const k = chave(t.tenantId, telefone);
-    const todas = [...(THREADS.get(k) ?? []), ...msgs];
+    const numero = soDigitos(telefone);
+    if (numero.length >= 10) NUMEROS.set(k, numero);
+    /* `em` é preenchido AQUI porque no banco quem preenche é o default da coluna. Sem isto a
+     * tela receberia `undefined` no modo demonstração e mostraria "--:--" em toda bolha — o
+     * tipo de diferença entre os dois adaptadores que faz o dublê mentir. */
+    const agora = new Date().toISOString();
+    const todas = [...(THREADS.get(k) ?? []), ...msgs.map((m) => ({ ...m, em: m.em ?? agora }))];
     THREADS.set(k, todas.slice(-MAX_GUARDADO));
+  },
+
+  async conversas(t, limite) {
+    return doTenant(THREADS, t.tenantId)
+      .map(([k, msgs]) => resumir(t.tenantId, k, msgs))
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+      .sort((a, b) => b.atualizadaEm.localeCompare(a.atualizadaEm))
+      .slice(0, limite);
+  },
+
+  async conversa(t, telefone) {
+    const k = chave(t.tenantId, telefone);
+    return resumir(t.tenantId, k, THREADS.get(k) ?? []);
+  },
+};
+
+/** Uma thread do Map → o que a porta promete. O par do `v_conversas` do 009. */
+function resumir(tenantId: string, k: string, msgs: Msg[]): ConversaGravada | null {
+  const ultima = msgs[msgs.length - 1];
+  if (!ultima) return null;
+  const telefoneChave = k.slice(tenantId.length + 2);
+  const perfil = PERFIS.get(k);
+  return {
+    telefoneChave,
+    telefone: NUMEROS.get(k) ?? "",
+    nome: perfil?.nome,
+    clienteId: perfil?.clienteId,
+    ultima,
+    atualizadaEm: ultima.em ?? new Date().toISOString(),
+    posse: POSSE.get(k) ?? {},
+  };
+}
+
+/**
+ * Quem conduz, em memória de processo.
+ *
+ * ⚠️ A LIMITAÇÃO DESTE AQUI MACHUCA MAIS QUE A DOS OUTROS DOIS, e vale saber antes de
+ * confiar: assumir uma conversa no painel e perder o estado num redeploy significa a MAISA
+ * VOLTANDO A FALAR numa conversa que o dono assumiu. Perder memória é o cliente virar
+ * desconhecido; perder posse é o produto quebrar a promessa do botão. Em produção quem serve
+ * isto é `saida/supabase/memoria.ts` — este dublê existe para o `/laboratorio` rodar sem banco.
+ */
+export const conversasDemo: RepositorioConversas = {
+  async posse(t, telefone) {
+    return POSSE.get(chave(t.tenantId, telefone)) ?? {};
+  },
+
+  async marcar(t, telefone, p) {
+    const k = chave(t.tenantId, telefone);
+    const atual = POSSE.get(k) ?? {};
+    const agora = new Date().toISOString();
+    POSSE.set(k, {
+      // `undefined` é "não mexa" — mesma semântica do adaptador real. Ver `marcar` lá.
+      assumidaEm: p.assumida === undefined ? atual.assumidaEm : p.assumida ? agora : null,
+      resolvidaEm: p.resolvida === undefined ? atual.resolvidaEm : p.resolvida ? agora : null,
+    });
   },
 };
 
@@ -71,6 +152,10 @@ export const historicoDemo: RepositorioHistorico = {
 export function limparDemo() {
   PERFIS.clear();
   THREADS.clear();
+  // Os dois novos vão junto: sobrar posse de uma conversa cujas mensagens foram apagadas
+  // deixaria a MAISA calada numa thread que, para todos os efeitos, nunca existiu.
+  NUMEROS.clear();
+  POSSE.clear();
 }
 
 /** Para o laboratório mostrar o que a MAISA lembra, sem passar por caso de uso. */

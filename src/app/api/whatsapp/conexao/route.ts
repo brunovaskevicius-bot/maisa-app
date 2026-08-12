@@ -4,6 +4,8 @@ import { agenteConfigurado } from "@/composicao";
 import { EVOLUTION, evolutionAvisos, evolutionFaltando, isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 import { configurarWebhook, estadoDaInstancia } from "@/adaptadores/saida/evolution/cliente";
 import { falha } from "@/adaptadores/entrada/http/respostas";
+import { adminFaltando, isAdminConfigured } from "@/adaptadores/saida/supabase/admin";
+import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONEXÃO COM A EVOLUTION — diagnóstico e instalação do webhook.
@@ -53,8 +55,28 @@ function configuracao() {
       apiKey: EVOLUTION.apiKey ? "definida" : "FALTANDO",
       escalaPara: EVOLUTION.dono || null,
     },
+    /* De onde o inquilino vai sair quando uma mensagem chegar. É a pergunta que mais
+     * derruba o webhook em produção, e a resposta deixou de ser óbvia: agora há dois
+     * caminhos e o banco ganha do env.
+     *
+     * `fonte` é o campo a olhar primeiro. `"integracoes_whatsapp"` significa que o
+     * inquilino sai da tabela pelo nome da instância — o caminho de produção. `"env"`
+     * significa modo demonstração. E `"NENHUMA"` é o estado em que TODA mensagem é
+     * descartada: ou falta a service role (sem ela o webhook não consegue ler a tabela,
+     * porque não tem sessão), ou falta o MAISA_TENANT_ID do fallback. */
     tenant: {
-      tenantId: process.env.MAISA_TENANT_ID ? "definido" : "FALTANDO",
+      fonte: isSupabaseConfigured && isAdminConfigured
+        ? "integracoes_whatsapp"
+        : process.env.MAISA_TENANT_ID
+          ? "env"
+          : "NENHUMA",
+      supabase: isSupabaseConfigured ? "definido" : "FALTANDO",
+      /* Separado do supabase de propósito: as duas chaves faltam por motivos diferentes e
+       * têm conserto diferente. Anon key faltando é "o app não tem banco"; service role
+       * faltando é "o painel funciona e o agente escala toda conversa" — que é muito mais
+       * difícil de diagnosticar sem ver esta linha. */
+      serviceRole: isAdminConfigured ? "definida" : adminFaltando().join(", ") || "FALTANDO",
+      tenantIdEnv: process.env.MAISA_TENANT_ID ? "definido" : "FALTANDO",
       numero: process.env.MAISA_WHATSAPP_NUMERO || null,
     },
     /* O modo da allowlist é o dado mais importante desta resposta em produção, e o único

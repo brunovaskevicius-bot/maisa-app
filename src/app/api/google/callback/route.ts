@@ -4,6 +4,7 @@ import { isGoogleConfigured, redirectUri, caminhoDeVolta } from "@/adaptadores/s
 import { lerEstado } from "@/adaptadores/saida/google/cripto";
 import { trocarCodigo, emailDaConta, RecusaDoGoogle } from "@/adaptadores/saida/google/oauth";
 import { salvar } from "@/adaptadores/saida/google/conexoes";
+import { tenantDoUsuario } from "@/adaptadores/entrada/http/contexto";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Volta do consentimento do Google.
@@ -96,11 +97,19 @@ export async function GET(request: Request) {
       emailDaConta(tokens.accessToken),
     );
 
+    /* O inquilino sai de `membros`, não do id do usuário (ver `entrada/http/contexto.ts`).
+     * Importa aqui mais do que em qualquer outra rota: `integracoes_google` tem FK
+     * COMPOSTA para `profissionais (tenant_id, id)`. Com o tenant errado o insert não
+     * grava dado torto — ele é RECUSADO pela FK, e o usuário volta do consent do Google
+     * com "falha_ao_salvar" depois de já ter autorizado. */
+    const tenant = await tenantDoUsuario(user.id);
+    if (!tenant) return encerrar(erro("sem_negocio"));
+
     // `salvar` cifra os tokens ANTES do insert, então esta etapa cobre duas falhas de
     // conserto bem diferente: env var mal colada e banco recusando. O `catch` separa.
     await etapa("gravação da conexão", "falha_ao_salvar", () =>
       salvar({
-        tenant: { tenantId: user.id, usuarioId: user.id, ator: { tipo: "usuario", id: user.id } },
+        tenant,
         agendaId: e.profissionalId,
       }, {
         googleEmail: email,

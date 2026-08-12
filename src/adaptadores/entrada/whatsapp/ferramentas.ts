@@ -52,9 +52,52 @@ export type EstadoDoTurno = {
   ofertas: Map<string, { agendaId: string; data: string; inicio: number; servicoId: string; duracaoMin: number }>;
   escalou: { motivo: string } | null;
   marcou: Escolha | null;
+  /**
+   * O modelo TENTOU marcar em algum momento deste turno — inclusive tentativas recusadas.
+   *
+   * ⚠️ Existe por causa do pior bug já observado neste produto, e ele foi MEDIDO, não
+   * imaginado: numa conversa de teste a MAISA respondeu "Pronto, Carla! Agendado para
+   * amanhã às 09:00 com o Rafael" com a agenda VAZIA. A mecânica: `agendar` foi recusado
+   * pelo guardrail de oferta, o modelo chamou `oferecer_horarios`, recebeu o horário livre
+   * — e então escreveu a confirmação em vez de chamar `agendar` outra vez. O loop encerra
+   * quando não vem chamada de ferramenta, e a frase saiu como se fosse fato.
+   *
+   * Comparado com `marcou`, este flag é o que permite a pergunta que denuncia a mentira:
+   * "ele tentou marcar e não conseguiu, mas está respondendo como se tivesse conseguido?"
+   * Sem ele, os dois casos — "tentou e desistiu honestamente" e "tentou e mentiu" — são
+   * indistinguíveis para o loop.
+   */
+  tentouAgendar: boolean;
+
+  /**
+   * O horário que o modelo pediu JÁ ESTAVA marcado para este cliente — verificado na
+   * agenda, não deduzido do texto.
+   *
+   * ⚠️ Existe para desarmar um FALSO POSITIVO real do guardrail de `tentouAgendar`, que
+   * apareceu no primeiro teste em produção:
+   *
+   *   turno 2  "10:30 pode ser, marca"  → marcou de verdade + "qual seu primeiro nome?"
+   *   turno 3  "Bruno"                  → escalou: "confirmação sem agendamento"
+   *
+   * `EstadoDoTurno` é POR TURNO, então no turno 3 o `ofertas` nasce vazio. O modelo chamou
+   * `agendar` de novo (comportamento razoável: ele estava fechando), a allowlist recusou
+   * porque ninguém ofertou nada naquele turno, e o loop concluiu "tentou e não conseguiu,
+   * logo está mentindo". Só que não estava: o atendimento existia. Resultado — o dono é
+   * chamado no meio de um atendimento que deu certo, e o cliente recebe SILÊNCIO depois de
+   * dizer o próprio nome.
+   *
+   * Este flag é o único jeito de distinguir os dois casos sem olhar o texto da resposta,
+   * que é exactamente o que o comentário do guardrail em `agente.ts` proíbe. Ele só é
+   * ligado depois de uma leitura da agenda real encontrar a marca da MAISA naquele horário,
+   * com o telefone deste cliente. Não afrouxa o guardrail: o caminho "modelo inventou um
+   * horário que ninguém ofereceu e ninguém marcou" continua escalando.
+   */
+  jaEstavaMarcado: boolean;
 };
 
-export const novoEstado = (): EstadoDoTurno => ({ ofertas: new Map(), escalou: null, marcou: null });
+export const novoEstado = (): EstadoDoTurno => ({
+  ofertas: new Map(), escalou: null, marcou: null, tentouAgendar: false, jaEstavaMarcado: false,
+});
 
 const chaveOferta = (servicoId: string, agendaId: string, data: string, inicio: number) =>
   `${servicoId}|${agendaId}|${data}|${inicio}`;
@@ -135,10 +178,15 @@ export const FERRAMENTAS: DefinicaoDeFerramenta[] = [
     parametros: {
       type: "object",
       properties: {
-        servico_id: { type: "string", description: "Id da lista de serviços (ex.: sv1). Obrigatório — a duração do serviço é o que define o que é vago." },
+        /* ⚠️ SEM EXEMPLO DE FORMATO, de propósito. Estas descrições diziam "ex.: sv1" e
+         * "ex.: pr1" — o formato dos fixtures. Quando o cadastro virou banco, os ids
+         * passaram a ser uuid, e o exemplo deixou de ser ajuda para virar INSTRUÇÃO ERRADA:
+         * um modelo que não achasse o id na lista tinha um molde plausível para inventar.
+         * "copie da lista" é a única instrução que continua verdadeira nos dois modos. */
+        servico_id: { type: "string", description: "Id do serviço, copiado exatamente da lista de serviços do seu prompt. Obrigatório — a duração do serviço é o que define o que é vago." },
         data_inicial: { type: "string", description: "Dia a partir do qual procurar, no formato AAAA-MM-DD. Omita para começar de hoje." },
         dias: { type: "integer", description: "Quantos dias varrer a partir de data_inicial. Padrão 7. Use 1 quando o cliente pediu um dia específico." },
-        profissional_id: { type: "string", description: "Id da equipe (ex.: pr1). Só quando o cliente pediu alguém por nome." },
+        profissional_id: { type: "string", description: "Id do profissional, copiado exatamente da lista de quem atende. Só quando o cliente pediu alguém por nome." },
       },
       required: ["servico_id"],
     },
@@ -209,6 +257,26 @@ export type Dependencias = {
   lerAgenda: LerAgenda;
   anotarFato: AnotarFato;
   canal: CanalDeMensagens;
+};
+
+/**
+ * O que vale só para ESTE turno — e `config` está aqui por um bug que custou 100% da
+ * feature.
+ *
+ * Ela era dependência de CRIAÇÃO, montada uma vez com os fixtures. Enquanto o cadastro
+ * também era fixture, as duas metades falavam `"sv1"` e ninguém percebia. No dia em que
+ * `composicao.ts` trocou o cadastro para o Supabase, elas passaram a discordar sobre o que
+ * é um id: o prompt anunciava `(id: sv1)`, o modelo devolvia `servico_id: "sv1"`, e o
+ * adaptador consultava uma coluna `uuid` — que devolve `null`. A MAISA conversava,
+ * entendia, e escalava para humano em toda tentativa de marcar.
+ *
+ * Por inquilino e por turno, o id que o modelo vê é o id que o banco conhece. E a assinatura
+ * passa a IMPEDIR a volta do bug: não existe mais onde guardar uma config de um inquilino só.
+ */
+export type ContextoDoTurno = {
+  t: ContextoTenant;
+  perfil: PerfilDeCliente;
+  estado: EstadoDoTurno;
   config: ConfiguracaoDoAgente;
 };
 
@@ -217,12 +285,6 @@ export type Dependencias = {
 const DIAS_A_FRENTE = 60;
 
 export function criarExecutor(deps: Dependencias) {
-  const { config } = deps;
-
-  const nomeServico = (id: string) => config.servicos.find((s) => s.id === id)?.nome ?? id;
-  const nomeProf = (id: string) => config.profissionais.find((p) => p.id === id)?.nome ?? id;
-  const agendasAtivas = () => config.profissionais.filter((p) => p.ativo).map((p) => p.id);
-
   /**
    * Executa uma ferramenta. Devolve TEXTO — nunca lança.
    *
@@ -231,14 +293,47 @@ export function criarExecutor(deps: Dependencias) {
    * esperando. Erro vira `tool_result` com `is_error`, o modelo lê e contorna.
    */
   return async function executar(
-    t: ContextoTenant,
-    perfil: PerfilDeCliente,
-    estado: EstadoDoTurno,
+    turno: ContextoDoTurno,
     nome: string,
     entrada: Record<string, unknown>,
   ): Promise<{ texto: string; erro: boolean }> {
+    const { t, perfil, estado, config } = turno;
+
+    const nomeServico = (id: string) => config.servicos.find((s) => s.id === id)?.nome ?? id;
+    const nomeProf = (id: string) => config.profissionais.find((p) => p.id === id)?.nome ?? id;
+    const agendasAtivas = () => config.profissionais.filter((p) => p.ativo).map((p) => p.id);
+
     const ok = (texto: string) => ({ texto, erro: false });
     const nao = (texto: string) => ({ texto, erro: true });
+
+    /**
+     * Este cliente já tem ESTE horário marcado?
+     *
+     * Lê a agenda do dia e procura a marca da MAISA com o telefone dele. O filtro é o
+     * mesmo do `meus_horarios`, e as duas condições continuam sendo de privacidade: sem
+     * `e.maisa` isto responderia "sim" para um compromisso pessoal do dono que por
+     * coincidência cai nesse horário, e sem o telefone responderia "sim" para o
+     * atendimento de OUTRO cliente — que faria a MAISA confirmar para a pessoa errada um
+     * horário que não é dela.
+     *
+     * Janela de um dia só: a pergunta é sobre um instante específico, não sobre a agenda.
+     */
+    const jaMarcadoPara = async (agendaId: string, data: string, inicio: number): Promise<boolean> => {
+      const meus = soDigitos(perfil.telefone).slice(-8);
+      if (meus.length < 8) return false;
+      try {
+        const r = await deps.lerAgenda(t, { agendaId, de: data, ate: data });
+        return r.eventos.some(
+          (e) => e.data === data && e.inicio === inicio && e.maisa && soDigitos(e.maisa.clienteTel).slice(-8) === meus,
+        );
+      } catch {
+        /* Falhou a leitura? Responde NÃO. O custo dos dois erros é assimétrico: um falso
+         * negativo devolve a recusa de sempre (e o modelo chama `oferecer_horarios`, que é
+         * o comportamento certo); um falso positivo faria a MAISA confirmar para o cliente
+         * um atendimento que talvez não exista. Na dúvida, o guardrail original vale. */
+        return false;
+      }
+    };
 
     try {
       switch (nome) {
@@ -282,6 +377,38 @@ export function criarExecutor(deps: Dependencias) {
 
         /* ── marcar ── */
         case "agendar": {
+          /* ── NOME ANTES DE MARCAR, e esta checagem vem ANTES do `tentouAgendar` ──
+           *
+           * ⚠️ A ORDEM É O PONTO. Se este `return` acontecesse depois de `tentouAgendar = true`,
+           * o guardrail no fim do turno veria "tentou marcar, não marcou" e escalaria para o
+           * dono — justamente quando o modelo fez a coisa CERTA (parou para perguntar o nome).
+           * Recusa que manda fazer uma pergunta não é tentativa frustrada. Não mova isto.
+           *
+           * Por que existe: `agendarAtendimento` cai em `"Cliente"` quando não recebe nome, e
+           * isso agora tem consequência de banco — `garantirCliente` CRIA a linha do cliente,
+           * e ela nasceria com o nome "Cliente" para sempre (o adaptador não sobrescreve nome
+           * de cliente existente, de propósito). Medido em produção em 12/08/2026: o primeiro
+           * atendimento real ficou com `cliente_nome: "Cliente"` porque o modelo marcou antes
+           * de perguntar.
+           *
+           * A `persona.ts` já pede "peça o primeiro nome antes de confirmar", e o modelo
+           * ignorou — porque prompt é a camada 3, a que não vale como garantia. Em código, vale.
+           *
+           * Só vale para LEAD: quem já está no cadastro tem nome digitado pelo dono, e
+           * `agendarAtendimento` usa aquele. Perguntar o nome de um cliente conhecido seria a
+           * MAISA parecendo não lembrar de quem já é cliente. */
+          if (!perfil.clienteId && !String(entrada.nome_cliente ?? perfil.nome ?? "").trim()) {
+            return nao(
+              "Você ainda não sabe o nome dessa pessoa, e ela não está no cadastro — então não posso marcar ainda. " +
+                "Pergunte só o primeiro nome dela numa mensagem curta e, quando ela responder, chame `agendar` de novo passando `nome_cliente`.",
+            );
+          }
+
+          /* Marca a INTENÇÃO, antes de qualquer validação. Tem que ser aqui e não depois do
+           * sucesso: é justamente a tentativa que FALHA que precisa ser lembrada, para o
+           * loop poder recusar uma confirmação sem agendamento. Ver `EstadoDoTurno`. */
+          estado.tentouAgendar = true;
+
           const inicio = horaDecimal(entrada.hora);
           if (inicio === null) return nao("Hora fora de formato. Use HH:MM em 24h, ex.: 15:30.");
 
@@ -297,6 +424,27 @@ export function criarExecutor(deps: Dependencias) {
            * não tem como saber que ninguém ofereceu 15h), o evento é criado em cima do
            * almoço do dono — e todo mundo só descobre na quinta. */
           if (!estado.ofertas.has(chaveOferta(servicoId, agendaId, data, inicio))) {
+            /* ── ANTES DE RECUSAR: isso já não está marcado? ──
+             *
+             * `EstadoDoTurno` é por turno, então o modelo que fecha o agendamento num turno
+             * e RECONFIRMA no seguinte cai aqui com `ofertas` vazio — sem ter inventado
+             * nada. Foi o falso positivo medido em produção (ver `EstadoDoTurno.jaEstavaMarcado`):
+             * o dono era chamado no meio de um atendimento que deu certo e o cliente ficava
+             * sem resposta depois de dizer o próprio nome.
+             *
+             * A checagem é ESTRUTURAL — lê a agenda e procura a marca da MAISA com o
+             * telefone deste cliente. Não olha o texto da resposta, que é o que o guardrail
+             * de `agente.ts` proíbe explicitamente.
+             *
+             * Custa uma leitura de agenda, e só neste caminho (recusa), que é raro. */
+            if (await jaMarcadoPara(agendaId, data, inicio)) {
+              estado.jaEstavaMarcado = true;
+              return ok(
+                `Esse atendimento já está marcado: ${rotuloLongo(data)} às ${hhmm(inicio)} com ${nomeProf(agendaId)}. ` +
+                  "Confirme para o cliente em uma frase, sem dizer que marcou de novo.",
+              );
+            }
+
             return nao(
               "Esse horário não está entre os que você ofereceu nesta conversa, então não posso marcar. " +
                 "Chame `oferecer_horarios` para esse serviço e esse dia, confirme com o cliente um dos horários que voltarem, e só então marque.",
@@ -304,7 +452,10 @@ export function criarExecutor(deps: Dependencias) {
           }
 
           if (entrada.nome_cliente) {
-            await deps.anotarFato(t, { telefone: perfil.telefone, nome: String(entrada.nome_cliente) });
+            const m = await deps.anotarFato(t, { telefone: perfil.telefone, nome: String(entrada.nome_cliente) });
+            // Mesma razão do `anotar_nome`: o nome tem que valer para o `agendarAtendimento`
+            // logo abaixo, que é quem cria o cliente no cadastro.
+            if (m.nome) perfil.nome = m.nome;
           }
 
           const r = await deps.agendarAtendimento(t, {
@@ -381,6 +532,19 @@ export function criarExecutor(deps: Dependencias) {
         /* ── memória ── */
         case "anotar_nome": {
           const m = await deps.anotarFato(t, { telefone: perfil.telefone, nome: String(entrada.nome ?? "") });
+          /* ⚠️ ATUALIZA O PERFIL DO TURNO, e não é detalhe: sem esta linha o cliente entra
+           * no cadastro chamado "Cliente".
+           *
+           * `perfil` é um retrato tirado ANTES do primeiro token (ver `agente.ts` §1), então
+           * `perfil.nome` é nulo para quem acabou de se apresentar. Quando o modelo chama
+           * `anotar_nome` e depois `agendar` SEM repetir `nome_cliente` — que é o caminho
+           * natural dele, porque na cabeça dele o nome já foi dito — o `agendar` abaixo cai
+           * no `?? "Cliente"` e é ESSE nome que `garantirCliente` grava no banco, para
+           * sempre. Medido: aconteceu na primeira conversa de teste.
+           *
+           * Corrigir aqui e não na descrição da ferramenta é de propósito: pedir ao modelo
+           * que repita o nome é a camada 3 (prompt), a mais fraca. Isto é código. */
+          if (m.nome) perfil.nome = m.nome;
           return ok(m.nome ? `Anotado: ${m.nome}.` : "Não veio nome. Siga sem insistir.");
         }
 

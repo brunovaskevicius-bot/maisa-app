@@ -91,8 +91,9 @@ export function useDetalhe(id: string | null): Detalhe | null {
 
   const fecharAcao: Acao = { label: "Fechar", primaria: true, onClick: st.fechar };
 
-  /* Abre a conversa do cliente na tela de Conversas, se existir uma. */
-  const conversaDoCliente = (clienteId: string) => D.CONVERSAS.find((c) => c.clienteId === clienteId);
+  /* Abre a conversa do cliente na tela de Conversas, se existir uma. Do store: hoje é uma
+     conversa de WhatsApp de verdade, e quem tem uma é quem já escreveu. */
+  const conversaDoCliente = (clienteId: string) => st.conversas.find((c) => c.clienteId === clienteId);
   const irParaConversa = (cvId: string) => () => { st.selecionarConversa(cvId); st.irPara("conversas"); };
 
   /* ── um compromisso da agenda do Google que não é atendimento ──
@@ -137,7 +138,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
 
   /* ── nota fiscal ── */
   if (id.startsWith("nf-")) {
-    const c = D.cliente(id.slice(3));
+    const c = st.clienteDe(id.slice(3));
     if (!c) return null;
     const nota = st.notaDe(c.id);
 
@@ -238,7 +239,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
   }
 
   /* ── cliente ── */
-  const cli = D.cliente(id);
+  const cli = st.clienteDe(id);
   if (cli) {
     const ativo = st.cliAtivo(cli.id);
     const nota = st.notaDe(cli.id);
@@ -298,7 +299,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
   }
 
   /* ── profissional ── */
-  const pr = D.profissional(id);
+  const pr = st.profissionalDe(id);
   if (pr) {
     const on = st.profAtivo(pr.id);
     const primeiro = D.primeiroNome(pr.nome);
@@ -393,15 +394,15 @@ export function useDetalhe(id: string | null): Detalhe | null {
     const contaAg = st.googleDe(r.profissionalId);
     return {
       titulo: "Novo atendimento",
-      sub: `${r.data === D.HOJE.iso ? "hoje" : D.rotuloLongo(r.data)}, ${D.hhmm(r.inicio)}, com ${D.primeiroNome(D.nomeProfissional(r.profissionalId))}`,
+      sub: `${r.data === D.HOJE.iso ? "hoje" : D.rotuloLongo(r.data)}, ${D.hhmm(r.inicio)}, com ${D.primeiroNome(st.nomeDoProfissional(r.profissionalId))}`,
       blocos: [
         {
           tipo: "campos", key: "quem", label: "Quem e o quê",
           campos: [
             {
               id: "cliente", label: "Cliente", valor: r.clienteId, tipo: "select",
-              opcoes: ["", ...D.CLIENTES.filter((c) => st.cliAtivo(c.id)).map((c) => c.id)],
-              rotuloOpcao: (v) => (v ? D.nomeCliente(v) : "Escolha o cliente"),
+              opcoes: ["", ...st.cadastro.clientes.filter((c) => st.cliAtivo(c.id)).map((c) => c.id)],
+              rotuloOpcao: (v) => (v ? st.nomeDoCliente(v) : "Escolha o cliente"),
               onChange: (v) => st.editarRascunho({ clienteId: v }),
             },
             {
@@ -424,8 +425,8 @@ export function useDetalhe(id: string | null): Detalhe | null {
           ? [{
             tipo: "texto" as const, key: "onde", label: "Onde vai ser criado",
             texto: contaAg
-              ? `Na agenda do Google de ${D.primeiroNome(D.nomeProfissional(r.profissionalId))} (${contaAg.googleEmail}), com link do Meet. O cliente NÃO é convidado por e-mail.`
-              : `Na agenda do Google de ${D.primeiroNome(D.nomeProfissional(r.profissionalId))}, com link do Meet.`,
+              ? `Na agenda do Google de ${D.primeiroNome(st.nomeDoProfissional(r.profissionalId))} (${contaAg.googleEmail}), com link do Meet. O cliente NÃO é convidado por e-mail.`
+              : `Na agenda do Google de ${D.primeiroNome(st.nomeDoProfissional(r.profissionalId))}, com link do Meet.`,
           }]
           : []),
         ...(completo
@@ -460,7 +461,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
     // `D.servico` DE PROPÓSITO, e é o único lugar da tela que ainda pergunta ao catálogo de
     // partida: a pergunta aqui não é "quanto custa hoje", é "este serviço nasceu com o app?".
     // Trocar por `st.servicoDe` responderia sempre que sim e sumiria com o botão de excluir.
-    const novo = !D.servico(sv.id); // criado pelo usuário → pode ser excluído
+    const novo = !st.servicoDoCadastro(sv.id); // criado pelo usuário → pode ser excluído
     return {
       titulo: sv.nome, sub: `${sv.categoria} · ${fmt(sv.preco)} · ${sv.duracao} min`,
       blocos: [
@@ -506,7 +507,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
           // serviço citava alguém fora da equipe — e sv4/sv5/sv6 eram exatamente esse
           // caso. Sumir da lista é infinitamente melhor que tela branca.
           itens: sv.profissionalIds.flatMap((pid) => {
-            const p = D.profissional(pid);
+            const p = st.profissionalDe(pid);
             if (!p) return [];
             return [{
               id: pid, nome: p.nome, seed: pid,
@@ -524,23 +525,34 @@ export function useDetalhe(id: string | null): Detalhe | null {
     };
   }
 
-  /* ── conversa ── */
-  const cv = D.conversa(id);
+  /* ── conversa ──
+   * `st.conversaDe` e não `D.conversa`: a lista vem do servidor. E o `id` de uma conversa agora
+   * é a chave do telefone (8 dígitos), não `cv1` — quem abre esta gaveta é a fila "Precisa de
+   * você" ou a paleta, e as duas já passam esse id. */
+  const cv = st.conversaDe(id);
   if (cv) {
-    const estado = st.estadoConversa(cv.id);
+    const estado = cv.estado;
     const assumida = estado === "voce";
-    const zap = `https://wa.me/55${cv.telefone.replace(/\D/g, "")}`;
+    // O número já vem com DDI do WhatsApp; o `55` fixo daqui era para o telefone do fixture.
+    const zap = `https://wa.me/${cv.telefone}`;
     return {
-      titulo: cv.nome, seed: cv.id, sub: `${cv.telefone} · última mensagem às ${cv.hora}`,
+      titulo: cv.nome, seed: cv.id,
+      sub: `${D.telefoneBonito(cv.telefone || cv.id)} · última mensagem às ${D.horaDeISO(cv.atualizadaEm)}`,
       blocos: [
         { tipo: "msgs", key: "th", label: "Conversa", msgs: st.threadDe(cv.id) },
         {
           tipo: "texto", key: "quem", label: "Quem está conduzindo",
+          /* Quatro estados, quatro frases. `espera` é NOVO e é o que mais importa: significa que
+             o cliente falou e a MAISA não respondeu — ela escalou, está desligada, ou tentou
+             marcar e não conseguiu. Antes esse caso vinha escrito no fixture como se fosse
+             sobre encaixe de horário; agora é a situação real, e a única com urgência. */
           texto: assumida
             ? "Você assumiu esta conversa. A MAISA não responde mais aqui até você devolver."
-            : estado === "ok"
-              ? "Conversa resolvida pela MAISA. Nada pendente."
-              : "A MAISA está respondendo sozinha. Assuma se quiser falar você mesmo.",
+            : estado === "espera"
+              ? "O cliente escreveu e a MAISA não respondeu — é a sua vez. Assuma para falar você mesmo."
+              : estado === "ok"
+                ? "Conversa marcada como resolvida. Nada pendente."
+                : "A MAISA está respondendo sozinha. Assuma se quiser falar você mesmo.",
         },
       ],
       acoes: assumida
@@ -706,15 +718,15 @@ export function useDetalhe(id: string | null): Detalhe | null {
 
   if (id === "plano") {
     return {
-      titulo: "Meu plano", sub: `${D.NEGOCIO.plano} · ${fmt(D.NEGOCIO.precoPlano)}/mês`,
+      titulo: "Meu plano", sub: `${st.cadastro.negocio.plano} · ${fmt(st.cadastro.negocio.precoPlano)}/mês`,
       blocos: [
         {
           tipo: "stats", key: "ass", label: "Assinatura",
           linhas: [
-            ["Plano", D.NEGOCIO.plano],
-            ["Próxima cobrança", D.NEGOCIO.proximaCobranca],
-            ["Forma de pagamento", D.NEGOCIO.cartao],
-            ["Conversas", D.NEGOCIO.conversasPlano],
+            ["Plano", st.cadastro.negocio.plano],
+            ["Próxima cobrança", st.cadastro.negocio.proximaCobranca],
+            ["Forma de pagamento", st.cadastro.negocio.cartao],
+            ["Conversas", st.cadastro.negocio.conversasPlano],
           ],
         },
         { tipo: "stats", key: "fat", label: "Últimas faturas", linhas: D.FATURAS },

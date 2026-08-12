@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { app } from "@/composicao";
 import { createClient } from "@/adaptadores/saida/supabase/server";
+import { tenantDoUsuario } from "@/adaptadores/entrada/http/contexto";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
 import { googleFaltando, isGoogleConfigured } from "@/adaptadores/saida/google/config";
 
@@ -28,10 +29,12 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ status: "nao_autenticado", conexoes: [] });
 
-  const conexoes = await app.listarConexoes({
-    tenantId: user.id,
-    usuarioId: user.id,
-    ator: { tipo: "usuario", id: user.id },
-  });
+  // O inquilino sai de `membros`, não do id do usuário — ver `entrada/http/contexto.ts`.
+  // Esta rota RELATA estado, então "logado sem negócio" é resposta 200 com status
+  // próprio, igual aos outros casos daqui: devolver erro esconderia o diagnóstico.
+  const tenant = await tenantDoUsuario(user.id);
+  if (!tenant) return NextResponse.json({ status: "sem_negocio", conexoes: [] });
+
+  const conexoes = await app.listarConexoes(tenant);
   return NextResponse.json({ status: "ok", conexoes });
 }

@@ -125,9 +125,18 @@ type Persistido = {
    * não lá de propósito: pôr a etapa no Google transformaria cada arrasto do kanban num
    * PATCH numa agenda real. */
   cliAtivo: Record<string, boolean>;
-  assumidas: Record<string, boolean>;
+  /* Aqui moravam `assumidas` e `enviadas` — quem conduzia cada conversa e o que você tinha
+   * respondido. Saíram na fatia das conversas reais, e o motivo é o mesmo dos atendimentos:
+   * o dado tem dono, e o dono não é este navegador.
+   *
+   * `assumidas` era pior que uma cópia local: o botão "Assumir" prometia, no toast, que a
+   * MAISA não responderia mais naquela conversa — e o webhook nunca soube. Estado que muda o
+   * comportamento do AGENTE não pode morar no `localStorage` de um dos aparelhos do dono.
+   *
+   * `enviadas` guardava as suas respostas só aqui: elas não iam para o WhatsApp de ninguém e
+   * não entravam na thread que o modelo replaya. Agora `voce` é gravado em `mensagens_agente`
+   * como qualquer outra fala — era a dívida "voce nunca é gravado" do LEIA-ME do agente. */
   resolvidos: Record<string, boolean>;
-  enviadas: Record<string, D.Msg[]>;
   notas: Record<string, D.Nota>;
   proximoNumero: number;
   assistente: Assistente;
@@ -145,6 +154,9 @@ const MOTIVO_GOOGLE: Record<string, string> = {
   nao_autenticado: "Sua sessão expirou — entre de novo para conectar",
   login_necessario: "Entre na sua conta para conectar uma agenda",
   profissional_invalido: "Profissional não encontrado",
+  /* Novo com o `tenantId` real: logado, mas sem linha em `membros`. Não é erro de OAuth —
+   * é o estado de quem acabou de criar a conta e ainda não tem negócio provisionado. */
+  sem_negocio: "Esta conta ainda não tem um negócio. Rode criar_negocio() no Supabase antes de conectar a agenda",
   permissao_negada: "Você não autorizou o acesso à agenda",
   sessao_expirada: "A conexão demorou demais — tente de novo",
   sem_codigo: "O Google não devolveu a autorização",
@@ -167,6 +179,7 @@ const RESPOSTA_GOOGLE: Record<string, string> = {
   nao_configurado: "O Google Calendar não está configurado neste ambiente",
   nao_autenticado: "Sua sessão expirou — entre de novo",
   login_necessario: "Entre na sua conta para usar o Google Calendar",
+  sem_negocio: "Esta conta ainda não tem um negócio criado",
   payload_invalido: "Faltam dados do atendimento",
 };
 
@@ -175,10 +188,85 @@ const RESPOSTA_GOOGLE: Record<string, string> = {
 const SEM_ATENDIMENTO: AgendamentoVivo[] = [];
 const SEM_BLOQUEIO: Bloqueio[] = [];
 
-/** De quem é a agenda que a tela lê. Uma pessoa só, por enquanto — ver o comentário de
- *  D.EQUIPE. Quando voltar a haver equipe, isto vira um laço sobre COLUNAS_AGENDA e o
- *  cache passa a ser por profissional. */
-const PID_AGENDA = D.COLUNAS_AGENDA[0];
+/* ─────────────────────────────────────────────────────────────────────────────
+ * O CADASTRO — quem eu sou, quem atende, o que eu vendo, quem são meus clientes.
+ *
+ * Vem de `GET /api/cadastro`, que por dentro é o caso de uso `lerCadastro`. Antes as telas
+ * liam `D.EQUIPE`, `D.SERVICOS`, `D.CLIENTES` e `D.NEGOCIO` — arrays importados do módulo
+ * de fixtures — e por isso o app inteiro dependia de dado em memória para desenhar a grade.
+ *
+ * ⚠️ O FIXTURE CONTINUA AQUI, COMO VALOR INICIAL, E ISSO É DELIBERADO.
+ *
+ * A alternativa era começar com `null` e ensinar cada consumidor a esperar. Só que
+ * praticamente todo consumidor é síncrono e nenhum tem estado de carregando: a grade da
+ * Agenda monta `grid-template-columns` a partir de `agendas` (lista vazia ⇒ `repeat(0, …)`
+ * e sobra só a régua de horas), o rail lê `negocio.nome` sem `?.`, e a cascata de despacho
+ * da Gaveta decide a entidade por "qual lista contém este id" — com listas vazias ela abre
+ * gaveta em branco. Seriam seis arquivos ganhando estado de carregando de uma vez, num
+ * passo que já troca a fonte do dado.
+ *
+ * Então o fixture virou PLACEHOLDER: a tela pinta na primeira passada com ele e repinta com
+ * o real quando o fetch volta. Em modo demonstração (sem Supabase) os dois são iguais, e o
+ * repinte é invisível — porque `/api/cadastro` cai no mesmo `repositorioDemo`.
+ *
+ * O PREÇO, e o que se faz com ele: se o fetch FALHAR, a tela segue mostrando o fixture — ou
+ * seja, mentindo com cara de dado real. É o pior modo de falha desta escolha, e é por isso
+ * que `cadastroErro` existe e viaja no store: quem mostra número de negócio tem como dizer
+ * que aquilo não é o negócio de verdade. Sem esse aviso, esta decisão seria indefensável.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+export type Cadastro = {
+  negocio: D.Negocio;
+  profissionais: D.Profissional[];
+  servicos: D.Servico[];
+  clientes: D.Cliente[];
+  /** Agendas que ESTA sessão pode operar. Vem do servidor: é allowlist, não filtro de tela. */
+  agendas: string[];
+};
+
+const CADASTRO_INICIAL: Cadastro = {
+  negocio: D.NEGOCIO,
+  profissionais: D.EQUIPE,
+  servicos: D.SERVICOS,
+  clientes: D.CLIENTES,
+  agendas: D.COLUNAS_AGENDA,
+};
+
+/** Motivo → frase, no mesmo espírito de `MOTIVO_GOOGLE`. O `status` é contrato com
+ *  `entrada/http/respostas.ts` e com o porteiro — procure o nome lá antes de mudar aqui. */
+const MOTIVO_CADASTRO: Record<string, string> = {
+  nao_autenticado: "Faça login para ver os dados do seu negócio.",
+  login_necessario: "Faça login para ver os dados do seu negócio.",
+  sem_negocio: "Esta conta ainda não tem um negócio criado.",
+  nao_configurado: "O banco de dados não está configurado neste ambiente.",
+  erro: "Não foi possível carregar o cadastro do negócio.",
+};
+
+/** Idem para as conversas. Mesmos nomes de `status` — eles são contrato com `respostas.ts`. */
+const MOTIVO_CONVERSAS: Record<string, string> = {
+  nao_autenticado: "Faça login para ver as conversas do WhatsApp.",
+  login_necessario: "Faça login para ver as conversas do WhatsApp.",
+  sem_negocio: "Esta conta ainda não tem um negócio criado.",
+  nao_configurado: "O banco de dados não está configurado neste ambiente.",
+  erro: "Não foi possível carregar as conversas do WhatsApp.",
+};
+
+/** Thread vazia compartilhada — devolver `[]` novo a cada chamada faria a Thread repintar
+ *  a cada render, e junto com ela o `scrollIntoView` do fim da conversa. */
+const SEM_MSG: D.Msg[] = [];
+
+/**
+ * De quanto em quanto tempo a tela de Conversas relê, com ela aberta.
+ *
+ * 15s é o intervalo em que uma resposta da MAISA aparece "quase na hora" para quem está
+ * olhando, sem virar uma consulta por segundo. Só roda com a tela de Conversas em foco (ver o
+ * efeito): num inbox, dado velho é pior que em qualquer outra tela do app — o dono decide
+ * assumir ou não a partir do que está escrito ali.
+ *
+ * O caminho honesto seria realtime (o Supabase tem), e é a próxima fatia. Polling é o que dá
+ * para fazer sem abrir um canal novo, e num painel de uma pessoa o custo é irrelevante.
+ */
+const RELER_CONVERSAS_MS = 15_000;
 
 /* ── quando o catálogo local não conhece o que veio do Google ──
  *
@@ -235,9 +323,7 @@ const INICIAL: Persistido = {
   svcEdit: {},
   svcNovos: [],
   cliAtivo: {},
-  assumidas: {},
   resolvidos: {},
-  enviadas: {},
   notas: {},
   proximoNumero: D.PROXIMO_NUMERO,
   assistente: {
@@ -337,16 +423,73 @@ export type StoreValue = {
   encerrarArrasto: () => void;
   marcarAlvo: (alvo: string | null) => void;
 
-  /* conversas */
+  /* ── conversas de WhatsApp, do servidor ──
+   *
+   * Vinham de `D.CONVERSAS` e `D.THREADS` — seis conversas escritas à mão, com horas fixas e
+   * ids `cv1`…`cv6`. Agora vêm de `GET /api/conversas`, que lê a MESMA tabela que o agente
+   * escreve. Aqui NÃO há placeholder de fixture, ao contrário do cadastro: uma conversa
+   * inventada na tela é uma pessoa inventada, e o dono responderia a ela. Lista vazia é a
+   * verdade quando ninguém escreveu ainda. */
+
+  /** Mais recente primeiro. O `id` de cada uma é a chave do telefone — ver `dominio/conversas`. */
+  conversas: D.Conversa[];
+  conversaDe: (id: string) => D.Conversa | null;
+  /** Frase quando a lista não carregou. A tela mostra isso em vez de "nenhuma conversa". */
+  conversasErro: string | null;
+  /** Já voltou do servidor? `false` cobre "carregando" e "falhou" — a tela distingue pelo erro. */
+  conversasCarregadas: boolean;
+  recarregarConversas: () => void;
+
   convSel: string;
   selecionarConversa: (id: string) => void;
   abaConv: AbaConversa;
   setAbaConv: (a: AbaConversa) => void;
-  estadoConversa: (id: string) => D.EstadoConversa;
+  /* `estadoConversa(id)` morava aqui. Saiu: `Conversa` agora CARREGA o estado (derivado no
+     servidor por `estadoDaConversa`), então a tela lê `c.estado` do objeto que ela já tem.
+     Manter a função seria oferecer dois jeitos de fazer a mesma pergunta — e o jeito indireto
+     obrigava a varrer a lista por id para descobrir o que estava na mão. Quem só tem o id usa
+     `conversaDe(id)?.estado`. */
   threadDe: (id: string) => D.Msg[];
+  /** A thread da conversa aberta ainda está vindo? Só ela — as outras não interessam. */
+  threadCarregando: boolean;
+
+  /** ⚠️ MANDA MENSAGEM DE VERDADE no WhatsApp da pessoa. Não se desfaz. */
+  enviar: (id: string, txt: string) => void;
+  /** Enquanto o envio está no ar. O composer desabilita — Enter duplo mandaria duas. */
+  enviando: boolean;
+
+  /** Assumir CALA A MAISA naquela conversa, no servidor. Devolver a solta de novo. */
   assumir: (id: string) => void;
   devolver: (id: string) => void;
-  enviar: (id: string, txt: string) => void;
+
+  /* ── o cadastro, vindo do servidor ──
+   * O que substituiu `import * as D from "@/adaptadores/saida/demo"` nas telas. Ver
+   * `CADASTRO_INICIAL` para o porquê de ainda existir um placeholder de fixture. */
+
+  /** Negócio, equipe, catálogo de partida, carteira e as agendas permitidas. */
+  cadastro: Cadastro;
+  /** Frase quando o cadastro NÃO carregou. Não-nulo significa que o que está na tela é
+   *  placeholder — quem mostra número do negócio tem obrigação de dizer isso. */
+  cadastroErro: string | null;
+  /** Já voltou do servidor? `false` cobre tanto "carregando" quanto "falhou". */
+  cadastroCarregado: boolean;
+
+  /** Profissional por id, do cadastro. Substitui `D.profissional`. */
+  profissionalDe: (id: string) => D.Profissional | null;
+  /** Cliente por id, do cadastro. Substitui `D.cliente`. */
+  clienteDe: (id: string) => D.Cliente | null;
+  /** Serviço como o CADASTRO o conhece, sem as edições locais — é o que responde
+   *  "veio do catálogo ou o usuário criou?". Para o vivo, use `servicoDe`. */
+  servicoDoCadastro: (id: string) => D.Servico | null;
+  nomeDoProfissional: (id: string) => string;
+  nomeDoCliente: (id: string) => string;
+
+  /** A agenda que a tela lê. Vazio até o cadastro chegar — guarde antes de usar na URL. */
+  pidAgenda: string;
+  /** Este profissional atende neste dia? Lê o expediente do próprio profissional. */
+  atendeNoDia: (pid: string, data: string) => boolean;
+  /** Cabe um atendimento começando nesta hora? */
+  podeComecarEm: (pid: string, data: string, inicio: number) => boolean;
 
   /* catálogo, equipe, clientes */
   profAtivo: (id: string) => boolean;
@@ -457,8 +600,14 @@ export type EstadoAgendaGoogle = {
 
 /** O que a UI precisa saber sobre a integração antes de oferecer qualquer botão. */
 export type EstadoGoogle = {
-  /** "carregando" | "ok" | "nao_configurado" | "nao_autenticado" | "login_necessario" */
-  status: "carregando" | "ok" | "nao_configurado" | "nao_autenticado" | "login_necessario";
+  /**
+   * `sem_negocio` entrou junto com o `tenantId` real: `/api/google/status` passou a
+   * responder isso quando a conta está logada mas ainda não tem linha em `membros` — o
+   * primeiro login de todo mundo. Sem estar na união, o valor chegava como string que
+   * nenhum ramo tratava e a tela caía no "carregando" para sempre: um spinner eterno em
+   * vez de "crie o negócio primeiro".
+   */
+  status: "carregando" | "ok" | "nao_configurado" | "nao_autenticado" | "login_necessario" | "sem_negocio";
   conexoes: { profissionalId: string; googleEmail: string }[];
   /** Variáveis de ambiente que faltam, quando status = nao_configurado. */
   faltando: string[];
@@ -520,17 +669,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           posicoes: _saiuDoFormato,
           novosAgendamentos: agLocais,
           googleEventos: _vinculoSemPar,
+          /* Os dois das conversas. Não vão para o console como os atendimentos porque não há
+           * nada a resgatar: quem conduzia cada conversa é uma pergunta que o servidor agora
+           * responde melhor (e para todos os aparelhos), e as respostas guardadas aqui nunca
+           * chegaram a ninguém — se fossem impressas, seriam uma lista de mensagens que o
+           * cliente nunca recebeu, o que é pior que silêncio. */
+          assumidas: _posseAgoraNoServidor,
+          enviadas: _respostasQueNuncaSairam,
           ...p
         } = JSON.parse(cru) as Partial<Persistido> & {
           posicoes?: unknown;
           novosAgendamentos?: { data?: string; inicio?: number; clienteId?: string }[];
           googleEventos?: unknown;
+          assumidas?: unknown;
+          enviadas?: unknown;
         };
         if (agLocais?.length) {
           console.info(
             `[store] ${agLocais.length} atendimento(s) do formato antigo não vieram — o app agora só ` +
             `guarda atendimento no Google Calendar. Eram: ` +
-            agLocais.map((a) => `${a.data ?? "?"} ${D.hhmm(a.inicio ?? 0)} ${D.nomeCliente(a.clienteId ?? "")}`).join("; "),
+            agLocais.map((a) => `${a.data ?? "?"} ${D.hhmm(a.inicio ?? 0)} ${nomeDoCliente(a.clienteId ?? "")}`).join("; "),
           );
         }
         setDb((prev) => ({
@@ -546,6 +704,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       /* localStorage indisponível — segue nos defaults */
     }
     setHidratado(true);
+    /* ⚠️ `[]` é PROPOSITAL, e `nomeDoCliente` NÃO entra aqui, ainda que o corpo o use.
+     *
+     * Este efeito é a hidratação: ele lê o disco e sobrescreve `db`. Rodar de novo
+     * significaria reler o localStorage DEPOIS de o usuário já ter mexido em coisa, e
+     * descartar o que ele fez. Como `nomeDoCliente` muda de identidade quando o cadastro
+     * chega do servidor, listá-lo aqui — que é o que a regra de dependências exaustivas
+     * pediria — transformaria uma resposta de rede num "desfazer" silencioso.
+     *
+     * O custo de não listar é conhecido e é irrelevante: a closure vê o cadastro inicial,
+     * então o log de migração pode imprimir o nome do placeholder. É uma linha de
+     * console.info que roda uma vez na vida daquele navegador. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -564,7 +734,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [cancelarPedido, setCancelarPedido] = useState<string | null>(null);
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [alvoSolta, setAlvoSolta] = useState<string | null>(null);
-  const [convSel, setConvSel] = useState<string>(D.CONVERSAS[0].id);
+  /* Começa VAZIO, não na primeira conversa: as conversas vêm do servidor, e no primeiro render
+   * não existe "primeira". Quem escolhe por padrão é o efeito lá embaixo, quando a lista chega. */
+  const [convSel, setConvSel] = useState<string>("");
   const [abaConv, setAbaConv] = useState<AbaConversa>("todas");
   const [filtroSvc, setFiltroSvc] = useState("Todos");
   const [filtroCli, setFiltroCli] = useState("Ativos");
@@ -600,6 +772,325 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [sel]);
 
+  /* ── o cadastro do negócio ──
+   * Uma ida ao servidor, no primeiro render, e o resultado substitui o placeholder de
+   * fixture. Ver o comentário de `CADASTRO_INICIAL` para o porquê de haver placeholder. */
+
+  const [cadastro, setCadastro] = useState<Cadastro>(CADASTRO_INICIAL);
+  const [cadastroErro, setCadastroErro] = useState<string | null>(null);
+  const [cadastroCarregado, setCadastroCarregado] = useState(false);
+
+  useEffect(() => {
+    /* `vivo` porque o efeito roda no StrictMode duas vezes em desenvolvimento, e porque o
+     * provider pode desmontar antes de a resposta chegar. Sem ele, `setState` depois do
+     * unmount vira aviso no console — e, pior, a resposta da PRIMEIRA montagem pode chegar
+     * depois da segunda e sobrescrever dado mais novo com dado mais velho. */
+    let vivo = true;
+
+    void (async () => {
+      try {
+        const r = await fetch("/api/cadastro").then((x) => x.json());
+        if (!vivo) return;
+
+        if (!r?.ok) {
+          /* Mantém o placeholder na tela e ACENDE o aviso. Zerar as listas aqui seria
+           * pior: a Agenda perderia as colunas e a Gaveta abriria vazia, sintomas que não
+           * apontam para "o cadastro não carregou". */
+          setCadastroErro(MOTIVO_CADASTRO[r?.status] ?? MOTIVO_CADASTRO.erro);
+          return;
+        }
+
+        setCadastro({
+          negocio: r.negocio,
+          profissionais: r.profissionais ?? [],
+          servicos: r.servicos ?? [],
+          clientes: r.clientes ?? [],
+          agendas: r.agendas ?? [],
+        });
+        setCadastroErro(null);
+        setCadastroCarregado(true);
+      } catch {
+        if (vivo) setCadastroErro(MOTIVO_CADASTRO.erro);
+      }
+    })();
+
+    return () => { vivo = false; };
+  }, []);
+
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * AS CONVERSAS DE WHATSAPP.
+   *
+   * Vinham de `D.CONVERSAS`/`D.THREADS`: seis conversas escritas à mão, com hora fixa, e as
+   * suas respostas indo para o `localStorage` em vez de para o WhatsApp de alguém. Agora vêm
+   * de `GET /api/conversas`, que lê a mesma tabela que o agente escreve.
+   *
+   * ⚠️ AQUI NÃO HÁ PLACEHOLDER DE FIXTURE, ao contrário do cadastro logo acima — e a diferença
+   * é de consequência, não de estilo. Cadastro com placeholder mostra um preço errado; conversa
+   * com placeholder mostra uma PESSOA que não existe, com um pedido que ninguém fez. O dono
+   * responderia a ela. Lista vazia é a verdade quando ninguém escreveu.
+   * ────────────────────────────────────────────────────────────────────────────── */
+
+  const [conversas, setConversas] = useState<D.Conversa[]>([]);
+  const [conversasErro, setConversasErro] = useState<string | null>(null);
+  const [conversasCarregadas, setConversasCarregadas] = useState(false);
+  /** Threads já buscadas, por id de conversa. Cache: voltar para uma conversa não repinta vazio. */
+  const [threads, setThreads] = useState<Record<string, D.Msg[]>>({});
+  const [threadCarregando, setThreadCarregando] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  /** Uma leitura no ar por vez. O polling e o `focus` disparam do mesmo lugar. */
+  const lendoConversas = useRef(false);
+
+  const recarregarConversas = useCallback(async () => {
+    if (lendoConversas.current) return;
+    lendoConversas.current = true;
+    try {
+      const r = await fetch("/api/conversas").then((x) => x.json());
+      if (!r?.ok) {
+        setConversasErro(MOTIVO_CONVERSAS[r?.status] ?? MOTIVO_CONVERSAS.erro);
+        return;
+      }
+      setConversas(r.conversas ?? []);
+      setConversasErro(null);
+      setConversasCarregadas(true);
+    } catch {
+      setConversasErro(MOTIVO_CONVERSAS.erro);
+    } finally {
+      lendoConversas.current = false;
+    }
+  }, []);
+
+  /**
+   * A thread de UMA conversa.
+   *
+   * A resposta traz a conversa junto, e nós aproveitamos: abrir uma conversa reconcilia a linha
+   * dela na lista. Sem isso, quem abre uma conversa cujo estado mudou no servidor (a MAISA
+   * respondeu enquanto a lista estava velha) veria a thread nova com o rótulo antigo.
+   */
+  const carregarThread = useCallback(async (id: string) => {
+    setThreadCarregando(true);
+    try {
+      const r = await fetch(`/api/conversas?telefone=${encodeURIComponent(id)}`).then((x) => x.json());
+      if (!r?.ok) return;
+      setThreads((t) => ({ ...t, [id]: r.msgs ?? [] }));
+      if (r.conversa) setConversas((cs) => cs.map((c) => (c.id === id ? r.conversa : c)));
+    } catch {
+      /* Silêncio de propósito: a tela segue mostrando a thread que já tinha em cache. Um erro
+       * aqui é transitório (rede), e trocar a conversa por uma mensagem de falha faria o dono
+       * perder o contexto do que estava lendo. `conversasErro` cobre o caso que importa. */
+    } finally {
+      setThreadCarregando(false);
+    }
+  }, []);
+
+  useEffect(() => { void recarregarConversas(); }, [recarregarConversas]);
+
+  /* Escolhe a primeira quando a lista chega. Não é `useState(conversas[0])` porque no primeiro
+   * render não existe lista — e não sobrescreve escolha nenhuma: só age com `convSel` vazio. */
+  useEffect(() => {
+    if (!convSel && conversas.length) setConvSel(conversas[0].id);
+  }, [conversas, convSel]);
+
+  useEffect(() => {
+    if (convSel) void carregarThread(convSel);
+  }, [convSel, carregarThread]);
+
+  /* ── manter a tela viva ──
+   *
+   * Duas coisas, e as duas só com a tela de Conversas aberta: polling de 15s e releitura ao
+   * voltar para a aba. Fora dela, nada roda — o rail mostra contador de pendência, e contador
+   * atrasado em 30s não muda decisão nenhuma; a lista aberta, sim.
+   *
+   * `document.visibilityState` no polling porque um `setInterval` não para quando a aba vai para
+   * o fundo: sem a checagem, uma aba esquecida do painel faria quatro requests por minuto a
+   * noite inteira. */
+  useEffect(() => {
+    if (tela !== "conversas") return;
+
+    const reler = () => {
+      if (document.visibilityState !== "visible") return;
+      void recarregarConversas();
+      if (convSel) void carregarThread(convSel);
+    };
+
+    const timer = window.setInterval(reler, RELER_CONVERSAS_MS);
+    window.addEventListener("focus", reler);
+    document.addEventListener("visibilitychange", reler);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", reler);
+      document.removeEventListener("visibilitychange", reler);
+    };
+  }, [tela, convSel, recarregarConversas, carregarThread]);
+
+  const conversaDe = useCallback(
+    (id: string) => conversas.find((c) => c.id === id) ?? null,
+    [conversas],
+  );
+
+  /* ── conversas: as ações ── */
+
+  const threadDe = useCallback((id: string) => threads[id] ?? SEM_MSG, [threads]);
+
+  const selecionarConversa = useCallback((id: string) => setConvSel(id), []);
+
+  /**
+   * As quatro mudanças de posse, num lugar só.
+   *
+   * ⚠️ SEM ATUALIZAÇÃO OTIMISTA, de propósito — e é a única ação do app onde eu recuso otimismo.
+   * Pintar "assumida" antes da confirmação exigiria recalcular o estado no navegador, ou seja,
+   * uma segunda cópia de `estadoDaConversa`. E aqui a mentira é caríssima: a tela diria que a
+   * MAISA está calada enquanto ela continua respondendo ao cliente. A ida ao servidor é a
+   * própria garantia — é ela que o webhook vai ler.
+   */
+  const mudarPosse = useCallback(
+    async (id: string, acao: "assumir" | "devolver" | "resolver" | "reabrir", aviso?: string) => {
+      try {
+        const r = await fetch("/api/conversas", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ telefone: id, acao }),
+        }).then((x) => x.json());
+
+        if (!r?.ok) {
+          toast(r?.info ?? "Não foi possível mudar quem conduz esta conversa");
+          return;
+        }
+        await recarregarConversas();
+        if (aviso) toast(aviso);
+      } catch {
+        toast("Sem conexão com o servidor — nada mudou");
+      }
+    },
+    [recarregarConversas],
+  );
+
+  const assumir = useCallback((id: string) => {
+    // O toast só aparece DEPOIS do ok do servidor. Antes ele era imediato e a frase era falsa.
+    void mudarPosse(id, "assumir", "Conversa assumida — a MAISA não responde mais aqui");
+  }, [mudarPosse]);
+
+  const devolver = useCallback((id: string) => {
+    void mudarPosse(id, "devolver", "Devolvida à MAISA");
+  }, [mudarPosse]);
+
+  /**
+   * RESPONDER — manda mensagem de verdade no WhatsApp da pessoa.
+   *
+   * A bolha aparece na hora e o envio vai atrás: num composer, esperar a rede para ver o que se
+   * digitou faz a tela parecer quebrada. O que NÃO se faz é deixá-la lá se o envio falhar — a
+   * bolha otimista é removida e o toast diz o motivo. Mensagem visível no painel que o cliente
+   * nunca recebeu é a pior falha possível aqui: o dono segue a conversa achando que respondeu.
+   *
+   * Depois do ok, relê lista e thread em vez de confiar na própria bolha: quem grava o instante
+   * é o banco, e é o `criado_em` dele que ordena a conversa.
+   */
+  const enviar = useCallback((id: string, txt: string) => {
+    const t = txt.trim();
+    if (!t || enviando) return;
+
+    const provisoria: D.Msg = { de: "voce", txt: t, em: new Date().toISOString() };
+    setThreads((ts) => ({ ...ts, [id]: [...(ts[id] ?? []), provisoria] }));
+    setEnviando(true);
+
+    /* `!== provisoria` por IDENTIDADE de objeto, não por conteúdo: duas mensagens iguais na
+     * mesma conversa ("ok") são normais, e filtrar por texto apagaria a errada. */
+    const desfazer = () =>
+      setThreads((ts) => ({ ...ts, [id]: (ts[id] ?? []).filter((m) => m !== provisoria) }));
+
+    void (async () => {
+      try {
+        const r = await fetch("/api/conversas", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ telefone: id, acao: "responder", texto: t }),
+        }).then((x) => x.json());
+
+        if (!r?.ok) {
+          desfazer();
+          toast(r?.info ?? "Não foi possível enviar a mensagem");
+          return;
+        }
+        await Promise.all([recarregarConversas(), carregarThread(id)]);
+      } catch {
+        desfazer();
+        toast("Sem conexão com o servidor — a mensagem não foi enviada");
+      } finally {
+        setEnviando(false);
+      }
+    })();
+  }, [enviando, recarregarConversas, carregarThread]);
+
+
+  /* Buscas por id. Antes eram `D.profissional(id)` / `D.cliente(id)` / `D.servico(id)` —
+   * funções do módulo de fixtures que varriam um array constante. Agora varrem o cadastro
+   * carregado, e é só isso que muda: mesma assinatura, mesmo `null` quando não acha.
+   *
+   * Varredura linear e não `Map`: são 1 profissional, 7 serviços e 17 clientes. Indexar
+   * custaria mais em complexidade do que economiza em tempo, e o dia em que a carteira
+   * crescer o problema não é a busca — é a lista inteira vindo no payload. */
+
+  const profissionalDe = useCallback(
+    (id: string) => cadastro.profissionais.find((p) => p.id === id) ?? null,
+    [cadastro.profissionais],
+  );
+
+  const clienteDe = useCallback(
+    (id: string) => cadastro.clientes.find((c) => c.id === id) ?? null,
+    [cadastro.clientes],
+  );
+
+  /** O serviço como o CADASTRO o conhece — sem as edições locais. É o que responde
+   *  "este serviço veio do catálogo ou o usuário criou?" (ver `servicoDe` para o vivo). */
+  const servicoDoCadastro = useCallback(
+    (id: string) => cadastro.servicos.find((s) => s.id === id) ?? null,
+    [cadastro.servicos],
+  );
+
+  const nomeDoProfissional = useCallback(
+    (id: string) => profissionalDe(id)?.nome ?? "—",
+    [profissionalDe],
+  );
+
+  const nomeDoCliente = useCallback((id: string) => clienteDe(id)?.nome ?? "—", [clienteDe]);
+
+  /**
+   * De quem é a agenda que a tela lê.
+   *
+   * Era `const PID_AGENDA = D.COLUNAS_AGENDA[0]` no topo do módulo — avaliado no import, o
+   * que era exatamente o que impedia o dado de vir do servidor. Agora é derivado do
+   * cadastro, e por isso os callbacks que o usam ganharam dependência dele.
+   *
+   * Continua sendo UMA agenda só. Quando voltar a haver equipe, isto vira laço sobre
+   * `cadastro.agendas` e o cache de agenda passa a ser por profissional.
+   */
+  const pidAgenda = cadastro.agendas[0] ?? "";
+
+  /* ── expediente ──
+   * Era `D.atende(pid, data)` / `D.podeComecar(pid, data, hora)`, que liam um
+   * `Record<string, Expediente>` chaveado por `"pr1"` dentro do fixture. Com o cadastro
+   * real os ids são uuid, e aquele Record devolveria `undefined` para tudo — e o domínio
+   * degrada `undefined` para `false` em silêncio, o que pintaria TODA fatia da grade como
+   * fora do expediente. Agenda inteira aparentemente fechada, zero erro no console.
+   *
+   * Aqui o expediente vem do próprio profissional, que é quem o tem. */
+
+  /** `undefined` e não `null` porque é o que `atendeNoDia`/`podeComecarEm` recebem — eles
+   *  já tratam a ausência (e degradam para "não atende", que é o lado seguro). */
+  const expedienteDe = useCallback(
+    (pid: string): D.Expediente | undefined => profissionalDe(pid)?.expediente,
+    [profissionalDe],
+  );
+
+  const atendeNoDia = useCallback(
+    (pid: string, data: string) => D.atendeNoDia(expedienteDe(pid), data),
+    [expedienteDe],
+  );
+
+  const podeComecarEm = useCallback(
+    (pid: string, data: string, inicio: number) => D.podeComecarEm(expedienteDe(pid), data, inicio),
+    [expedienteDe],
+  );
+
   /* CATÁLOGO VIVO. D.SERVICOS é o ponto de partida; o que o usuário edita ou cria vem por cima.
    * Antes o catálogo era imutável e a gaveta do serviço só mostrava — com um chip prometendo
    * "abrir e editar". Preço e duração são a razão de existir de uma tela de catálogo.
@@ -611,10 +1102,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * continuava ditando `fim`, ou seja, a ALTURA do cartão na grade da Agenda. */
   const servicos = useMemo<D.Servico[]>(
     () => [
-      ...D.SERVICOS.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
+      ...cadastro.servicos.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
       ...db.svcNovos.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
     ],
-    [db.svcEdit, db.svcNovos],
+    [cadastro.servicos, db.svcEdit, db.svcNovos],
   );
   const servicoDe = useCallback(
     (id: string) => servicos.find((sv) => sv.id === id),
@@ -647,7 +1138,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * esticar o evento no Google Calendar, o bloco na grade tem que esticar junto. */
   const agendamentos = useMemo<AgendamentoVivo[]>(() => {
     return atendimentos.flatMap((e) => {
-      const pf = D.profissional(e.profissionalId);
+      const pf = profissionalDe(e.profissionalId);
       /* Sem profissional não dá para desenhar: `.nome` aparece no cartão, na gaveta e no
        * aria-label. Sumir da lista com aviso no console é muito melhor que tela branca —
        * foi a lição de quando a equipe encolheu para uma pessoa e sobrou `pr2` no
@@ -658,7 +1149,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return [];
       }
       const doCatalogo = servicoDe(e.servicoId);
-      const cl = D.cliente(e.clienteId);
+      const cl = clienteDe(e.clienteId);
       const id = `ag:${e.eventId}`;
 
       return [{
@@ -690,7 +1181,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // `servicoDe` nas deps cobre svcNovos E svcEdit de uma vez: é ele que muda de identidade
     // quando o catálogo muda. Listar `db.svcNovos` à mão era meia dependência — pegava o
     // serviço criado e perdia o serviço editado.
-  }, [atendimentos, db.etapas, servicoDe]);
+  }, [atendimentos, db.etapas, servicoDe, profissionalDe, clienteDe]);
 
   /** Índice por data. A grade de mês pergunta 42 vezes por render (uma por célula, e o hover
    *  re-renderiza a cada célula que o mouse cruza); com `.filter()` cada pergunta varria o mês
@@ -787,7 +1278,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * resolve o item dela, e dar chegada tira a cobrança daquele horário (a etapa deixa de
    * ser "chegando"). Sem isso o painel viraria uma lista que nunca zera. */
   const fila = useMemo<D.ItemFila[]>(() => [
-    ...D.FILA_CONVERSAS.filter((f) => !db.resolvidos[f.alvo] && !db.assumidas[f.alvo]),
+    /* A metade das conversas era `D.FILA_CONVERSAS`: dois itens escritos à mão apontando para
+     * `cv1` e `cv2`. Agora é uma REGRA sobre o dado real — "o cliente falou e ninguém
+     * respondeu" —, que é exatamente o `espera` do domínio (ver `estadoDaConversa`).
+     *
+     * ⚠️ O filtro é o estado do SERVIDOR, e não `db.resolvidos`: resolver uma conversa agora é
+     * `resolvida_em` no banco, então a fila zera igual em todos os aparelhos do dono. E ela
+     * esvazia sozinha pelo caminho certo — assumir muda o estado para `voce`, responder muda a
+     * última fala para `voce`; nos dois casos o item sai daqui sem ninguém "resolver" nada. */
+    ...conversas
+      .filter((c) => c.estado === "espera")
+      .map((c) => ({
+        id: `cv:${c.id}`,
+        alvo: c.id,
+        titulo: c.nome,
+        tag: "responder",
+        msg: c.ultima?.txt ?? "Mandou mensagem e ainda não foi respondido.",
+      })),
     ...agendamentosDoDia(D.HOJE.iso)
       .filter((a) => !a.confirmado && a.etapa === "chegando" && !db.resolvidos[a.id])
       .map((a) => ({
@@ -797,11 +1304,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         tag: "confirmar",
         msg: `${D.hhmm(a.inicio)} ainda não confirmado — a MAISA já cobrou.`,
       })),
-  ], [db.resolvidos, db.assumidas, agendamentosDoDia]);
+  ], [db.resolvidos, conversas, agendamentosDoDia]);
+
+  /**
+   * "Já resolvi" — o item some da fila.
+   *
+   * DOIS destinos, porque os dois tipos de item têm donos diferentes: conversa resolvida é
+   * `resolvida_em` no banco (vale em todos os aparelhos, e é o que a MAISA e a tela leem juntas);
+   * cobrança de confirmação continua no `localStorage`, porque ela é derivada do atendimento e
+   * não existe coluna para "o dono já viu isto".
+   *
+   * O "Desfazer" existe nos dois — era a única ação irreversível da tela, e a estilizada como a
+   * menos importante.
+   */
   const resolverFila = useCallback((alvo: string) => {
+    if (conversas.some((c) => c.id === alvo)) {
+      void mudarPosse(alvo, "resolver");
+      toast("Conversa resolvida", { label: "Desfazer", onClick: () => void mudarPosse(alvo, "reabrir") });
+      return;
+    }
     patch((d) => ({ resolvidos: { ...d.resolvidos, [alvo]: true } }));
-    // "Já resolvi" gravava em localStorage para sempre e não existia função inversa: era a única
-    // ação irreversível da tela e a estilizada como a MENOS importante.
     toast("Item resolvido", {
       label: "Desfazer",
       onClick: () => patch((d) => {
@@ -810,7 +1332,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return { resolvidos: r };
       }),
     });
-  }, [patch]);
+  }, [patch, conversas, mudarPosse]);
 
   /* ── arrasto ── */
   const iniciarArrasto = useCallback((id: string) => setArrastando(id), []);
@@ -819,53 +1341,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setAlvoSolta((a) => (a === alvo ? a : alvo));
   }, []);
 
-  /* ── conversas ── */
-  const estadoConversa = useCallback((id: string): D.EstadoConversa => {
-    if (db.assumidas[id]) return "voce";
-    return D.conversa(id)?.estado ?? "maisa";
-  }, [db.assumidas]);
-
-  const threadDe = useCallback(
-    (id: string) => [...(D.THREADS[id] ?? []), ...(db.enviadas[id] ?? [])],
-    [db.enviadas],
-  );
-
-  const selecionarConversa = useCallback((id: string) => setConvSel(id), []);
-
-  const assumir = useCallback((id: string) => {
-    patch((d) => ({
-      assumidas: { ...d.assumidas, [id]: true },
-      resolvidos: { ...d.resolvidos, [id]: true },
-    }));
-    toast("Conversa assumida — a MAISA não responde mais aqui");
-  }, [patch]);
-
-  const devolver = useCallback((id: string) => {
-    setDb((d) => {
-      const a = { ...d.assumidas };
-      delete a[id];
-      return { ...d, assumidas: a };
-    });
-    toast("Devolvida à MAISA");
-  }, []);
-
-  const enviar = useCallback((id: string, txt: string) => {
-    const t = txt.trim();
-    if (!t) return;
-    patch((d) => ({ enviadas: { ...d.enviadas, [id]: [...(d.enviadas[id] ?? []), { de: "voce", txt: t }] } }));
-  }, [patch]);
-
   /* ── toggles ── */
   const profAtivo = useCallback(
-    (id: string) => db.profAtivo[id] ?? D.profissional(id)?.ativo ?? false,
-    [db.profAtivo],
+    (id: string) => db.profAtivo[id] ?? profissionalDe(id)?.ativo ?? false,
+    [db.profAtivo, profissionalDe],
   );
   const alternarProf = useCallback((id: string) => {
     setDb((d) => {
-      const atual = d.profAtivo[id] ?? D.profissional(id)?.ativo ?? false;
+      const atual = d.profAtivo[id] ?? profissionalDe(id)?.ativo ?? false;
       return { ...d, profAtivo: { ...d.profAtivo, [id]: !atual } };
     });
-  }, []);
+  }, [profissionalDe]);
 
   /* `servicos`, `servicoDe` e `nomeServico` — o catálogo vivo — moraram aqui. Subiram para
    * antes do memo dos atendimentos, que precisa deles para resolver o serviço de cada cartão. */
@@ -878,12 +1364,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setDb((d) => {
       // Mesma conta de `svcAtivo`, inclusive o svcEdit — se as duas divergissem, o primeiro
       // clique no toggle podia "virar" para o valor que a tela já mostrava, sem efeito visível.
-      const doCatalogo = D.servico(id) ?? d.svcNovos.find((s) => s.id === id);
+      const doCatalogo = servicoDoCadastro(id) ?? d.svcNovos.find((s) => s.id === id);
       const base = d.svcEdit[id]?.ativo ?? doCatalogo?.ativo ?? false;
       const atual = d.svcAtivo[id] ?? base;
       return { ...d, svcAtivo: { ...d.svcAtivo, [id]: !atual } };
     });
-  }, []);
+  }, [servicoDoCadastro]);
 
   /** Grava uma edição de serviço. Persiste na hora — o app não tem botão "Salvar" de mentira. */
   const editarServico = useCallback((id: string, p: Partial<D.Servico>) => {
@@ -925,15 +1411,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [patch]);
 
   const cliAtivo = useCallback(
-    (id: string) => db.cliAtivo[id] ?? D.cliente(id)?.ativo ?? false,
-    [db.cliAtivo],
+    (id: string) => db.cliAtivo[id] ?? clienteDe(id)?.ativo ?? false,
+    [db.cliAtivo, clienteDe],
   );
   const alternarCli = useCallback((id: string) => {
     setDb((d) => {
-      const atual = d.cliAtivo[id] ?? D.cliente(id)?.ativo ?? false;
+      const atual = d.cliAtivo[id] ?? clienteDe(id)?.ativo ?? false;
       return { ...d, cliAtivo: { ...d.cliAtivo, [id]: !atual } };
     });
-  }, []);
+  }, [clienteDe]);
 
   /* ── nota fiscal ── */
   const notaDe = useCallback(
@@ -995,11 +1481,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * cancelamento automático é o que torna o teste seguro de repetir.
    */
   const agendarCancelamentoDeTeste = useCallback((clienteId: string) => {
-    if (!D.cliente(clienteId)?.teste) return;
+    if (!clienteDe(clienteId)?.teste) return;
     const seg = Math.round(D.TESTE_CANCELA_APOS_MS / 1000);
     toast(`Nota de teste emitida — cancelando em ${seg}s`);
     agendar(() => { void cancelarNota(clienteId); }, D.TESTE_CANCELA_APOS_MS);
-  }, [agendar, cancelarNota]);
+  }, [agendar, cancelarNota, clienteDe]);
 
   /** Acompanha a emissão assíncrona até sair número (ou erro). */
   const acompanhar = useCallback((clienteId: string, ref: string, tentativa = 0) => {
@@ -1029,7 +1515,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [agendar, setNota, numeroLocal, agendarCancelamentoDeTeste]);
 
   const emitirNota = useCallback(async (clienteId: string) => {
-    const c = D.cliente(clienteId);
+    const c = clienteDe(clienteId);
     if (!c || c.valor <= 0) return;
     if (notaDe(clienteId).status === "processando") return;
 
@@ -1072,11 +1558,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setNota(clienteId, { status: "erro", erro: "Sem conexão com o servidor de notas." });
     }
-  }, [notaDe, setNota, numeroLocal, acompanhar, agendarCancelamentoDeTeste, nomeServico]);
+  }, [notaDe, setNota, numeroLocal, acompanhar, agendarCancelamentoDeTeste, nomeServico, clienteDe]);
 
   const fechamento = useMemo(
-    () => D.CLIENTES.filter((c) => cliAtivo(c.id) && c.valor > 0),
-    [cliAtivo],
+    () => cadastro.clientes.filter((c) => cliAtivo(c.id) && c.valor > 0),
+    [cadastro.clientes, cliAtivo],
   );
 
   /* FONTE DA VERDADE ÚNICA de "o que o lote vai emitir".
@@ -1290,16 +1776,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* Quando terminou a última leitura bem-sucedida. Um alt-tab não deve virar um GET. */
   const lidoEm = useRef(0);
 
-  const conectado = google.conexoes.some((c) => c.profissionalId === PID_AGENDA);
+  /* `pidAgenda` pode ser "" na primeira passada, antes de `/api/cadastro` responder. Sem a
+   * guarda, uma conexão com `profissionalId` vazio (que não existe, mas o `some` não sabe)
+   * daria falso positivo e a tela anunciaria "conectado" com o cadastro ainda em branco. */
+  const conectado = !!pidAgenda && google.conexoes.some((c) => c.profissionalId === pidAgenda);
 
   const lerAgenda = useCallback(async (de: string, ate: string) => {
+    /* Sem agenda resolvida não há o que pedir. Acontece na primeira passada (o cadastro
+     * ainda não voltou) e num negócio sem profissional ativo. Antes isto era impossível de
+     * acontecer porque `PID_AGENDA` era constante de módulo; agora é. Sem esta linha o GET
+     * sairia com `pid=` vazio, o servidor recusaria com `profissional_invalido` e a tela
+     * mostraria erro de agenda para uma condição que se resolve sozinha em milissegundos. */
+    if (!pidAgenda) return;
+
     const chave = `${de}..${ate}`;
     if (leituraEmVoo.current === chave) return;
     leituraEmVoo.current = chave;
     setAgendaGoogle((a) => ({ ...a, status: "carregando" }));
 
     try {
-      const r = await fetch(`/api/google/agenda?pid=${PID_AGENDA}&de=${de}&ate=${ate}`).then((x) => x.json());
+      const r = await fetch(`/api/google/agenda?pid=${pidAgenda}&de=${de}&ate=${ate}`).then((x) => x.json());
 
       if (r.ok) {
         /* A MESMA resposta traz as duas coisas, e a marca `maisa` é o que as separa: o
@@ -1320,7 +1816,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           if (e.maisa) {
             novosAtend.push({
               ...base,
-              profissionalId: e.maisa.profissionalId || PID_AGENDA,
+              profissionalId: e.maisa.profissionalId || pidAgenda,
               clienteId: e.maisa.clienteId ?? "",
               clienteNome: e.maisa.clienteNome ?? "Cliente",
               clienteTel: e.maisa.clienteTel ?? "",
@@ -1370,7 +1866,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // porque o retry roda depois.
       if (leituraEmVoo.current === chave) leituraEmVoo.current = null;
     }
-  }, [lerStatusGoogle, agendar]);
+    /* `pidAgenda` É dependência, e esquecê-la seria o bug mais caro desta mudança: ela
+     * começa vazia e só ganha valor quando `/api/cadastro` responde. Um callback preso ao
+     * primeiro render capturaria `""` para sempre, o `if (!pidAgenda) return` acima
+     * devolveria toda chamada, e a agenda NUNCA carregaria — sem erro, sem request, sem
+     * nada no console. Quando era `const PID_AGENDA` de módulo isso não existia. */
+  }, [lerStatusGoogle, agendar, pidAgenda]);
 
   /* Buscar quando a janela muda.
    *
@@ -1473,7 +1974,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (criacaoEmVoo.current) return;
 
     const sv = servicoDe(r.servicoId);
-    const cl = D.cliente(r.clienteId);
+    const cl = clienteDe(r.clienteId);
     if (!sv || !cl) return;
 
     criacaoEmVoo.current = true;
@@ -1548,7 +2049,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } finally {
       criacaoEmVoo.current = false;
     }
-  }, [rascunho, servicoDe, lerStatusGoogle]);
+  }, [rascunho, servicoDe, lerStatusGoogle, clienteDe]);
 
   const descartarRascunho = useCallback(() => {
     setRascunho(null);
@@ -1578,7 +2079,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cancelarPedido, pedirCancelamento, cancelarAtendimento,
     fila, resolverFila,
     arrastando, alvoSolta, iniciarArrasto, encerrarArrasto, marcarAlvo,
-    convSel, selecionarConversa, abaConv, setAbaConv, estadoConversa, threadDe, assumir, devolver, enviar,
+    conversas, conversaDe, conversasErro, conversasCarregadas, recarregarConversas,
+    convSel, selecionarConversa, abaConv, setAbaConv, threadDe, threadCarregando,
+    enviar, enviando, assumir, devolver,
+    cadastro, cadastroErro, cadastroCarregado,
+    profissionalDe, clienteDe, servicoDoCadastro, nomeDoProfissional, nomeDoCliente,
+    pidAgenda, atendeNoDia, podeComecarEm,
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, setFiltroSvc, filtroCli, setFiltroCli,
@@ -1600,7 +2106,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cancelarPedido, pedirCancelamento, cancelarAtendimento,
     fila, resolverFila,
     arrastando, alvoSolta, iniciarArrasto, encerrarArrasto, marcarAlvo,
-    convSel, selecionarConversa, abaConv, estadoConversa, threadDe, assumir, devolver, enviar,
+    conversas, conversaDe, conversasErro, conversasCarregadas, recarregarConversas,
+    convSel, selecionarConversa, abaConv, threadDe, threadCarregando,
+    enviar, enviando, assumir, devolver,
+    cadastro, cadastroErro, cadastroCarregado,
+    profissionalDe, clienteDe, servicoDoCadastro, nomeDoProfissional, nomeDoCliente,
+    pidAgenda, atendeNoDia, podeComecarEm,
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, filtroCli,

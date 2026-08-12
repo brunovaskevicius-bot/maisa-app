@@ -24,11 +24,16 @@ nesta ordem. Todos são reexecutáveis (`if not exists`, `create or replace`,
 | 004 | `004_visoes.sql` | As views do que é derivado (contadores, fila) |
 | 005 | `005_provisionar.sql` | `criar_negocio()` — um inquilino inteiro numa transação |
 | 006 | `006_migrar_google.sql` | Copia as conexões do 001 para o modelo novo |
+| 007 | `007_memoria_agente.sql` | Memória do cliente e a thread do WhatsApp (`mensagens_agente`) |
+| 008 | `008_seed_bruno.sql` | O negócio do Bruno, para o app abrir com dado de verdade |
+| 009 | `009_conversas_painel.sql` | O que faltava para o **painel** mostrar e responder a conversa: número completo em `mensagens_agente`, `conversas_estado` (quem conduz) e a view `v_conversas` |
 | 099 | `099_auditoria.sql` | **Falha se o isolamento estiver aberto.** Rode a cada mudança de schema |
 
-⚠️ Nenhum destes arquivos foi executado contra um Postgres ainda — não há banco local
-nesta máquina. O primeiro `Run` no Supabase é também o primeiro teste. Rode em ordem e
-leia os `notice`.
+⚠️ O 001–008 já rodou contra o Supabase do Bruno (o app lê `negocios` e `clientes` de lá).
+O **009 é o único pendente** enquanto isto está escrito, e sem ele a tela de Conversas
+responde erro: o adaptador consulta uma view que ainda não existe. Rode em ordem e leia os
+`notice` — o 007 é a prova de que eles importam: um `create policy` abortado deixou duas
+tabelas com RLS ligada e política nenhuma, e o sintoma foi "o painel não lê, o agente lê".
 
 ---
 
@@ -160,9 +165,19 @@ Nada disto está feito — é a lista de trabalho que este schema habilita:
    `"tenant_id,profissional_id"`.
 4. **`saida/focus/config.ts`** — parar de ler `process.env` e receber a linha de
    `config_fiscal` do inquilino.
-5. **Gravar em `atendimentos`** dentro de `aplicacao/agendar-atendimento.ts`, depois de
-   o provedor confirmar. Antes disso, `v_clientes.valor` responde zero para todo mundo —
-   com honestidade, mas zero.
+5. ~~**Gravar em `atendimentos`**~~ — **FEITO.** `aplicacao/agendar-atendimento.ts` grava
+   pela porta `RegistroDeAtendimentos` depois de o provedor confirmar; o adaptador é
+   `saida/supabase/atendimentos.ts` (e `saida/demo/atendimentos.ts` no modo sem banco).
+   `criarCancelarAtendimento` marca `situacao = 'cancelado'` pelo mesmo caminho — sem isso
+   o mês cobraria por atendimento desmarcado.
+   Dois detalhes que valem saber antes de mexer: **nada ali lança** (o evento já existe no
+   Google quando a gravação roda, então falhar alto criaria horário bloqueado + cliente
+   ouvindo "não deu"), e `hora_inicio` é arredondada para o meio mais próximo porque o
+   `check` da coluna só aceita múltiplos de 0,5 — um serviço de 20 min produziria `14.333`
+   e o Postgres recusaria a linha.
+   Junto entrou `RepositorioNegocio.garantirCliente`: quem marca pelo WhatsApp passa a
+   existir em `clientes`, senão `atendimentos.cliente_id` ficava nulo e `v_clientes.valor`
+   somava zero para quem veio do canal que mais traz gente.
 6. **Tela de criação de conta** chamando `supabase.rpc('criar_negocio', …)` logo depois
    do signup.
 

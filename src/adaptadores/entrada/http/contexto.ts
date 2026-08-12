@@ -22,16 +22,47 @@ export type Porteiro = { tenant: ContextoTenant } | { barrado: NextResponse };
 export const barrou = (p: Porteiro): p is { barrado: NextResponse } => "barrado" in p;
 
 /**
- * Hoje um login = um negócio, então `tenantId` é o próprio `usuarioId`.
+ * De qual NEGÓCIO é esta sessão.
  *
- * Quando existir a tabela de negócios, é AQUI que entra o `select tenant_id from
- * membros where user_id = …` — e mais nada no app inteiro precisa saber disso.
+ * Antes isto era `tenantId = usuarioId`, com um comentário prometendo que "quando existir
+ * a tabela de negócios, é AQUI que entra o select em `membros`". É este select. Nada mais
+ * no app inteiro precisou saber da mudança — que era exatamente a aposta da porta.
+ *
+ * ⚠️ POR QUE NÃO DÁ MAIS PARA USAR O `usuarioId` COMO TENANT: as tabelas do
+ * `002_multitenant.sql` têm `tenant_id uuid` com FK para `negocios(id)`. O id do usuário é
+ * um uuid válido, então o TypeScript e o Postgres aceitam a atribuição sem reclamar — e
+ * toda consulta simplesmente não acha linha nenhuma. Silencioso: a tela abre vazia e
+ * parece "ainda não cadastrei nada".
+ *
+ * Usa `membros.padrao` para escolher quando a pessoa é de mais de um negócio. O índice
+ * único parcial `ux_membros_padrao` garante no banco que existe no máximo um padrão por
+ * pessoa, então `order by padrao desc` + `limit 1` é determinístico. O fallback por
+ * `criado_em` cobre quem nunca teve padrão marcado (é o caso de quem virou membro por
+ * convite, não por criar o negócio).
  */
-const tenantDoUsuario = (usuarioId: string): ContextoTenant => ({
-  tenantId: usuarioId,
-  usuarioId,
-  ator: { tipo: "usuario", id: usuarioId },
-});
+export async function tenantDoUsuario(usuarioId: string): Promise<ContextoTenant | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("membros")
+    .select("tenant_id")
+    .eq("user_id", usuarioId)
+    .order("padrao", { ascending: false })
+    .order("criado_em", { ascending: true })
+    .limit(1)
+    .maybeSingle<{ tenant_id: string }>();
+
+  if (error) {
+    console.error(`[entrada/http] falha ao resolver o negócio de ${usuarioId}: ${error.message}`);
+    return null;
+  }
+  if (!data) return null;
+
+  return {
+    tenantId: data.tenant_id,
+    usuarioId,
+    ator: { tipo: "usuario", id: usuarioId },
+  };
+}
 
 /**
  * Contexto de um inquilino sem login.
@@ -57,7 +88,31 @@ export async function exigirSessao(): Promise<Porteiro> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { barrado: json({ ok: false, status: "nao_autenticado" }, 401) };
-  return { tenant: tenantDoUsuario(user.id) };
+
+  const tenant = await tenantDoUsuario(user.id);
+
+  /**
+   * Logado, mas sem negócio. É um estado NOVO — e é o primeiro login de todo mundo.
+   *
+   * Antes não existia: `tenantId` era o próprio `usuarioId`, então ter conta já era ter
+   * inquilino. Agora o negócio é uma linha em `negocios` + `membros`, criada por
+   * `criar_negocio()` (arquivo `005_provisionar.sql`) — e entre "criei a conta" e "criei o
+   * negócio" existe uma janela real.
+   *
+   * 409 e status próprio, não 401: 401 mandaria a tela para o login de novo, num laço
+   * infinito com uma sessão perfeitamente válida. Existe uma AÇÃO que resolve (provisionar
+   * o negócio), que é exatamente a semântica de 409 que `respostas.ts` já usa para
+   * `reconectar`.
+   */
+  if (!tenant) {
+    return {
+      barrado: json(
+        { ok: false, status: "sem_negocio", info: "Esta conta ainda não tem um negócio. Rode criar_negocio() no Supabase." },
+        409,
+      ),
+    };
+  }
+  return { tenant };
 }
 
 /** Idem, mais a exigência de que a integração com o Google exista neste ambiente. */

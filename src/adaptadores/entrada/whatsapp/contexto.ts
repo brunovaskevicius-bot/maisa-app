@@ -26,6 +26,25 @@
 
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import { atorAgente } from "@/nucleo/dominio/tenant";
+/* ⚠️ EXCEÇÃO DECLARADA à regra "adaptador não importa adaptador" (`ARQUITETURA.md` §6).
+ *
+ * Um adaptador de ENTRADA importando um de SAÍDA é a seta que a regra proíbe, e este
+ * arquivo até tem um comentário logo abaixo (em `INSTANCIA`) usando a regra para justificar
+ * ler env em dois lugares em vez de importar `saida/evolution/config`. Então a exceção
+ * precisa de limite escrito, não de silêncio.
+ *
+ * O limite: resolver "de quem é este pedido" é a ÚNICA responsabilidade que exige isto, e
+ * ela é intrinsecamente um acesso a dado — o mapa instância → negócio mora numa tabela, e
+ * não há como um adaptador de entrada respondê-la sem falar com o banco. O irmão deste
+ * arquivo, `entrada/http/contexto.ts`, faz exatamente o mesmo há mais tempo (importa
+ * `saida/supabase/server` para ler `membros`), então isto alinha os dois em vez de abrir
+ * caminho novo.
+ *
+ * O que a exceção NÃO autoriza: ler cadastro, agenda, serviço ou qualquer outra coisa
+ * daqui. Para isso existe a porta `RepositorioNegocio` e o caminho é `composicao.ts`.
+ * Se um segundo `from()` aparecer neste arquivo, ele está no lugar errado. */
+import { createAdminClient, isAdminConfigured } from "@/adaptadores/saida/supabase/admin";
+import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
 
 /**
  * O segredo do webhook. **Sem ele, a rota não atende.**
@@ -41,12 +60,18 @@ import { atorAgente } from "@/nucleo/dominio/tenant";
 export const SEGREDO = process.env.WHATSAPP_WEBHOOK_SECRET ?? "";
 
 /**
- * ⚠️ DÍVIDA DECLARADA — um inquilino só.
+ * O `tenantId` de reserva, por env.
  *
- * O `tenantId` do negócio de demonstração vem de env. Quando `integracoes_whatsapp`
- * (já versionada em `supabase/002_multitenant.sql`) estiver povoada, isto vira
- * `select tenant_id from integracoes_whatsapp where instancia = $1 or numero = $2` — e a
- * função continua com a mesma assinatura, porque ela já recebe os dois.
+ * Deixou de ser o caminho principal: agora o inquilino sai de `integracoes_whatsapp`
+ * (ver `tenantPorDestino` no fim deste arquivo), que é o que a dívida declarada aqui
+ * prometia. Este env sobrou para UM caso, e ele é útil: ambiente sem Supabase
+ * configurado, onde a MAISA roda em modo demonstração e se conversa com ela por `curl`
+ * para afinar o tom. Sem ele, esse fluxo — o único que não precisa de banco nem de
+ * número contratado — deixaria de existir.
+ *
+ * Com Supabase configurado, o banco ganha. É de propósito: um env esquecido apontando
+ * para o inquilino errado escreveria na agenda de outro negócio, e o banco é a fonte que
+ * o webhook não controla.
  */
 const TENANT = process.env.MAISA_TENANT_ID ?? "";
 const NUMERO = process.env.MAISA_WHATSAPP_NUMERO ?? "";
@@ -141,14 +166,110 @@ export type Resolucao = { ok: true; tenant: ContextoTenant } | { ok: false; moti
  * Sem isso, um atendimento criado pela IA seria indistinguível de um criado à mão, e
  * a primeira pergunta depois de um erro ("quem marcou isso?") não teria resposta.
  */
-export function contextoDaMensagem(envelope: Envelope): Resolucao {
-  if (!TENANT) return { ok: false, motivo: "MAISA_TENANT_ID não configurado" };
+export async function contextoDaMensagem(envelope: Envelope): Promise<Resolucao> {
+  const tenantId = await tenantPorDestino(envelope);
+  if (!tenantId.ok) return tenantId;
+
+  return {
+    ok: true,
+    tenant: {
+      tenantId: tenantId.valor,
+      /* Não há usuário logado: quem age é o negócio.
+       *
+       * ⚠️ `usuarioId` recebe o `tenantId` e isso NÃO é o mesmo atalho de antes. Antes os
+       * dois eram o id do usuário dono. Agora o valor é o id do NEGÓCIO, e ele está aqui
+       * só porque `ContextoTenant` exige o campo. Ninguém no caminho do agente deve usar
+       * `usuarioId` para consultar nada: as consultas filtram por `tenant_id`, e o que
+       * decide o cliente do Supabase é o `ator` (ver `saida/supabase/contexto-cliente.ts`).
+       * Se um dia algum adaptador voltar a usar `usuarioId` como chave, é aqui que ele
+       * vai achar um uuid de negócio onde esperava um de usuário. */
+      usuarioId: tenantId.valor,
+      ator: atorAgente(envelope.conversaId),
+    },
+  };
+}
+
+type Resolvido = { ok: true; valor: string } | { ok: false; motivo: string };
+
+/**
+ * Neutraliza os curingas de um padrão de `LIKE`/`ILIKE`, para que ele case só consigo mesmo.
+ *
+ * Uma passada só, com classe de caractere — e é por isso que `\` pode estar na mesma lista
+ * dos outros: `replace` não revisita o que ele mesmo inseriu. Em três `replace` encadeados a
+ * ordem importaria (escapar `%` antes de `\` faria a barra recém-inserida ser escapada de
+ * novo, e o padrão pararia de casar com o nome real).
+ *
+ * `*` entra porque o PostgREST o traduz para `%` antes de montar o SQL — ele não é curinga
+ * do Postgres, é da camada HTTP, e por isso passa despercebido em quem só pensa em SQL.
+ */
+const escaparPadrao = (v: string): string => v.replace(/[\\%_*]/g, (c) => `\\${c}`);
+
+/**
+ * De qual inquilino é esta mensagem — a pergunta mais sensível do adaptador.
+ *
+ * Ordem: banco primeiro, env depois. Ver o comentário de `TENANT` para o porquê.
+ *
+ * A consulta é por `instancia`, que tem `unique` GLOBAL em `002_multitenant.sql`
+ * justamente para servir a isto: um nome de instância identifica um negócio no mundo
+ * inteiro, então não há ambiguidade a resolver. E o valor comparado é o que o SERVIDOR da
+ * Evolution preencheu no envelope — nunca um campo que quem escreveu a mensagem controla.
+ */
+async function tenantPorDestino(envelope: Envelope): Promise<Resolvido> {
+  const instancia = (envelope.instancia ?? "").trim();
+
+  if (isSupabaseConfigured && isAdminConfigured && instancia) {
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from("integracoes_whatsapp")
+      .select("tenant_id")
+      /* `ilike` e não `eq`: a Evolution devolve o nome da instância com a caixa que foi
+       * cadastrada nela, e quem cadastrou os dois lados (servidor e banco) digitou à mão.
+       * "maisa" vs "MAISA-prod" é o erro mais comum deste arquivo.
+       *
+       * ⚠️ MAS `ilike` recebe um PADRÃO, não um literal — e o valor vem do corpo do request.
+       * O PostgREST parametriza (não há SQL injection), só que `%`, `_` e `*` continuam
+       * sendo CURINGA dentro do padrão. Uma instância `"%"` casaria com a primeira linha de
+       * `integracoes_whatsapp` — de qualquer negócio — e a conversa seria atendida como
+       * inquilino alheio, marcando na agenda de outra pessoa. É a mesma classe de furo que
+       * este arquivo existe para não repetir, só entrando pela porta do LIKE em vez da do
+       * query param.
+       *
+       * `escaparPadrao` neutraliza os três. Passar `eq` resolveria também, mas custaria a
+       * insensibilidade à caixa, que é o motivo de o `ilike` estar aqui. */
+      .ilike("instancia", escaparPadrao(instancia))
+      .maybeSingle<{ tenant_id: string }>();
+
+    if (error) {
+      /* Falha de banco NÃO cai para o env: seria trocar "não sei de quem é" por "vou
+       * chutar o negócio do env", e o chute escreve na agenda de alguém. Descartar a
+       * mensagem é reversível (o cliente reenvia); marcar horário no negócio errado não. */
+      return { ok: false, motivo: `falha ao resolver o inquilino da instância "${instancia}": ${error.message}` };
+    }
+    if (data) return { ok: true, valor: data.tenant_id };
+
+    /* Instância desconhecida com banco de pé é configuração faltando, não erro
+     * transitório: alguém apontou o webhook da Evolution para cá sem cadastrar a linha
+     * em `integracoes_whatsapp`. Dizer o nome que chegou é o que encurta o diagnóstico. */
+    return {
+      ok: false,
+      motivo: `instância "${instancia}" não está em integracoes_whatsapp — cadastre a linha do negócio`,
+    };
+  }
+
+  /* ── Caminho de demonstração: sem banco, o env manda ── */
+  if (!TENANT) {
+    return {
+      ok: false,
+      motivo: isSupabaseConfigured
+        ? "instância não identificada e SUPABASE_SERVICE_ROLE_KEY ausente — o webhook não consegue ler integracoes_whatsapp"
+        : "MAISA_TENANT_ID não configurado",
+    };
+  }
   if (!INSTANCIA && !NUMERO) {
     return { ok: false, motivo: "configure EVOLUTION_INSTANCIA (Evolution) ou MAISA_WHATSAPP_NUMERO (Cloud API)" };
   }
 
-  const porInstancia =
-    !!INSTANCIA && !!envelope.instancia && envelope.instancia.trim().toLowerCase() === INSTANCIA.toLowerCase();
+  const porInstancia = !!INSTANCIA && !!instancia && instancia.toLowerCase() === INSTANCIA.toLowerCase();
   const porNumero = !!NUMERO && !!envelope.para && mesmoNumero(envelope.para, NUMERO);
 
   if (!porInstancia && !porNumero) {
@@ -162,16 +283,7 @@ export function contextoDaMensagem(envelope: Envelope): Resolucao {
     };
   }
 
-  return {
-    ok: true,
-    tenant: {
-      tenantId: TENANT,
-      // Não há usuário logado: quem age é o negócio. Igual ao `tenantId` porque hoje
-      // é um login por negócio — a mesma simplificação declarada em `entrada/http`.
-      usuarioId: TENANT,
-      ator: atorAgente(envelope.conversaId),
-    },
-  };
+  return { ok: true, valor: TENANT };
 }
 
 /* ───────────────────────────── normalização do webhook ─────────────────────────────

@@ -15,6 +15,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type { RepositorioNegocio } from "@/nucleo/portas/saida/repositorio-negocio";
+import type { Cliente } from "@/nucleo/dominio/clientes";
 import { soDigitos } from "@/nucleo/dominio/clientes";
 import { NEGOCIO } from "./negocio";
 import { COLUNAS_AGENDA, EQUIPE, EXPEDIENTE } from "./equipe";
@@ -42,6 +43,23 @@ export const repositorioDemo: RepositorioNegocio = {
     return EXPEDIENTE[profissionalId] ?? null;
   },
 
+  /* As listas. Cópias rasas, não os arrays em si: devolver a referência do fixture deixa
+   * quem consome mutar o "banco" — e um `.sort()` numa tela reordenaria o catálogo para o
+   * processo inteiro, inclusive para o agente de WhatsApp. Barato aqui, e é o
+   * comportamento que o adaptador real tem de graça (cada consulta traz linhas novas). */
+
+  async profissionais() {
+    return [...EQUIPE];
+  },
+
+  async servicos() {
+    return [...SERVICOS];
+  },
+
+  async clientes() {
+    return [...CLIENTES];
+  },
+
   async agendasPermitidas() {
     return COLUNAS_AGENDA;
   },
@@ -54,4 +72,45 @@ export const repositorioDemo: RepositorioNegocio = {
     if (alvo.length < 8) return null;
     return CLIENTES.find((c) => soDigitos(c.telefone).slice(-8) === alvo) ?? null;
   },
+
+  /**
+   * Acha ou cria — e aqui "criar" é MUTAR O FIXTURE, que é o único jeito de o modo
+   * demonstração exercitar o caminho de verdade.
+   *
+   * ⚠️ Contradiz de propósito a nota das listas acima ("cópias rasas, para quem consome
+   * não mutar o banco"). Lá o `[...]` protege o fixture de uma tela que faz `.sort()`;
+   * aqui o fixture É o banco, e escrever nele é o comportamento correto. Sem isto, o
+   * caminho "cliente novo marca pelo WhatsApp" não existiria no laboratório — e ele é
+   * justamente o que decide a primeira impressão do produto.
+   *
+   * O preço: o cliente criado morre no fim do processo, como todo o resto do modo demo.
+   * O "Esquecer tudo" do laboratório não o remove — quem quiser voltar ao estado limpo
+   * reinicia o `next dev`.
+   */
+  async garantirCliente(t, p) {
+    const existente = await repositorioDemo.clientePorTelefone(t, p.telefone);
+    if (existente) return existente;
+    if (soDigitos(p.telefone).length < 8) return null;
+
+    const novo: Cliente = {
+      id: `cl-demo-${soDigitos(p.telefone).slice(-8)}`,
+      nome: p.nome.trim().slice(0, 120) || "Cliente",
+      telefone: p.telefone,
+      email: "",
+      cpf: "",
+      canal: "Online",
+      ativo: true,
+      desde: MES_ATUAL,
+      servicoId: "",
+      atendimentos: 0,
+      valor: 0,
+    };
+    CLIENTES.push(novo);
+    return novo;
+  },
 };
+
+/** `mar/2026` — o formato que `Cliente.desde` usa na tela (ver o adaptador Supabase). */
+const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const agora = new Date();
+const MES_ATUAL = `${MESES_CURTOS[agora.getMonth()]}/${agora.getFullYear()}`;

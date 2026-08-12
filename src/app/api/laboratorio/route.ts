@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { agenteConfigurado, agenteWhatsapp, modeloEmUso } from "@/composicao";
+import { agenteConfigurado, agenteWhatsapp, modeloEmUso, servicos } from "@/composicao";
 import { atorAgente, type ContextoTenant } from "@/nucleo/dominio/tenant";
 import { espiarMemoriaDemo, limparDemo } from "@/adaptadores/saida/demo/memoria";
 import { espiarAgendaDemo, limparAgendaDemo } from "@/adaptadores/saida/demo/agenda";
+import { espelhoDemo, zerarEspelhoDemo } from "@/adaptadores/saida/demo/atendimentos";
 import { isGoogleConfigured } from "@/adaptadores/saida/google/config";
 import { isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 import { isGeminiConfigured } from "@/adaptadores/saida/gemini/config";
@@ -90,6 +91,35 @@ export async function GET() {
     agendados: espiarAgendaDemo(t.tenantId)
       .filter((e) => e.daMaisa)
       .map((e) => ({ data: e.data, hora: hhmm(e.inicio), cliente: e.cliente, servico: e.servico })),
+    /**
+     * O ESPELHO — a linha que foi (ou não) para `atendimentos`.
+     *
+     * Vale a coluna própria por um motivo específico: `agendados` mostra a AGENDA, e a
+     * agenda é o Google. Um agendamento pode aparecer lá e faltar aqui, e é exatamente
+     * essa divergência que interessa — ela significa que o faturamento e a auditoria de
+     * ator perderam aquele atendimento. Sem esta lista, o buraco no espelho é invisível
+     * até alguém abrir a tela de Faturamento e achar o mês fraco.
+     *
+     * `ator` está aqui porque é a pergunta que o espelho existe para responder: quais
+     * destes a MAISA marcou sozinha?
+     */
+    espelho: espelhoDemo(t.tenantId).map((l) => ({
+      data: l.dataLocal,
+      hora: hhmm(l.horaInicio),
+      cliente: l.clienteNome,
+      /* `null` aqui é o sinal de que quem marcou não entrou no cadastro — e é o que faz
+       * `v_clientes.valor` somar zero para essa pessoa. */
+      clienteId: l.clienteId,
+      servico: l.servicoNome,
+      valor: l.servicoValor,
+      ator: l.ator,
+      situacao: l.situacao,
+    })),
+    /** Quem a MAISA cadastrou conversando. Só os criados pelo agente — o fixture tem 17
+     *  e listá-los todos afogaria o que interessa. */
+    clientesNovos: (await servicos.negocio.clientes(t))
+      .filter((c) => c.id.startsWith("cl-demo-"))
+      .map((c) => ({ id: c.id, nome: c.nome, telefone: c.telefone })),
   });
 }
 
@@ -139,5 +169,13 @@ export async function DELETE() {
 
   limparDemo();
   limparAgendaDemo();
+  /* O espelho entra no "Esquecer tudo" junto com memória e agenda: deixá-lo de fora faria
+   * o caminho "cliente que nunca falou com a MAISA" mostrar o atendimento da rodada
+   * anterior, e é justamente esse caminho que decide a primeira impressão do produto.
+   *
+   * ⚠️ O CLIENTE CADASTRADO NÃO SAI. `garantirCliente` empurra no array de fixture, e não
+   * há como distinguir o que ele criou do que já vinha — quem quiser o estado limpo de
+   * verdade reinicia o `next dev`. Está escrito para ninguém achar que zerou e não zerou. */
+  zerarEspelhoDemo();
   return NextResponse.json({ ok: true, limpou: true });
 }

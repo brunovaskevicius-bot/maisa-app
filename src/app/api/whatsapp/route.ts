@@ -96,7 +96,7 @@ export async function POST(request: Request) {
   /* ── 3. de quem é essa conversa ──
    * A partir do DESTINO da mensagem (instância ou número), nunca de um campo que quem
    * escreveu a mensagem controla. Ver `contexto.ts`. */
-  const resolucao = contextoDaMensagem(envelope);
+  const resolucao = await contextoDaMensagem(envelope);
   if (!resolucao.ok) {
     console.warn(`[api/whatsapp] mensagem descartada: ${resolucao.motivo}`);
     return NextResponse.json({ ok: true, ignorado: true, motivo: resolucao.motivo });

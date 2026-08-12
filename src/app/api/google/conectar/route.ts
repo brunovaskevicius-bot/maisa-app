@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { app, servicos } from "@/composicao";
-import { barrou, exigirSessao } from "@/adaptadores/entrada/http/contexto";
+import { barrou, exigirSessao, tenantDoUsuario } from "@/adaptadores/entrada/http/contexto";
 import { createClient } from "@/adaptadores/saida/supabase/server";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
 import { caminhoDeVolta, isGoogleConfigured, redirectUri } from "@/adaptadores/saida/google/config";
@@ -50,7 +50,10 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return erro("nao_autenticado");
 
-  const tenant = { tenantId: user.id, usuarioId: user.id, ator: { tipo: "usuario" as const, id: user.id } };
+  // O inquilino sai de `membros` (ver `entrada/http/contexto.ts`), nunca do id do usuário:
+  // é ele que a allowlist de agendas e o upsert do token usam como chave.
+  const tenant = await tenantDoUsuario(user.id);
+  if (!tenant) return erro("sem_negocio");
 
   const profissionalId = searchParams.get("pid") ?? "";
   // Só agendas que existem de verdade neste inquilino. Sem isso, a query string viraria

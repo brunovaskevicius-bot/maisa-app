@@ -75,10 +75,10 @@ const ABAS: { id: TelaId; rotulo: string; cobre: TelaId[] }[] = [
 
 function usePendencias() {
   const st = useStore();
-  const conversas = D.CONVERSAS.filter((c) => {
-    const e = st.estadoConversa(c.id);
-    return e === "espera" || e === "voce";
-  }).length;
+  /* Do store, não do fixture: `D.CONVERSAS` era uma lista de seis, então este badge contava
+     pendência inventada. Agora conta conversa real esperando resposta — e o estado vem do
+     servidor, o mesmo que a MAISA lê para decidir se responde. */
+  const conversas = st.conversas.filter((c) => c.estado === "espera" || c.estado === "voce").length;
   const notas = st.fechamento.filter((c) => {
     const stt = st.notaDe(c.id).status;
     return stt === "pendente" || stt === "processando" || stt === "erro";
@@ -131,6 +131,7 @@ function ItemRail({ id, badge }: { id: TelaId; badge?: number }) {
 }
 
 function Rail() {
+  const st = useStore();
   const p = usePendencias();
   const badge: Partial<Record<TelaId, number>> = { conversas: p.conversas, faturamento: p.notas };
 
@@ -175,12 +176,12 @@ function Rail() {
 
         <div style={s("margin-top:auto;display:flex;flex-direction:column;gap:8px;flex-shrink:0")}>
           <div style={s("display:flex;align-items:center;gap:12px;padding-left:3px")}>
-            <Monogram name={D.NEGOCIO.nome} id={D.NEGOCIO.nome} size={40} radius={13} />
+            <Monogram name={st.cadastro.negocio.nome} id={st.cadastro.negocio.nome} size={40} radius={13} />
             <span className="m-rail-label" style={s("min-width:0;line-height:1.3")}>
               {/* nome do negócio e plano: também na voz da sidebar — é a identidade de quem usa,
                   não dado de tarefa. Peso 700 porque a Alegreya não tem 600. */}
-              <span style={s("display:block;font-family:var(--font-nav);font-size:var(--t-sm);font-weight:var(--w-nav-on);color:var(--nav-ink)")}>{D.NEGOCIO.nome}</span>
-              <span style={s("display:block;font-family:var(--font-nav);font-size:var(--t-label);font-weight:var(--w-nav);color:var(--nav-soft)")}>Plano {D.NEGOCIO.plano}</span>
+              <span style={s("display:block;font-family:var(--font-nav);font-size:var(--t-sm);font-weight:var(--w-nav-on);color:var(--nav-ink)")}>{st.cadastro.negocio.nome}</span>
+              <span style={s("display:block;font-family:var(--font-nav);font-size:var(--t-label);font-weight:var(--w-nav);color:var(--nav-soft)")}>Plano {st.cadastro.negocio.plano}</span>
             </span>
           </div>
           <div className="m-rail-label"><UserMenu /></div>
@@ -269,6 +270,38 @@ function AcaoPrimaria() {
 }
 
 /* ───────────────────────────── topbar (desktop) ───────────────────────────── */
+
+/**
+ * O aviso de que a tela está mostrando PLACEHOLDER, não o negócio de verdade.
+ *
+ * Existe porque o store, quando `/api/cadastro` falha, mantém o fixture na tela (ver
+ * `CADASTRO_INICIAL` em `estado/store.tsx` para o porquê dessa escolha). Sem este aviso a
+ * escolha seria indefensável: o rail escreveria "Seu Negócio · Plano Profissional", a tela
+ * de Clientes anunciaria "de 17 cadastrados" com nomes inventados, e o Faturamento
+ * ofereceria emitir nota com CPF de fixture — tudo com cara de dado real.
+ *
+ * Fica na Topbar, e não numa tela: o cadastro alimenta TODAS elas, então o aviso precisa
+ * viajar junto com a casca. Vermelho e no topo de propósito — é para incomodar.
+ */
+function AvisoCadastro() {
+  const st = useStore();
+  if (!st.cadastroErro) return null;
+
+  return (
+    <div
+      role="status"
+      style={s(
+        "flex-shrink:0;display:flex;align-items:center;gap:10px;padding:9px 24px;" +
+        "background:var(--danger-soft);color:var(--danger);border-bottom:1px solid var(--danger)",
+      )}
+    >
+      <Icon name="alert" size={15} />
+      <span style={s("font-size:var(--t-label);font-weight:var(--w-title)")}>
+        {st.cadastroErro} Os dados abaixo são de exemplo — não são do seu negócio.
+      </span>
+    </div>
+  );
+}
 
 function Topbar({ onBuscar }: { onBuscar: () => void }) {
   const st = useStore();
@@ -419,6 +452,9 @@ export default function AppShell() {
       <Rail />
       <main style={s("flex:1;min-width:0;display:flex;flex-direction:column;border-radius:22px;overflow:hidden;background:var(--bg);border:1px solid var(--border);box-shadow:var(--shadow-card)")}>
         <Topbar onBuscar={() => setPaleta(true)} />
+        {/* Acima do conteúdo e FORA do `key={st.tela}`: o aviso vale para todas as telas e
+            não deve remontar (nem piscar) a cada troca de tela. */}
+        <AvisoCadastro />
         <div key={st.tela} style={s("flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden")}>
           <Ativa />
         </div>

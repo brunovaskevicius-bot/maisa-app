@@ -19,7 +19,7 @@ do negócio, as regras de calendário e os dados de mentira. Os dados foram para
 | `clientes.ts` | `Cliente`, `soDigitos` | Quem é atendido. O `telefone` vai virar a chave de identificação no WhatsApp. |
 | `negocio.ts` | `Negocio`, `Prestador` | O assinante visto por dentro. Genérico: o mesmo tipo serve terapeuta e barbeiro. |
 | `fiscal.ts` | `Nota`, `StatusNota`, `Tomador`, `PedidoDeNota`, `ResultadoDeNota` | Os estados são NOSSOS, não da Focus. É o que permite trocar de emissor sem nenhuma tela perceber. |
-| `conversas.ts` | `Conversa`, `Msg`, `EstadoConversa`, `ItemFila`, `Faq` | Hoje só demonstração. Está aqui porque é o contrato que o agente vai preencher quando o WhatsApp entrar. |
+| `conversas.ts` | `Conversa`, `Msg`, `EstadoConversa`, `estadoDaConversa`, `ItemFila`, `Faq` | O WhatsApp de verdade. A identidade de uma conversa é o TELEFONE (não um id sorteado), e `estadoDaConversa` é a única definição de "quem está com a bola" no app. |
 | `assistente.ts` | `Tom`, `Assistente`, `Dia`, `ChaveCfg`, `Toggle` | Os ajustes da MAISA. Deixa de ser tela de config e vira o PROMPT do agente — por isso é dado estruturado, não texto pronto. |
 | `erros.ts` | `DadoInvalido`, `NaoEncontrado`, `NaoConfigurado`, `PrecisaReconectar`, `LimiteDoProvedor`, `FalhaDoProvedor` | O núcleo não devolve 400; ele lança. Quem traduz para status é o adaptador de entrada. |
 | `index.ts` | Barrel | Conveniência para quem precisa de vários tipos de uma vez. |

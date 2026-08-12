@@ -16,9 +16,9 @@ Cumpre a porta `RepositorioNegocio` com fixtures em memória. É o antigo
 | `equipe.ts` | `EQUIPE`, `COLUNAS_AGENDA` (a allowlist), `EXPEDIENTE`, e os atalhos `atende`/`podeComecar`. |
 | `catalogo.ts` | `SERVICOS`. |
 | `clientes.ts` | `CLIENTES`, `NOTAS_INICIAIS`, `PROXIMO_NUMERO`, `TESTE_CANCELA_APOS_MS`. |
-| `conversas.ts` | `CONVERSAS`, `THREADS`, `SUGESTOES`, `FILA_CONVERSAS`, `FAQS` — 100% demonstração, o WhatsApp não está integrado. |
+| `conversas.ts` | Só `FAQS`. As conversas de demonstração (`CONVERSAS`, `THREADS`, `SUGESTOES`, `FILA_CONVERSAS`) **saíram**: a tela lê `GET /api/conversas`, que lê a mesma tabela que o agente escreve. Conversa inventada ao lado de conversa real faria o dono responder a quem não existe. |
 | `assistente.ts` | `SECOES_AJUSTE`, `DIAS_PADRAO`, `CFG_PADRAO`, `TOGGLES_*`, `PREVIEWS`. |
-| `consultas.ts` | Buscas por id (`profissional`, `servico`, `cliente`, `conversa`) — síncronas, só para a UI. |
+| `consultas.ts` | Buscas por id (`profissional`, `servico`, `cliente`) — síncronas, só para a UI. `conversa` saiu: conversa vem do servidor, não de um array de módulo. |
 
 ## Duas portas de entrada para o mesmo dado, e a diferença é o ponto
 

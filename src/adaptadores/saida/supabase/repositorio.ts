@@ -1,0 +1,562 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ADAPTADOR DE SAÍDA — `RepositorioNegocio` servido pelo Supabase. ⚠️ SÓ SERVIDOR.
+ *
+ * O par real do `saida/demo/repositorio.ts`. Mesma porta, mesmos tipos, mesma
+ * assinatura — a troca é uma linha em `composicao.ts`. O que muda é que aqui o
+ * `ContextoTenant` finalmente SERVE para alguma coisa: o adaptador demo recebia e
+ * ignorava, porque existia um negócio só.
+ *
+ * ── LÊ DAS VIEWS, NÃO DAS TABELAS ──
+ *
+ * `v_negocio`, `v_profissionais`, `v_servicos`, `v_clientes` (arquivo
+ * `supabase/004_visoes.sql`). Não é preferência de estilo: três campos do domínio
+ * simplesmente NÃO EXISTEM como coluna e só as views sabem calculá-los —
+ * `Profissional.atendimentosMes`, `Cliente.atendimentos` e `Cliente.valor` são contagens
+ * da competência corrente, e `Profissional.servicoIds` / `Servico.profissionalIds` são a
+ * agregação da tabela-ponte `servicos_profissionais`. O comentário do próprio
+ * `v_clientes` diz, em voz alta: "isto é o que `RepositorioNegocio.cliente()` e
+ * `.clientePorTelefone()` devem consultar".
+ *
+ * Ler a tabela crua em vez da view compila igual e devolve `atendimentos: 0` para todo
+ * mundo — o tipo de erro que nenhum teste de tipo pega e que na tela parece "o mês está
+ * fraco", não "a consulta está errada".
+ *
+ * ⚠️ As views são `security_invoker = true`. Com o cliente de SESSÃO isso significa que a
+ * RLS do usuário se aplica dentro delas; com o cliente de SERVICE ROLE (caminho do
+ * agente de WhatsApp) não se aplica nada, e o `.eq("tenant_id", …)` desta página é a
+ * única fronteira. Ver `contexto-cliente.ts` e `admin.ts`. **Por isso todo método aqui
+ * filtra por tenant, inclusive `negocio()`, que "obviamente" só tem uma linha.**
+ *
+ * ── SOBRE OS IDS ──
+ *
+ * No banco tudo é `uuid` (`gen_random_uuid()`). Os `"pr1"`, `"sv1"`, `"cl1"` existiam só
+ * nos fixtures. Aqui nada traduz nem remapeia: `Profissional.id` passa a ser um uuid, e
+ * quem assumia o formato antigo tinha que mudar junto — a regex `/^pr\d+$/` de
+ * `nucleo/aplicacao/agenda.ts` e o `Record` de expediente chaveado por `pr1` são os dois
+ * lugares que mudaram na mesma leva.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+import type { RepositorioNegocio } from "@/nucleo/portas/saida/repositorio-negocio";
+import type { ContextoTenant } from "@/nucleo/dominio/tenant";
+import type { Negocio } from "@/nucleo/dominio/negocio";
+import type { CategoriaServico, Profissional, Servico } from "@/nucleo/dominio/catalogo";
+import type { Cliente } from "@/nucleo/dominio/clientes";
+import { soDigitos } from "@/nucleo/dominio/clientes";
+import type { Expediente } from "@/nucleo/dominio/expediente";
+import { FalhaDoProvedor, NaoEncontrado } from "@/nucleo/dominio/erros";
+import { clienteDoContexto } from "./contexto-cliente";
+
+/* ───────────────────────────── as linhas, como o banco devolve ─────────────────────────────
+ * snake_case, `numeric` chegando como string, arrays de uuid. A tradução para camelCase e
+ * para número acontece nos mapeadores abaixo, num lugar só. */
+
+type LinhaNegocio = {
+  tenant_id: string;
+  nome: string;
+  plano: string | null;
+  preco_plano: string | number | null;
+  proxima_cobranca: string | null;
+  cartao_marca: string | null;
+  cartao_final4: string | null;
+  conversas_limite: number | null;
+};
+
+type LinhaProfissional = {
+  id: string;
+  nome: string;
+  papel: string;
+  avaliacao: string | number | null;
+  comissao: string | number | null;
+  desde: string | null;
+  ativo: boolean;
+  horario: string | null;
+  folga: string | null;
+  expediente_folga: number[] | null;
+  expediente_de: string | number;
+  expediente_ate: string | number;
+  servico_ids: string[] | null;
+  atendimentos_mes: number | null;
+};
+
+type LinhaServico = {
+  id: string;
+  nome: string;
+  categoria: string;
+  preco: string | number;
+  duracao: number;
+  ativo: boolean;
+  profissional_ids: string[] | null;
+};
+
+type LinhaCliente = {
+  id: string;
+  nome: string;
+  telefone: string;
+  email: string | null;
+  cpf: string | null;
+  canal: string;
+  ativo: boolean;
+  desde: string | null;
+  servico_id: string | null;
+  teste: boolean;
+  atendimentos: number | null;
+  valor: string | number | null;
+};
+
+/* ───────────────────────────── conversões ─────────────────────────────
+ * O driver do Postgres devolve `numeric` como STRING, de propósito (para não perder
+ * precisão em float). `preco`, `valor`, `avaliacao`, `comissao` e as horas do expediente
+ * são todos `numeric` — e o domínio pede `number`. Sem esta conversão, `preco` chega
+ * como "100.00" e `fmt(preco)` monta "R$ 100.00" em vez de "R$ 100,00"; pior, qualquer
+ * soma vira concatenação de string. */
+
+const num = (v: string | number | null | undefined, padrao = 0): number => {
+  if (v === null || v === undefined) return padrao;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : padrao;
+};
+
+/** `2026-03-01` → `mar/2024`, que é o formato que `Profissional.desde` e `Cliente.desde`
+ *  já mostravam na tela. A view devolve `date`; a apresentação é do adaptador. */
+const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+function mesAno(data: string | null): string {
+  if (!data) return "";
+  const [ano, mes] = data.split("T")[0].split("-");
+  const i = Number(mes) - 1;
+  if (!ano || i < 0 || i > 11) return "";
+  return `${MESES[i]}/${ano}`;
+}
+
+/** `2026-08-05` → `05/08/2026`. `Negocio.proximaCobranca` é string de exibição. */
+function dataBR(data: string | null): string {
+  if (!data) return "—";
+  const [ano, mes, dia] = data.split("T")[0].split("-");
+  if (!ano || !mes || !dia) return "—";
+  return `${dia}/${mes}/${ano}`;
+}
+
+/**
+ * `CategoriaServico` é união fechada (`"Recorrente" | "Pacote" | "Extra"`), e o banco tem
+ * o mesmo `check`. Mas o TypeScript não sabe disso: `categoria` chega como `string`.
+ * Um cast cego passaria valor inválido adiante e a tela renderizaria uma categoria que
+ * não existe na lista de chips; degradar para "Extra" mantém a tela coerente.
+ */
+const CATEGORIAS_VALIDAS: CategoriaServico[] = ["Recorrente", "Pacote", "Extra"];
+const categoria = (v: string): CategoriaServico =>
+  (CATEGORIAS_VALIDAS as string[]).includes(v) ? (v as CategoriaServico) : "Extra";
+
+/** Idem para o canal do cliente. */
+const canal = (v: string): Cliente["canal"] => (v === "Presencial" ? "Presencial" : "Online");
+
+/* ───────────────────────────── mapeadores linha → domínio ───────────────────────────── */
+
+function paraNegocio(l: LinhaNegocio): Negocio {
+  return {
+    nome: l.nome,
+    /* `assinaturas` entra na view por LEFT JOIN, e a RLS dela é mais estreita que a do
+     * inquilino: para um `atendente` estas colunas voltam NULAS em vez de a linha
+     * desaparecer (é o que o comentário da view explica). Então cada campo de cobrança
+     * precisa de um fallback honesto — "—" e não "R$ 0,00", que pareceria um plano
+     * grátis. */
+    plano: l.plano ?? "—",
+    precoPlano: num(l.preco_plano),
+    proximaCobranca: dataBR(l.proxima_cobranca),
+    /* O domínio quer a frase pronta ("Cartão final 4417"); a view devolve marca e
+     * final4 separados, de propósito ("DADO, nunca apresentação"). Compor é daqui. */
+    cartao: l.cartao_final4 ? `${l.cartao_marca ?? "Cartão"} final ${l.cartao_final4}` : "Nenhum cartão salvo",
+    /* `conversas_limite` NULL significa ilimitado — é o que a coluna documenta. Traduzir
+     * para 0 faria a tela anunciar "0 conversas" para quem tem o plano mais caro. */
+    conversasPlano: l.conversas_limite === null ? "Ilimitadas" : `${l.conversas_limite}/mês`,
+  };
+}
+
+function paraProfissional(l: LinhaProfissional): Profissional {
+  return {
+    id: l.id,
+    nome: l.nome,
+    papel: l.papel,
+    atendimentosMes: l.atendimentos_mes ?? 0,
+    avaliacao: num(l.avaliacao),
+    comissao: num(l.comissao),
+    desde: mesAno(l.desde),
+    servicoIds: l.servico_ids ?? [],
+    ativo: l.ativo,
+    /* `horario`/`folga` são as FRASES de apresentação, e são anuláveis no banco. Quando
+     * faltarem, monta a frase a partir do expediente estruturado — que é obrigatório.
+     * O 002 avisa: "quando frase e número divergirem, manda o número". */
+    horario: l.horario ?? frasePorExpediente(l),
+    folga: l.folga ?? fraseDeFolga(l.expediente_folga ?? []),
+    /* A regra, em número — é ela que a grade aplica (ver `dominio/catalogo.ts`).
+     * Os defaults 9/19 batem com os da coluna no banco; eles só entram se o `numeric`
+     * chegar ilegível, e nesse caso um expediente comercial é melhor palpite que 0–0,
+     * que fecharia a agenda inteira. */
+    expediente: {
+      folga: l.expediente_folga ?? [],
+      de: num(l.expediente_de, 9),
+      ate: num(l.expediente_ate, 19),
+    },
+  };
+}
+
+const DIAS_CURTOS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+
+/** Hora decimal (9.5) → "09:30"; inteira (9) → "09". */
+const horaCurta = (h: number): string => {
+  const inteira = Math.floor(h);
+  const min = Math.round((h - inteira) * 60);
+  return min === 0 ? String(inteira).padStart(2, "0") : `${String(inteira).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+};
+
+function frasePorExpediente(l: Pick<LinhaProfissional, "expediente_folga" | "expediente_de" | "expediente_ate">): string {
+  const folga = new Set(l.expediente_folga ?? []);
+  const atende = [0, 1, 2, 3, 4, 5, 6].filter((d) => !folga.has(d));
+  if (atende.length === 0) return "Sem expediente";
+  const faixa = `${horaCurta(num(l.expediente_de))}–${horaCurta(num(l.expediente_ate))}`;
+  // Sequência contígua (o caso comum: Seg–Sáb) vira faixa; buraco no meio vira lista.
+  const contiguo = atende.every((d, i) => i === 0 || d === atende[i - 1] + 1);
+  const dias = contiguo && atende.length > 1
+    ? `${DIAS_CURTOS[atende[0]]}–${DIAS_CURTOS[atende[atende.length - 1]]}`
+    : atende.map((d) => DIAS_CURTOS[d]).join(", ");
+  return `${dias} ${faixa}`;
+}
+
+const NOMES_DIA = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
+
+function fraseDeFolga(folga: number[]): string {
+  if (folga.length === 0) return "sem folga fixa";
+  return folga.map((d) => NOMES_DIA[d] ?? "?").join(" e ");
+}
+
+function paraServico(l: LinhaServico): Servico {
+  return {
+    id: l.id,
+    nome: l.nome,
+    categoria: categoria(l.categoria),
+    preco: num(l.preco),
+    duracao: l.duracao,
+    profissionalIds: l.profissional_ids ?? [],
+    ativo: l.ativo,
+  };
+}
+
+function paraCliente(l: LinhaCliente): Cliente {
+  return {
+    id: l.id,
+    nome: l.nome,
+    telefone: l.telefone,
+    email: l.email ?? "",
+    cpf: l.cpf ?? "",
+    canal: canal(l.canal),
+    ativo: l.ativo,
+    desde: mesAno(l.desde),
+    servicoId: l.servico_id ?? "",
+    atendimentos: l.atendimentos ?? 0,
+    valor: num(l.valor),
+    /* `teste` é `not null default false` no banco, mas o campo do domínio é opcional.
+     * Só propaga quando for true: um `teste: false` explícito em todo cliente faria o
+     * store achar que a marca existe e vale checar. */
+    ...(l.teste ? { teste: true as const } : {}),
+  };
+}
+
+/* ───────────────────────────── colunas, escritas uma vez ─────────────────────────────
+ * `select("*")` numa view parece inofensivo e não é: o dia em que alguém acrescentar
+ * coluna à view, ela vem no payload — e as rotas devolvem isto ao navegador. Listar é o
+ * que garante que "o que a tela recebe" seja uma decisão, não um efeito colateral. */
+
+const COLS_NEGOCIO = "tenant_id, nome, plano, preco_plano, proxima_cobranca, cartao_marca, cartao_final4, conversas_limite";
+const COLS_PROFISSIONAL =
+  "id, nome, papel, avaliacao, comissao, desde, ativo, horario, folga, expediente_folga, expediente_de, expediente_ate, servico_ids, atendimentos_mes";
+const COLS_SERVICO = "id, nome, categoria, preco, duracao, ativo, profissional_ids";
+const COLS_CLIENTE = "id, nome, telefone, email, cpf, canal, ativo, desde, servico_id, teste, atendimentos, valor";
+
+/**
+ * Um erro do PostgREST não é `null`.
+ *
+ * `.maybeSingle()` devolve `{ data: null, error: null }` para "não achei" e
+ * `{ data: null, error: {...} }` para "a consulta falhou". Tratar os dois como `null`
+ * (que é o que um `?? null` faz) transforma banco fora do ar em "esse cliente não
+ * existe" — e o caso de uso segue adiante marcando horário com dado faltando.
+ */
+function exigirSemErro(escopo: string, error: { message: string } | null): void {
+  if (error) throw new FalhaDoProvedor(`Não foi possível ler ${escopo}: ${error.message}`);
+}
+
+/**
+ * Este id tem forma de uuid?
+ *
+ * ⚠️ NÃO é paranoia de validação — é a diferença entre "não achei" e "explodiu".
+ *
+ * As colunas `id` de `profissionais`, `servicos` e `clientes` são `uuid`. Mandar uma string
+ * que não é uuid num `.eq("id", …)` não devolve zero linhas: o Postgres recusa o CAST com
+ * `22P02 invalid input syntax for type uuid`, o PostgREST devolve 400, e `exigirSemErro`
+ * transforma isso em `FalhaDoProvedor` — que a rota vira 502.
+ *
+ * E ids que não são uuid chegam aqui pelo caminho NORMAL, não por ataque:
+ *   • `lead:<telefone>` — o agente de WhatsApp usa isso para quem ainda não é cliente;
+ *   • `sv-novo-<timestamp>` — serviço que o usuário criou na tela, que vive no localStorage;
+ *   • `sv-google-<eventId>` / `cl-google-<eventId>` — as cópias gravadas no próprio evento,
+ *     para um atendimento renderizar mesmo quando o catálogo não conhece o serviço;
+ *   • `"pr1"`, `"sv1"`, `"cl1"` — qualquer localStorage gravado antes desta migração.
+ *
+ * Para o domínio, todos esses significam a MESMA coisa: "não existe no cadastro" — que é
+ * exatamente o `null` que a porta promete. Devolver `null` mantém os fallbacks que já
+ * existem funcionando (`cliente ?? clienteDoEvento(e)`); devolver 502 mata a operação.
+ */
+const PARECE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const repositorioSupabase: RepositorioNegocio = {
+  async negocio(t: ContextoTenant): Promise<Negocio> {
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("v_negocio")
+      .select(COLS_NEGOCIO)
+      .eq("tenant_id", t.tenantId)
+      .maybeSingle<LinhaNegocio>();
+
+    exigirSemErro("o negócio", error);
+    /* `negocio()` é o único método da porta sem `| null` no retorno: o app não faz
+     * sentido sem inquilino. Lançar `NaoEncontrado` aqui é o certo — devolver um
+     * `Negocio` vazio faria a tela abrir com "—" em tudo e ninguém saberia por quê. */
+    if (!data) throw new NaoEncontrado("Negócio");
+    return paraNegocio(data);
+  },
+
+  async profissional(t, id) {
+    if (!PARECE_UUID.test(id)) return null;
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("v_profissionais")
+      .select(COLS_PROFISSIONAL)
+      .eq("tenant_id", t.tenantId)
+      .eq("id", id)
+      .maybeSingle<LinhaProfissional>();
+
+    exigirSemErro("o profissional", error);
+    return data ? paraProfissional(data) : null;
+  },
+
+  async servico(t, id) {
+    if (!PARECE_UUID.test(id)) return null;
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("v_servicos")
+      .select(COLS_SERVICO)
+      .eq("tenant_id", t.tenantId)
+      .eq("id", id)
+      .maybeSingle<LinhaServico>();
+
+    exigirSemErro("o serviço", error);
+    return data ? paraServico(data) : null;
+  },
+
+  async cliente(t, id) {
+    if (!PARECE_UUID.test(id)) return null;
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("v_clientes")
+      .select(COLS_CLIENTE)
+      .eq("tenant_id", t.tenantId)
+      .eq("id", id)
+      .maybeSingle<LinhaCliente>();
+
+    exigirSemErro("o cliente", error);
+    return data ? paraCliente(data) : null;
+  },
+
+  /* ── as listas ──
+   * Delegam para as funções no fim do arquivo. Elas ficaram exportadas à parte porque
+   * nasceram antes de entrarem na porta, e continuam exportadas porque são úteis a
+   * qualquer rota que precise de UMA das listas sem pagar as cinco consultas do
+   * `lerCadastro`. */
+
+  async profissionais(t) {
+    return listarProfissionais(t);
+  },
+
+  async servicos(t) {
+    return listarServicos(t);
+  },
+
+  async clientes(t) {
+    return listarClientes(t);
+  },
+
+  async expediente(t, profissionalId): Promise<Expediente | null> {
+    if (!PARECE_UUID.test(profissionalId)) return null;
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("v_profissionais")
+      .select("expediente_folga, expediente_de, expediente_ate")
+      .eq("tenant_id", t.tenantId)
+      .eq("id", profissionalId)
+      .maybeSingle<Pick<LinhaProfissional, "expediente_folga" | "expediente_de" | "expediente_ate">>();
+
+    exigirSemErro("o expediente", error);
+    if (!data) return null;
+    return {
+      folga: data.expediente_folga ?? [],
+      de: num(data.expediente_de, 9),
+      ate: num(data.expediente_ate, 19),
+    };
+  },
+
+  /**
+   * A allowlist. Deixou de ser constante no código e passou a ser o cadastro.
+   *
+   * Só profissional ATIVO entra: desativar alguém tem que tirar a agenda dele do alcance
+   * de quem cria evento — inclusive do agente de WhatsApp, que recebe `profissionalId`
+   * como argumento escolhido por um modelo. Note que isto NÃO afeta desconectar: aquele
+   * caso de uso tem allowlist frouxa de propósito, para não deixar refresh token preso
+   * numa linha órfã (ver `nucleo/aplicacao/agenda.ts`).
+   */
+  async agendasPermitidas(t) {
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("profissionais")
+      .select("id")
+      .eq("tenant_id", t.tenantId)
+      .eq("ativo", true)
+      .order("criado_em", { ascending: true });
+
+    exigirSemErro("as agendas", error);
+    return (data ?? []).map((l: { id: string }) => l.id);
+  },
+
+  /**
+   * A busca quente do agente de WhatsApp.
+   *
+   * Usa `telefone_chave`, que é coluna GERADA no banco
+   * (`right(regexp_replace(telefone,'[^0-9]','','g'), 8)`) e tem índice
+   * `ix_clientes_telefone`. É a mesma regra dos 8 últimos dígitos que o adaptador demo
+   * fazia em memória, e por um motivo que continua valendo: o provedor manda
+   * `5511981234567` e o cadastro costuma ter `(11) 98123-4567` — DDI e nono dígito são
+   * exatamente o que varia entre as duas grafias do mesmo número.
+   *
+   * Comparar contra a coluna `telefone` crua seria pesquisar a máscara e nunca achar
+   * ninguém que veio do WhatsApp.
+   */
+  async clientePorTelefone(t, telefone) {
+    const chave = soDigitos(telefone).slice(-8);
+    if (chave.length < 8) return null;
+
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("v_clientes")
+      .select(COLS_CLIENTE)
+      .eq("tenant_id", t.tenantId)
+      .eq("telefone_chave", chave)
+      /* Dois cadastros com o mesmo final de 8 dígitos é possível (não há unique nessa
+       * coluna, de propósito: número repetido acontece em família). Pegar o mais antigo
+       * é determinístico — sem `order`, o Postgres pode devolver ordem diferente entre
+       * chamadas e a MAISA cumprimentaria pessoas diferentes na mesma conversa. */
+      .order("desde", { ascending: true, nullsFirst: false })
+      .limit(1)
+      .maybeSingle<LinhaCliente>();
+
+    exigirSemErro("o cliente pelo telefone", error);
+    return data ? paraCliente(data) : null;
+  },
+
+  /**
+   * Acha ou cria. É a única ESCRITA deste adaptador.
+   *
+   * Lê primeiro, de propósito, e não um `upsert` direto: `clientes` não tem `unique` no
+   * telefone (número repetido acontece em família — ver `clientePorTelefone`), então não
+   * existe coluna de conflito para o `upsert` resolver. Ler-depois-inserir é o único
+   * caminho, e a corrida que ele abre é benigna: duas mensagens simultâneas do mesmo
+   * número podem criar duas linhas, e `clientePorTelefone` ordena por `desde` para
+   * sempre devolver a mesma delas. Duas linhas é cadastro sujo; cliente trocado no meio
+   * da conversa seria um bug de verdade.
+   *
+   * ⚠️ Não atualiza quem já existe. Se o dono cadastrou "Maria Silva" e o modelo entendeu
+   * "Mary", quem manda é o dono — a MAISA não reescreve cadastro por interpretação de
+   * frase. O nome que o modelo ouviu vai para a memória do agente, não para cá.
+   */
+  async garantirCliente(t, p) {
+    const existente = await repositorioSupabase.clientePorTelefone(t, p.telefone);
+    if (existente) return existente;
+
+    /* Sem 8 dígitos não há chave de deduplicação, e inserir criaria um cliente novo por
+     * mensagem. `null` aqui não é falha: o caso de uso segue com `cliente_id` nulo e o
+     * snapshot do atendimento preserva nome e telefone. */
+    if (soDigitos(p.telefone).length < 8) return null;
+
+    const nome = p.nome.trim().slice(0, 120) || "Cliente";
+    const supabase = clienteDoContexto(t);
+    const { error } = await supabase.from("clientes").insert({
+      tenant_id: t.tenantId,
+      nome,
+      telefone: p.telefone,
+      /* `Online` porque chegou pelo WhatsApp — é literalmente o que a coluna quer dizer.
+       * `telefone_chave` NÃO vai aqui: é coluna gerada, e mandá-la é erro do Postgres. */
+      canal: "Online",
+      ativo: true,
+      desde: new Date().toISOString().slice(0, 10),
+    });
+
+    /* Falhou a inserção? Não lança. Chegamos aqui a caminho de marcar um horário, e
+     * derrubar o agendamento porque o cadastro não aceitou a linha seria trocar um
+     * problema pequeno (cliente fora da lista) pelo pior possível (o cliente ouve que
+     * não deu). O log é alto porque isto é configuração ou RLS, não caso de borda. */
+    if (error) {
+      console.error(
+        `[supabase/repositorio] não foi possível cadastrar o cliente ${p.telefone} do inquilino ${t.tenantId}: ${error.message}`,
+      );
+      return null;
+    }
+
+    /* Relê pela view em vez de montar o `Cliente` da resposta do insert: `atendimentos` e
+     * `valor` são contagens que só `v_clientes` sabe calcular, e devolver zeros fabricados
+     * aqui faria a tela mostrar número errado com cara de número certo. */
+    return repositorioSupabase.clientePorTelefone(t, p.telefone);
+  },
+};
+
+/* ───────────────────────────── leituras de LISTA, fora da porta ─────────────────────────────
+ * A porta `RepositorioNegocio` responde "quem é o profissional X" porque é o que os
+ * casos de uso precisam. As TELAS precisam de outra coisa: a lista inteira. Isso não
+ * entra na porta — o núcleo não tem caso de uso que liste equipe — então mora aqui, e as
+ * rotas de `/api/cadastro/*` chamam direto.
+ *
+ * O mesmo `.eq("tenant_id")` vale, pela mesma razão. */
+
+export async function listarProfissionais(t: ContextoTenant): Promise<Profissional[]> {
+  const supabase = clienteDoContexto(t);
+  const { data, error } = await supabase
+    .from("v_profissionais")
+    .select(COLS_PROFISSIONAL)
+    .eq("tenant_id", t.tenantId)
+    /* Por NOME, e não por `criado_em`: a view `v_profissionais` não projeta `criado_em`
+     * (ver 004_visoes.sql) e o PostgREST rejeita `order` em coluna que não existe na
+     * view — seria 400 na tela de Equipe, não uma ordenação diferente. */
+    .order("nome", { ascending: true });
+
+  exigirSemErro("a equipe", error);
+  return (data ?? []).map((l) => paraProfissional(l as LinhaProfissional));
+}
+
+export async function listarServicos(t: ContextoTenant): Promise<Servico[]> {
+  const supabase = clienteDoContexto(t);
+  const { data, error } = await supabase
+    .from("v_servicos")
+    .select(COLS_SERVICO)
+    .eq("tenant_id", t.tenantId)
+    .order("nome", { ascending: true });
+
+  exigirSemErro("o catálogo", error);
+  return (data ?? []).map((l) => paraServico(l as LinhaServico));
+}
+
+export async function listarClientes(t: ContextoTenant): Promise<Cliente[]> {
+  const supabase = clienteDoContexto(t);
+  const { data, error } = await supabase
+    .from("v_clientes")
+    .select(COLS_CLIENTE)
+    .eq("tenant_id", t.tenantId)
+    .order("nome", { ascending: true });
+
+  exigirSemErro("os clientes", error);
+  return (data ?? []).map((l) => paraCliente(l as LinhaCliente));
+}

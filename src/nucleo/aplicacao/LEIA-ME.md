@@ -10,6 +10,24 @@ portas de saída que recebe por parâmetro.
 | `agendar-atendimento.ts` | `AgendarAtendimento` | `AgendaExterna`, `RepositorioNegocio` |
 | `agenda.ts` | `LerAgenda`, `CancelarAtendimento`, `ListarConexoes`, `DesconectarAgenda` | `AgendaExterna`, `ConexoesDeAgenda`, `RepositorioNegocio` |
 | `notas.ts` | `EmitirNota`, `ConsultarNota`, `CancelarNota` | `EmissorFiscal` |
+| `conversas.ts` | `ListarConversas`, `LerConversa`, `ResponderConversa`, `MudarPosseConversa` | `RepositorioHistorico`, `RepositorioConversas`, `CanalDeMensagens` |
+
+### `conversas.ts` — o painel do outro lado da mesma thread
+
+O agente fala com `RepositorioHistorico` direto: para ele, conversa é o telefone que acabou de
+escrever. O painel pergunta outra coisa ("quem falou comigo, e com quem está a bola?"), e é
+essa pergunta que mora aqui. Não existe "conversa do painel" e "conversa do agente" — é a mesma
+linha em `mensagens_agente`.
+
+Duas decisões que valem a leitura antes de mexer:
+
+- **Responder ENVIA antes de GRAVAR.** Mensagem entregue e não gravada é ruído; mensagem
+  gravada e não entregue é uma mentira que ninguém detecta — o dono segue a conversa achando
+  que respondeu.
+- **O destino nunca vem do corpo do request.** Quem responde manda a CHAVE da conversa (8
+  dígitos, que não serve para enviar nada) e o servidor descobre o número na thread. É o que
+  impede o painel de virar um jeito de mandar WhatsApp para qualquer número pela instância do
+  dono.
 
 ## `agendar-atendimento.ts` — o arquivo mais importante do repositório
 

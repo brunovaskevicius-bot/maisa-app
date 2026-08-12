@@ -29,21 +29,68 @@ componentes perto do `app/`. Conceitualmente é irmão do `http/` e do futuro `w
 |---|---|
 | `FluxoHoje.tsx` | O kanban do dia: chegando → atendendo → feito. |
 | `Agenda.tsx` | A grade (dia/semana/mês) com a agenda REAL do Google. Também define a janela desenhada (`AGENDA_INICIO`/`AGENDA_HORAS` — geometria de tela, não expediente). |
-| `Conversas.tsx` | As conversas de WhatsApp (demonstração). |
+| `Conversas.tsx` | As conversas de WhatsApp, do servidor (`st.conversas` / `st.threadDe`). Responder aqui manda mensagem de verdade. |
 | `Grades.tsx` | Clientes, equipe, catálogo, faturamento, "Mais". |
 | `AMaisa.tsx` | Os ajustes da assistente + preview de WhatsApp. |
 
 ## A dívida conhecida
 
-As telas fazem `import * as D from "@/adaptadores/saida/demo"` — ou seja, leem fixture
-**direto**, sem passar por um caso de uso. Isso é o que resta da arquitetura antiga.
+As telas ainda fazem `import * as D from "@/adaptadores/saida/demo"`, mas **o que vem daí
+mudou** — e essa distinção é o ponto:
 
-O caminho longo do import é proposital: ele denuncia a dívida em toda tela que a tem.
-Consertar = fazer o `store.tsx` conversar com o núcleo em vez de com o array. Enquanto
-não acontece, vale a regra:
+O barrel do demo faz `export * from "@/nucleo/dominio"`, então a maioria dos `D.` **não é
+fixture**: `D.hhmm`, `D.HOJE`, `D.rotuloDia`, `D.CATEGORIAS`, `D.TONS`, `D.primeiroNome` e
+os tipos são domínio puro, e importá-los é legítimo (só está no caminho errado). Em
+`Agenda.tsx`, por exemplo, a esmagadora maioria das referências é dessas.
+
+**Quatro entidades saíram do fixture** e vêm de `GET /api/cadastro`, pelo store:
+
+| Não use mais | Use |
+|---|---|
+| `D.NEGOCIO` | `st.cadastro.negocio` |
+| `D.EQUIPE` | `st.cadastro.profissionais` |
+| `D.CLIENTES` | `st.cadastro.clientes` |
+| `D.SERVICOS` | `st.cadastro.servicos` (catálogo de partida) ou `st.servicos` (vivo) |
+| `D.COLUNAS_AGENDA` | `st.cadastro.agendas` |
+| `D.profissional(id)` | `st.profissionalDe(id)` |
+| `D.cliente(id)` | `st.clienteDe(id)` |
+| `D.servico(id)` | `st.servicoDoCadastro(id)` |
+| `D.nomeProfissional(id)` | `st.nomeDoProfissional(id)` |
+| `D.nomeCliente(id)` | `st.nomeDoCliente(id)` |
+| `D.atende(pid, data)` | `st.atendeNoDia(pid, data)` |
+| `D.podeComecar(…)` | `st.podeComecarEm(…)` |
+
+Continuam fixture de verdade, e cada uso é dívida: `FAQS`, `NUMEROS_MES`, `FATURAS`,
+`PERIODO`, `PRESTADOR`, `DIAS_PADRAO`, `CFG_PADRAO`.
+
+`CONVERSAS`, `THREADS` e `SUGESTOES` saíram desta lista porque saíram do repositório. O que
+as substitui:
+
+| Era | Virou |
+|---|---|
+| `D.CONVERSAS` | `st.conversas` (do servidor, mais recente primeiro) |
+| `D.conversa(id)` | `st.conversaDe(id)` |
+| `D.THREADS[id]` | `st.threadDe(id)` — buscada ao abrir a conversa |
+| `D.SUGESTOES[id]` | nada. Sugestão de verdade é uma feature, não um fixture — a barra saiu da tela |
+| `c.hora` | `D.horaDeISO(c.atualizadaEm)` |
+| `c.estado` do fixture | `c.estado`, derivado no servidor por `estadoDaConversa` |
+
+⚠️ `st.enviar(id, txt)` **manda mensagem no WhatsApp da pessoa** e não se desfaz. `st.assumir`
+e `st.devolver` escrevem no banco: é o que faz a MAISA calar (ou voltar a falar) naquela
+conversa. Nenhum dos três é otimista à toa — ver o comentário de `mudarPosse` no store.
+
+Duas coisas que o store passou a exigir:
+
+- **`st.pidAgenda` pode ser `""`** na primeira passada — o cadastro é assíncrono. Guarde
+  antes de mandar numa URL ou num `conectarGoogle`.
+- **`st.cadastroErro`** não-nulo significa que o que está na tela é **placeholder de
+  fixture**, não o negócio de verdade. Tela que mostra plano, preço ou contagem tem que
+  dizer isso — senão o app mente com cara de dado real.
+
+Regras de import que continuam valendo:
 
 - ✅ a UI pode importar `@/nucleo/dominio/*` (tipos e funções puras) à vontade;
-- ⚠️ `@/adaptadores/saida/demo` é tolerado, e cada uso é dívida;
+- ⚠️ `@/adaptadores/saida/demo` é tolerado para o que ainda é fixture;
 - ❌ a UI **nunca** importa `@/composicao`, `saida/google`, `saida/focus` — são
   segredos de servidor. A ponte é `fetch` para `/api/**`.
 

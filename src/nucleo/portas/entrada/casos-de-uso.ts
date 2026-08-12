@@ -18,6 +18,10 @@
 import type { ContextoTenant } from "../../dominio/tenant";
 import type { EventoDeAgenda } from "../../dominio/agenda";
 import type { Janela } from "../../dominio/tempo";
+import type { Negocio } from "../../dominio/negocio";
+import type { Profissional, Servico } from "../../dominio/catalogo";
+import type { Cliente } from "../../dominio/clientes";
+import type { Conversa, Msg } from "../../dominio/conversas";
 import type { Conexao } from "../saida/agenda-externa";
 import type { ResultadoDeNota, Tomador } from "../../dominio/fiscal";
 import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
@@ -138,6 +142,66 @@ export type AnotarFato = (
   t: ContextoTenant,
   p: { telefone: string; nome?: string; escolha?: Escolha },
 ) => Promise<MemoriaCliente>;
+
+/* ───────────────────────────── o cadastro ─────────────────────────────
+ * "Quem eu sou, quem atende, o que eu vendo, quem são meus clientes."
+ *
+ * É a primeira coisa que o painel pergunta e a última que ele deveria adivinhar. Existe
+ * como caso de uso — e não como quatro leituras que a rota faz na mão — porque a UI já
+ * pagou o preço de não ter isto: as telas importavam `saida/demo` direto e liam fixture,
+ * o que fez o app inteiro depender de um array em memória para desenhar a grade.
+ *
+ * Vem tudo junto de propósito. As quatro leituras falham juntas (é a mesma sessão, o mesmo
+ * inquilino, a mesma conexão) e a tela não sabe desenhar nada com três das quatro: sem
+ * profissional não há coluna na Agenda, sem serviço não há duração, sem cliente não há
+ * quem marcar. Partir em quatro daria quatro estados de carregando para uma única tela
+ * que só existe completa.
+ */
+export type CadastroDoNegocio = {
+  negocio: Negocio;
+  profissionais: Profissional[];
+  servicos: Servico[];
+  clientes: Cliente[];
+  /**
+   * As agendas que este inquilino pode operar, já filtradas pelo servidor.
+   *
+   * Vai no mesmo pacote porque a tela usa a lista para duas coisas (montar as colunas da
+   * grade e oferecer o "conectar agenda"), e derivá-la no navegador duplicaria no cliente
+   * uma regra que é de autorização. Quando as duas divergirem, a do servidor é a que
+   * vale — então é a única que viaja.
+   */
+  agendas: string[];
+};
+
+export type LerCadastro = (t: ContextoTenant) => Promise<CadastroDoNegocio>;
+
+/* ───────────────────────────── conversas de WhatsApp ─────────────────────────────
+ * O painel, do lado da conversa. O AGENTE não passa por aqui: para ele a conversa é o
+ * telefone que acabou de escrever, e ele fala com `RepositorioHistorico` direto.
+ *
+ * ⚠️ `telefone` é sempre a IDENTIDADE da conversa, não um destino. Quem responde manda a
+ * chave (8 dígitos, que não serve para enviar nada) e o servidor descobre o número completo
+ * na thread — ver `criarResponderConversa`. É o que impede o painel de virar um jeito de
+ * mandar WhatsApp para qualquer número pela instância do dono. */
+
+export type ListarConversas = (t: ContextoTenant) => Promise<Conversa[]>;
+
+export type LerConversa = (
+  t: ContextoTenant,
+  telefone: string,
+) => Promise<{ conversa: Conversa; msgs: Msg[] }>;
+
+/** Devolve a fala gravada — a tela já mostrou o texto, o que ela não sabia é que saiu. */
+export type ResponderConversa = (
+  t: ContextoTenant,
+  p: { telefone: string; texto: string },
+) => Promise<Msg>;
+
+/** Assumir/devolver (`assumida`) e resolver/reabrir (`resolvida`). `undefined` = não mexa. */
+export type MudarPosseConversa = (
+  t: ContextoTenant,
+  p: { telefone: string; assumida?: boolean; resolvida?: boolean },
+) => Promise<void>;
 
 /* ───────────────────────────── conexão com a agenda ───────────────────────────── */
 

@@ -53,14 +53,16 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
       ...TELAS_BUSCA.map(([id, titulo, sub, icone]) => ({
         chave: `tela-${id}`, titulo, sub, grupo: "Telas", icone, executar: ir(id),
       })),
-      ...D.CLIENTES.map((c) => ({
+      ...st.cadastro.clientes.map((c) => ({
         chave: c.id, titulo: c.nome, grupo: "Clientes", seed: c.id,
         sub: `${st.nomeServico(c.servicoId)} · ${c.telefone}`,
         executar: abrir(c.id, "clientes"),
       })),
-      ...D.CONVERSAS.map((c) => ({
+      // st.conversas, não D.CONVERSAS: a busca acha quem escreveu de verdade — inclusive quem
+      // não está no cadastro, que é justamente quem é difícil de achar no app.
+      ...st.conversas.map((c) => ({
         chave: `cv-${c.id}`, titulo: c.nome, grupo: "Conversas", seed: c.id,
-        sub: `conversa · ${c.telefone}`,
+        sub: `conversa · ${D.telefoneBonito(c.telefone || c.id)}`,
         executar: () => { st.selecionarConversa(c.id); st.irPara("conversas"); fechar(); },
       })),
       // st.servicos, não D.SERVICOS: um serviço que o usuário criou também se procura por aqui,
@@ -70,7 +72,7 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
         sub: `${fmt(sv.preco)} · ${sv.duracao} min`,
         executar: abrir(sv.id, "servicos"),
       })),
-      ...D.EQUIPE.map((p) => ({
+      ...st.cadastro.profissionais.map((p) => ({
         chave: p.id, titulo: p.nome, grupo: "Equipe", seed: p.id,
         sub: p.papel,
         executar: abrir(p.id, "equipe"),

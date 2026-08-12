@@ -255,12 +255,31 @@ ela é a porta pública, e afrouxar a autenticação dela "só no dev" é afroux
   provedor, e isso não é decisão de um modelo.
 - ❌ Novo guardrail em prompt quando ele cabe em código. Prompt é a camada 3.
 
-## Dívida declarada
+## O que a fatia das conversas reais mudou aqui
 
-- **Memória em `Map` de processo.** Morre no redeploy, não é compartilhada entre
-  instâncias — na Vercel, duas mensagens seguidas podem cair em lambdas diferentes e a
-  segunda não lembra da primeira. A DDL existe em `supabase/007_memoria_agente.sql`;
-  faltam `saida/supabase/memoria.ts` e duas linhas em `composicao.ts`.
+Três coisas, e vale saber porque as duas primeiras eram dívida declarada neste arquivo:
+
+- **A memória saiu do `Map`.** `saida/supabase/memoria.ts` existe e `composicao.ts` escolhe
+  por `isSupabaseConfigured`. O que isso destravou não foi só sobreviver ao redeploy: **o
+  painel passou a ver a conversa.** A tela roda em outro processo que este webhook, então um
+  `Map` de módulo era invisível para ela por construção — era a razão de fundo de a tela de
+  Conversas ter vivido de fixture.
+- **`voce` é gravado.** Quando o dono responde pelo painel, a fala dele entra em
+  `mensagens_agente` como qualquer outra, e o replay do próximo turno a inclui. A MAISA não
+  contradiz mais o próprio dono ao retomar.
+- **A fala do cliente é gravada ANTES de o turno decidir qualquer coisa** (passo 1b do
+  `agente.ts`). Antes a gravação era o último passo, então todo `return` antecipado
+  descartava a pergunta junto com a resposta que não houve — assistente desligada, recusa do
+  provedor, seis voltas sem conclusão, e o pior: "tentou marcar e não conseguiu". O efeito era
+  o inverso do necessário: **a conversa que mais exige o dono era a única invisível no painel
+  dele.** Ele recebia o aviso de escalada no WhatsApp e não achava a conversa em lugar nenhum.
+
+E uma capacidade nova: **o agente CALA quando o dono assume.** `RepositorioConversas.posse` é
+lida no passo 1d, antes do primeiro token. Enquanto isso morava no `localStorage` do painel, o
+botão "Assumir" prometia silêncio no toast e o webhook nunca soube — o dono respondia, o
+cliente respondia de volta, e a MAISA falava por cima dele.
+
+## Dívida declarada
 - **⚠️ Áudio não é respondido.** Cliente que manda áudio recebe **silêncio**. A mensagem é
   reconhecida e aparece no log (`[api/whatsapp] audio de 5511… sem legenda`), depois é
   descartada. No Brasil áudio é como muita gente manda mensagem, então isto não é caso de
@@ -269,11 +288,15 @@ ela é a porta pública, e afrouxar a autenticação dela "só no dev" é afroux
   falta escolher.
 - **Um inquilino só.** `contexto.ts` lê instância e número de env em vez de
   `integracoes_whatsapp`.
-- **`voce` nunca é gravado.** Quando o dono assume no painel, a fala dele não entra em
-  `mensagens_agente` — então a MAISA pode contradizer o próprio dono ao retomar.
-- **Sem deduplicação de reentrega.** O webhook reentrega quando não recebe 200 a tempo;
-  o índice único em `provedor_id` já está na DDL, mas o adaptador de demonstração não o
-  usa. Hoje uma reentrega gera resposta duplicada.
+- **Sem deduplicação de reentrega.** O webhook reentrega quando não recebe 200 a tempo; o
+  índice único em `provedor_id` já está na DDL, mas a porta `RepositorioHistorico.anexar` fala
+  `Msg`, e `Msg` não carrega id de provedor — então nem o adaptador do Supabase o usa. Hoje uma
+  reentrega gera resposta duplicada, e agora também **duas linhas na thread do painel**: o
+  dono vê a mesma pergunta do cliente duas vezes. É a próxima dívida a fechar desta lista, e o
+  desenho não é óbvio de propósito — pôr `provedorId` em `Msg` faria o tipo da TELA carregar
+  um detalhe do canal.
+- **A thread do painel não é realtime.** A tela relê de 15 em 15 segundos com ela aberta (ver
+  `RELER_CONVERSAS_MS` no store). O Supabase tem realtime; é uma fatia própria.
 - **Nenhum teste automatizado no repo.** As 69 asserções que provaram vagas, inferência
   de memória, bolhas, normalização de webhook e a allowlist de horários rodaram fora do
   projeto — e outras 36, sobre os envelopes da Evolution (`fromMe`, grupo, `@lid`,

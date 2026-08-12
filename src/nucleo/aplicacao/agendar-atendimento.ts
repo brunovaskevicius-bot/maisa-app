@@ -14,6 +14,7 @@
 import type { AgendarAtendimento } from "../portas/entrada/casos-de-uso";
 import type { AgendaExterna } from "../portas/saida/agenda-externa";
 import type { RepositorioNegocio } from "../portas/saida/repositorio-negocio";
+import type { RegistroDeAtendimentos } from "../portas/saida/registro-atendimentos";
 import type { ContextoAgenda } from "../dominio/tenant";
 import { rotuloDoAtor } from "../dominio/tenant";
 import { DIAS_DE_ALCANCE, duracaoValida, ehUuid, horaValida } from "../dominio/agenda";
@@ -24,11 +25,17 @@ import { ehDataCivil, instanteISO } from "../dominio/tempo";
 export type Dependencias = {
   agenda: AgendaExterna;
   negocio: RepositorioNegocio;
+  /**
+   * O espelho. Ver `portas/saida/registro-atendimentos.ts` — em especial a invariante de
+   * que a verdade continua sendo a agenda externa, e a de que gravar aqui NUNCA derruba
+   * um agendamento.
+   */
+  registro: RegistroDeAtendimentos;
   /** Só para poder congelar o tempo em teste. */
   agora?: () => number;
 };
 
-export function criarAgendarAtendimento({ agenda, negocio, agora = Date.now }: Dependencias): AgendarAtendimento {
+export function criarAgendarAtendimento({ agenda, negocio, registro, agora = Date.now }: Dependencias): AgendarAtendimento {
   return async (t, p) => {
     /* ── 1. o pedido faz sentido? ──
      * A validação vive AQUI, e não na rota, porque o agente de WhatsApp vai preencher
@@ -63,7 +70,7 @@ export function criarAgendarAtendimento({ agenda, negocio, agora = Date.now }: D
      * o catálogo é só o padrão. Sem essa folga, marcar num serviço novo falhava com
      * "faltam dados do atendimento" e nada na tela dizia que a causa era o serviço. */
     const doCatalogo = await negocio.servico(t, p.servicoId);
-    const cliente = await negocio.cliente(t, p.clienteId);
+    const doCadastro = await negocio.cliente(t, p.clienteId);
 
     const duracao = Number(p.duracao ?? doCatalogo?.duracao);
     if (!duracaoValida(duracao)) throw new DadoInvalido("Duração fora do razoável.", "duracao");
@@ -72,10 +79,29 @@ export function criarAgendarAtendimento({ agenda, negocio, agora = Date.now }: D
     const valorServico = Number(p.servicoValor ?? doCatalogo?.preco ?? 0);
     // Nome e telefone do cliente também podem vir do pedido, pela mesma razão do serviço:
     // eles são GRAVADOS no evento para o app funcionar noutro navegador.
-    const nomeCliente = String(p.clienteNome ?? cliente?.nome ?? "Cliente").slice(0, 120);
-    const telCliente = String(p.clienteTelefone ?? cliente?.telefone ?? "").slice(0, 40);
+    const nomeCliente = String(p.clienteNome ?? doCadastro?.nome ?? "Cliente").slice(0, 120);
+    const telCliente = String(p.clienteTelefone ?? doCadastro?.telefone ?? "").slice(0, 40);
+
+    /* ── 3b. QUEM MARCOU ENTRA NO CADASTRO ──
+     *
+     * O `clienteId` que chega pode não resolver em ninguém, e o caso mais comum não é
+     * borda nenhuma: é o agente de WhatsApp mandando `lead:<telefone>` para quem nunca
+     * foi cadastrado. Sem este passo o cadastro nunca cresce pelo canal que mais traz
+     * gente, e `atendimentos.cliente_id` fica nulo — então a soma por cliente do
+     * faturamento responde zero com honestidade, e zero.
+     *
+     * Vale para o painel também, de propósito: "todo atendimento tem cliente no cadastro"
+     * é regra do negócio, não conveniência do WhatsApp, e uma regra que só valesse para um
+     * dos dois chamadores seria a segunda cópia da regra que esta arquitetura existe para
+     * não ter. Na prática o painel manda um id que resolve e este bloco não faz nada.
+     *
+     * Sem telefone não se cadastra: ele é a chave de deduplicação, e criar sem ele daria
+     * um cliente novo por mensagem da mesma pessoa. Nesse caso `cliente` fica `null`, o
+     * espelho grava `cliente_id` nulo e o snapshot preserva nome e telefone. */
+    const cliente = doCadastro ?? (telCliente ? await negocio.garantirCliente(t, { nome: nomeCliente, telefone: telCliente }) : null);
 
     const inicioISO = instanteISO(p.data, p.inicio);
+    const fimISO = instanteISO(p.data, p.inicio + duracao / 60);
 
     /* Marcar no PASSADO é permitido: registrar às 15h o encaixe que entrou às 14h é uso
      * normal de agenda. O que se recusa é o absurdo — uma data corrompida não deve
@@ -98,23 +124,60 @@ export function criarAgendarAtendimento({ agenda, negocio, agora = Date.now }: D
     const jaExiste = await agenda.buscarPorAtendimento(ctx, { ag: p.maisaAg, perto: inicioISO });
     const comMeet = p.comMeet !== false; // padrão: com videochamada
 
-    if (jaExiste) {
-      return {
-        situacao: "ja_existia",
-        eventoId: jaExiste.eventoId,
-        meetLink: jaExiste.meetLink ?? null,
-        htmlLink: jaExiste.htmlLink ?? null,
+    /**
+     * Grava o espelho e devolve o resultado. Os dois caminhos (achou / criou) passam por
+     * aqui, e o `ja_existia` também grava de propósito: se o evento existe no Google mas a
+     * linha não existe no banco — o que é o estado de TODO atendimento marcado antes deste
+     * código subir — a retentativa é a única chance de o espelho se corrigir. `registrar`
+     * é idempotente por `maisaAg`, então regravar não duplica.
+     *
+     * O `await` é deliberado, e não um `void` solto: no runtime da Vercel a função pode
+     * ser congelada assim que a resposta HTTP sai, e uma promessa não aguardada morre no
+     * meio da escrita. O custo é um round-trip; o benefício é o espelho existir.
+     */
+    const finalizar = async (
+      situacao: "criado" | "ja_existia",
+      e: { eventoId: string; meetLink?: string | null; htmlLink?: string | null },
+    ) => {
+      await registro.registrar(t, {
+        maisaAg: p.maisaAg,
+        agendaId: p.agendaId,
+        clienteId: cliente?.id ?? null,
+        clienteNome: nomeCliente,
+        clienteTel: telCliente,
+        servicoId: doCatalogo?.id ?? null,
+        servicoNome: nomeServico,
+        servicoValor: valorServico,
         inicioISO,
-        semMeet: comMeet && !jaExiste.meetLink,
-      };
-    }
+        fimISO,
+        duracaoMin: duracao,
+        dataLocal: p.data,
+        horaInicio: p.inicio,
+        eventoId: e.eventoId,
+        meetLink: e.meetLink ?? null,
+        htmlLink: e.htmlLink ?? null,
+      });
+
+      return {
+        situacao,
+        eventoId: e.eventoId,
+        meetLink: e.meetLink ?? null,
+        htmlLink: e.htmlLink ?? null,
+        // O instante REALMENTE usado — quem pediu passa a exibir a partir daqui.
+        inicioISO,
+        // Pediu videochamada e não veio link: quem chamou precisa saber para não prometer.
+        semMeet: comMeet && !e.meetLink,
+      } as const;
+    };
+
+    if (jaExiste) return finalizar("ja_existia", jaExiste);
 
     /* ── 5. criar ── */
     const negocioDono = await negocio.negocio(t);
 
     const criado = await agenda.criar(ctx, {
       inicio: inicioISO,
-      fim: instanteISO(p.data, p.inicio + duracao / 60),
+      fim: fimISO,
       duracaoMin: duracao,
       // Etiqueta de dono no TÍTULO, não só na descrição: nada impede que a mesma conta
       // Google atenda mais de um profissional, e aí os atendimentos de todos caem no
@@ -136,7 +199,14 @@ export function criarAgendarAtendimento({ agenda, negocio, agora = Date.now }: D
       atendimento: {
         ag: p.maisaAg,
         profissionalId: p.agendaId,
-        clienteId: p.clienteId,
+        /* O id do cadastro quando ele existe, e não o `clienteId` que chegou. Importa para
+         * o caminho do WhatsApp: o agente manda `lead:<telefone>`, e gravar essa string no
+         * evento deixaria a marca apontando para um cliente que o banco não conhece. Com o
+         * `garantirCliente` do passo 3b, aqui já é o uuid de verdade.
+         *
+         * Nada quebra em quem lê: `meus_horarios` reencontra o atendimento pelo TELEFONE
+         * da marca, não por este id (ver o filtro em `whatsapp/ferramentas.ts`). */
+        clienteId: cliente?.id ?? p.clienteId,
         clienteNome: nomeCliente,
         clienteTel: telCliente,
         servicoId: p.servicoId,
@@ -145,15 +215,6 @@ export function criarAgendarAtendimento({ agenda, negocio, agora = Date.now }: D
       },
     });
 
-    return {
-      situacao: "criado",
-      eventoId: criado.eventoId,
-      meetLink: criado.meetLink ?? null,
-      htmlLink: criado.htmlLink ?? null,
-      // O instante REALMENTE usado — quem pediu passa a exibir a partir daqui.
-      inicioISO,
-      // Pediu videochamada e não veio link: quem chamou precisa saber para não prometer.
-      semMeet: comMeet && !criado.meetLink,
-    };
+    return finalizar("criado", criado);
   };
 }

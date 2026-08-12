@@ -74,11 +74,19 @@ function tomDoBloco(ag: AgendamentoVivo): { bg: string; ac: string; fg: string }
 }
 
 /** O primeiro horário do dia em que ALGUÉM está de expediente, e quem é.
- *  `null` num dia em que a casa não abre. */
-function primeiroVago(data: string): { pid: string; inicio: number } | null {
+ *  `null` num dia em que a casa não abre.
+ *
+ *  Recebe `agendas` e `podeComecar` por parâmetro em vez de ler o fixture: é função de
+ *  módulo, não tem acesso ao store, e o cadastro agora vem do servidor. Ler uma constante
+ *  importada aqui era justamente o que congelava a lista de agendas no import. */
+function primeiroVago(
+  data: string,
+  agendas: string[],
+  podeComecar: (pid: string, data: string, inicio: number) => boolean,
+): { pid: string; inicio: number } | null {
   for (let i = 0; i < AGENDA_HORAS / PASSO; i++) {
     const inicio = AGENDA_INICIO + i * PASSO;
-    const pid = D.COLUNAS_AGENDA.find((p) => D.podeComecar(p, data, inicio));
+    const pid = agendas.find((p) => podeComecar(p, data, inicio));
     if (pid) return { pid, inicio };
   }
   return null;
@@ -143,8 +151,8 @@ function Vagos({ data, profissionalId, chaveCol }: { data: string; profissionalI
         // (visão de Semana) o clique tem que ESCOLHER alguém — antes caía sempre em
         // COLUNAS_AGENDA[0], então toda marcação da semana ia para o Rafael, inclusive num
         // horário em que ele já tinha ido embora, e Diego e Léo eram inagendáveis por ali.
-        const dono = profissionalId ?? D.COLUNAS_AGENDA.find((pid) => D.podeComecar(pid, data, inicio));
-        const livre = !!dono && D.podeComecar(dono, data, inicio);
+        const dono = profissionalId ?? st.cadastro.agendas.find((pid) => st.podeComecarEm(pid, data, inicio));
+        const livre = !!dono && st.podeComecarEm(dono, data, inicio);
         const risco = s(`width:100%;height:${LINHA * PASSO}px;padding:0;border:none;border-bottom:1px ${horaCheia ? "dotted" : "solid"} var(--line)`);
 
         // Fora do expediente de todo mundo: faixa cinza, sem clique. Um clique aqui criaria
@@ -162,7 +170,7 @@ function Vagos({ data, profissionalId, chaveCol }: { data: string; profissionalI
           <button
             key={chave}
             onClick={() => st.novoAgendamento(dono, inicio, data)}
-            aria-label={`Marcar atendimento em ${D.rotuloDia(data)} às ${D.hhmm(inicio)} com ${D.primeiroNome(D.nomeProfissional(dono))}`}
+            aria-label={`Marcar atendimento em ${D.rotuloDia(data)} às ${D.hhmm(inicio)} com ${D.primeiroNome(st.nomeDoProfissional(dono))}`}
             className="m-focus m-hov-bg"
             style={{ ...risco, background: "transparent", cursor: "pointer", transition: "background-color var(--dur-fast) var(--ease-out)" }}
           />
@@ -288,22 +296,22 @@ function GradeDia({ data }: { data: string }) {
   const st = useStore();
   const doDia = st.agendamentosDoDia(data);
   const bloqueios = st.bloqueiosDoDia(data);
-  const colunas = `58px repeat(${D.COLUNAS_AGENDA.length},minmax(0,1fr))`;
+  const colunas = `58px repeat(${Math.max(st.cadastro.agendas.length, 1)},minmax(0,1fr))`;
 
   return (
     <div style={s("flex:1;min-height:0;overflow-y:auto;padding:0 16px 16px")}>
       <div style={s(`display:grid;grid-template-columns:${colunas};position:sticky;top:0;background:var(--surface);z-index:8;padding-top:12px`)}>
         <div />
-        {D.COLUNAS_AGENDA.map((pid) => {
-          // COLUNAS_AGENDA e EQUIPE têm que andar juntos; se divergirem, pular a coluna
+        {st.cadastro.agendas.map((pid) => {
+          // `agendas` e `profissionais` têm que andar juntos; se divergirem, pular a coluna
           // em vez de estourar num `!` que só existe no compilador.
-          const p = D.profissional(pid);
+          const p = st.profissionalDe(pid);
           if (!p) return <div key={pid} />;
           const on = st.profAtivo(pid);
           // Folga do dia visível — coisa diferente de "pausado", que é você ter desligado a pessoa
           // no app. Sem esta marca uma coluna em dia de folga lia como o horário mais vazio da
           // casa, e a tela de Equipe, na mesma sessão, dizia que era folga.
-          const folga = !D.atende(pid, data);
+          const folga = !st.atendeNoDia(pid, data);
           return (
             <div key={pid} style={s(`display:flex;align-items:center;gap:9px;padding:0 10px 12px;opacity:${on && !folga ? "1" : "0.55"}`)}>
               <Monogram name={p.nome} id={pid} size={28} radius={9} />
@@ -318,7 +326,7 @@ function GradeDia({ data }: { data: string }) {
 
       <div style={s(`display:grid;grid-template-columns:${colunas}`)}>
         <Regua />
-        {D.COLUNAS_AGENDA.map((pid) => {
+        {st.cadastro.agendas.map((pid) => {
           const blocos = doDia.filter((a) => a.profissionalId === pid);
           // Escalonamento sobre a lista JUNTA — ver o comentário de `escalonar`.
           const recuo = escalonar([...blocos, ...bloqueios]);
@@ -750,7 +758,7 @@ function AvisoAgenda() {
     return faixa(
       "muted",
       "Esta agenda ainda não está ligada ao Google. Os atendimentos abaixo são de exemplo.",
-      { label: "Conectar", onClick: () => st.conectarGoogle(D.COLUNAS_AGENDA[0]) },
+      { label: "Conectar", onClick: () => { if (st.pidAgenda) st.conectarGoogle(st.pidAgenda); } },
     );
   }
 
@@ -760,7 +768,7 @@ function AvisoAgenda() {
     return faixa(
       "warn",
       "O acesso à agenda do Google expirou. O que está na tela pode estar desatualizado.",
-      { label: "Reconectar", onClick: () => st.conectarGoogle(D.COLUNAS_AGENDA[0]) },
+      { label: "Reconectar", onClick: () => { if (st.pidAgenda) st.conectarGoogle(st.pidAgenda); } },
     );
   }
 
@@ -860,7 +868,7 @@ export default function Agenda() {
           {!mobile && (
             // Abre o rascunho no primeiro horário do dia que tenha alguém de expediente — e não no
             // primeiro da lista às 09:00, que na segunda-feira era o Diego, que folga segunda.
-            <Btn size="sm" icon="plus" onClick={() => { const p = primeiroVago(dia); if (p) st.novoAgendamento(p.pid, p.inicio, dia); }}>
+            <Btn size="sm" icon="plus" onClick={() => { const p = primeiroVago(dia, st.cadastro.agendas, st.podeComecarEm); if (p) st.novoAgendamento(p.pid, p.inicio, dia); }}>
               Marcar
             </Btn>
           )}

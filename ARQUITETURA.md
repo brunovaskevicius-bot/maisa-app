@@ -162,12 +162,51 @@ achou razoável" são, para ele, o mesmo pedido válido.
 
 Honestidade sobre o estado real, para ninguém achar que está mais pronto do que está:
 
-- **A UI ainda lê fixture direto.** As telas fazem `import * as D from
-  "@/adaptadores/saida/demo"` em vez de passar por um caso de uso. O caminho longo é
-  proposital: ele denuncia a dívida em toda tela que a tem. Consertar isso é reescrever
-  o `store.tsx` para conversar com o núcleo — trabalho de outra sessão.
-- **`repositorioDemo` ignora o inquilino que recebe.** Existe um negócio só. A
-  assinatura já pede o contexto; falta a implementação Supabase.
+- **⚠️ O AGENTE JÁ MENTIU QUE MARCOU — e o guardrail que impede isso é código novo.**
+  Medido em conversa de teste com `gemini-3.5-flash-lite`, em ~1 de 3 tentativas: `agendar`
+  era recusado pelo guardrail de oferta, o modelo chamava `oferecer_horarios`, recebia o
+  horário livre e **escrevia a confirmação em vez de chamar `agendar` de novo**. Como o
+  turno terminava sem chamada de ferramenta, o loop dava por encerrado e "Pronto, agendado
+  para amanhã às 09:00" seguia para o cliente com a agenda vazia.
+  A defesa é `EstadoDoTurno.tentouAgendar` + a checagem no fim de `whatsapp/agente.ts`:
+  tentou marcar, não marcou ⇒ a resposta é descartada e o dono assume. É sinal
+  ESTRUTURAL de propósito — distinguir "Pronto, agendado!" de "Consigo às 09:00, confirma?"
+  por texto é heurística de string, e errar para o lado permissivo entrega a mentira.
+  **O guardrail contém o dano; ele não conserta o modelo.** Se a frequência incomodar, o
+  degrau é `GEMINI_MODELO=gemini-3.6-flash` — não prompt novo.
+- **`SUPABASE_SERVICE_ROLE_KEY` não está em produção.** Confirmado no `vercel env ls`: as
+  outras 20 estão, essa não. O agente não tem cookie, então `saida/supabase/contexto-cliente.ts`
+  cai no ramo de service role, `isAdminConfigured` é false e ele lança `NaoConfigurado`
+  antes de ler cadastro ou token do Google. **É a causa mais próxima de a MAISA escalar
+  toda tentativa de marcar em produção.**
+  ⚠️ E acrescentar a chave sozinha não basta: hoje `whatsapp/contexto.ts` resolve o
+  inquilino pelo FALLBACK de env justamente porque a service role falta. Com ela presente,
+  a resolução migra para `integracoes_whatsapp` e **falha fechada** se não houver linha com
+  a instância — descartando a mensagem em vez de chutar o negócio do env (o que é o
+  comportamento certo, e é preciso saber antes). O `008_seed_bruno.sql` pula essa linha
+  quando `c_instancia` não foi ajustada, e avisa por `warning`.
+
+- **A UI lê fixture só como PLACEHOLDER, e ainda para 4 coisas.** `negocio`,
+  `profissionais`, `servicos` e `clientes` passaram a vir de `GET /api/cadastro` (caso de
+  uso `lerCadastro`); o `store.tsx` guarda o fixture como valor INICIAL e repinta quando a
+  resposta chega — ver o comentário de `CADASTRO_INICIAL` para por que há placeholder em
+  vez de estado de carregando. O que **continua** fixture de verdade: `faturamento`, `notas`,
+  `assistente` e `DIAS_PADRAO`. **Conversas e mensagens saíram da lista**: vêm de
+  `GET /api/conversas` (casos de uso em `aplicacao/conversas.ts`), e ali NÃO há placeholder de
+  fixture de propósito — cadastro com placeholder mostra um preço errado, conversa com
+  placeholder mostra uma pessoa que não existe. E o preço da escolha:
+  se o fetch falhar, a tela segue mostrando placeholder — é o que `cadastroErro` existe
+  para denunciar, e quem mostra número de negócio tem obrigação de olhar para ele.
+- **`repositorioDemo` ignora o inquilino que recebe** — mas agora ele é o FALLBACK.
+  `composicao.ts` usa `repositorioSupabase` quando há chave de Supabase, e ele filtra por
+  `tenant_id` em toda consulta. O fixture ficou para o ambiente sem banco (afinar a MAISA
+  por `curl`), e é lá que "um negócio só" continua verdade.
+- **⚠️ Com service role, `.eq("tenant_id")` é a única fronteira.** O webhook do WhatsApp
+  não tem cookie, então `saida/supabase/contexto-cliente.ts` escolhe o cliente pelo `ator`
+  do contexto: sessão para `usuario`, service role para `agente`/`sistema`. Service role
+  ignora RLS. Nos adaptadores `saida/supabase/repositorio.ts` e `saida/google/conexoes.ts`
+  os filtros por tenant deixaram de ser redundantes e passaram a ser a proteção — perder
+  um vaza o inquilino inteiro. É a faca que a auditoria do BIP achou cinco vezes.
 - **Não há teste automatizado.** Agora dá para ter: os casos de uso recebem as portas
   por parâmetro, então um teste monta dublês e roda o núcleo sem rede. Era impossível
   quando a regra morava dentro do `route.ts`. 69 asserções cobrindo vagas, inferência de
@@ -185,14 +224,32 @@ Honestidade sobre o estado real, para ninguém achar que está mais pronto do qu
 - **A conversa não é deduplicada.** O webhook reentrega quando não recebe 200 a tempo, e
   hoje uma reentrega gera resposta duplicada. O índice único em `provedor_id` já está na
   DDL; o adaptador de demonstração não o usa.
-- **O schema multi‑inquilino existe; nenhum código o usa ainda.** `supabase/002`–`099`
-  trazem `negocios`, `membros`, `tenant_id` em tudo, RLS por membro e o
-  `criar_negocio()` que provisiona um inquilino inteiro numa transação. O que falta é do
-  lado do TypeScript: `entrada/http/contexto.ts` ainda devolve `tenantId = usuarioId`,
-  não existe `saida/supabase/repositorio.ts`, e `saida/google/conexoes.ts` continua na
-  tabela antiga. A lista completa está em [supabase/LEIA-ME.md](supabase/LEIA-ME.md), §5.
-- **A DDL nunca rodou contra um Postgres.** Não há banco local nesta máquina; o primeiro
-  `Run` no Supabase é também o primeiro teste. Rode em ordem e leia os `notice`.
+- **O espelho `atendimentos` agora é gravado** — porta `RegistroDeAtendimentos`, chamada por
+  `agendar-atendimento.ts` depois de o provedor confirmar, e `garantirCliente` faz o lead do
+  WhatsApp entrar em `clientes` (antes ele era `lead:<telefone>`, que o `PARECE_UUID` do
+  adaptador recusava, então `cliente_id` ficava sempre nulo). Ver `supabase/LEIA-ME.md` §5.5.
+  ⚠️ **Verificado só no modo demonstração.** O caminho Supabase compila e foi lido, mas
+  nenhuma dessas escritas jamais recebeu resposta de um Postgres.
+- **O schema multi‑inquilino agora É usado — mas nada disso foi executado.**
+  `entrada/http/contexto.ts` resolve `tenantId` por `select tenant_id from membros`;
+  `saida/supabase/repositorio.ts` existe e lê das views `v_negocio` / `v_profissionais` /
+  `v_servicos` / `v_clientes`; `saida/google/conexoes.ts` migrou de `google_integracoes`
+  (legado, `profissional_id` em texto) para `integracoes_google` (uuid, PK composta); e
+  `entrada/whatsapp/contexto.ts` resolve o inquilino por `integracoes_whatsapp.instancia`.
+  O que sobrou de dívida está listado em [supabase/LEIA-ME.md](supabase/LEIA-ME.md), §5.
+- **⚠️ O CÓDIGO AINDA NÃO FALOU COM O POSTGRES.** A DDL `002`→`006` **foi rodada** no
+  Supabase de produção (12/08/2026), então as tabelas e as views existem. O que continua
+  sem verificação é o outro lado: `saida/supabase/repositorio.ts`, `atendimentos.ts` e o
+  `conexoes.ts` novo estão conferidos só por tipo e por leitura — nenhuma consulta deles
+  jamais recebeu resposta de um banco, porque `.env.local` está vazio nas duas variáveis
+  que importam (`SUPABASE_*`, `GOOGLE_*`) e nesta máquina não há Postgres.
+  Sobre o `008_seed_bruno.sql`: não se sabe se rodou, e importa — é ele que cadastra a
+  linha de `integracoes_whatsapp`, e ele **pula** essa parte com um `warning` quando
+  `c_instancia` não foi ajustada.
+- **Os ids mudam de formato entre os dois modos.** Fixture dá `"pr1"`/`"sv1"`/`"cl1"`;
+  banco dá `uuid`. O núcleo não se importa, mas dado copiado de um modo para o outro não
+  casa — e a regex de `criarDesconectarAgenda` aceita os dois de propósito, porque a tabela
+  legada tem `"pr1"` gravado até o `006` rodar.
 
 ---
 

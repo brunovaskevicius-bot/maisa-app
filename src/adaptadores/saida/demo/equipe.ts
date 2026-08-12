@@ -14,7 +14,7 @@ import { atendeNoDia, podeComecarEm } from "@/nucleo/dominio/expediente";
  * Os serviços de pr2/pr3/pr4 foram absorvidos no catálogo para nenhum serviço ficar
  * sem quem o faça. */
 export const EQUIPE: Profissional[] = [
-  { id: "pr1", nome: "Rafael Antunes", papel: "Atendimento geral", atendimentosMes: 168, avaliacao: 4.9, comissao: 50, desde: "jan/2024", servicoIds: ["sv1", "sv2", "sv3", "sv4", "sv5", "sv6", "sv7"], ativo: true, horario: "Seg–Sáb 09–19", folga: "domingo" },
+  { id: "pr1", nome: "Rafael Antunes", papel: "Atendimento geral", atendimentosMes: 168, avaliacao: 4.9, comissao: 50, desde: "jan/2024", servicoIds: ["sv1", "sv2", "sv3", "sv4", "sv5", "sv6", "sv7"], ativo: true, horario: "Seg–Sáb 09–19", folga: "domingo", expediente: { folga: [6], de: 9, ate: 19 } },
 ];
 
 /**

@@ -51,8 +51,8 @@ function resumoNota(n: D.Nota): string {
 export function Clientes() {
   const st = useStore();
 
-  const ativos = D.CLIENTES.filter((c) => st.cliAtivo(c.id));
-  const lista = D.CLIENTES.filter((c) => {
+  const ativos = st.cadastro.clientes.filter((c) => st.cliAtivo(c.id));
+  const lista = st.cadastro.clientes.filter((c) => {
     const on = st.cliAtivo(c.id);
     return st.filtroCli === "Todos" || (st.filtroCli === "Ativos" ? on : !on);
   });
@@ -62,11 +62,11 @@ export function Clientes() {
       <Hero
         rotulo="Em atendimento"
         valor={String(ativos.length)}
-        sub={`de ${D.CLIENTES.length} cadastrados`}
+        sub={`de ${st.cadastro.clientes.length} cadastrados`}
         marcos={[
           { n: ativos.reduce((a, c) => a + c.atendimentos, 0), label: `atendimentos em ${D.PERIODO.split(" de ")[0].toLowerCase()}`, tom: "primary" },
           { n: fmtK(ativos.reduce((a, c) => a + c.valor, 0)), label: "fechado no mês", tom: "success" },
-          { n: D.CLIENTES.length - ativos.length, label: "inativos", tom: "neutral" },
+          { n: st.cadastro.clientes.length - ativos.length, label: "inativos", tom: "neutral" },
         ]}
       />
       <Filtros opcoes={["Ativos", "Inativos", "Todos"]} ativo={st.filtroCli} onChange={st.setFiltroCli} />
@@ -226,26 +226,26 @@ export function Equipe() {
   const st = useStore();
   const mobile = useIsMobile();
   const estreita = useEstreita();
-  const ativos = D.EQUIPE.filter((p) => st.profAtivo(p.id));
+  const ativos = st.cadastro.profissionais.filter((p) => st.profAtivo(p.id));
 
   return (
     <TelaGrade>
       <Hero
         rotulo="Equipe"
         valor={String(ativos.length)}
-        sub={`de ${D.EQUIPE.length} recebendo agendamentos`}
+        sub={`de ${st.cadastro.profissionais.length} recebendo agendamentos`}
         /* "pausados" só aparece quando há algum. Com a equipe de uma pessoa o marco
            ficava fixo em "0 pausados" — ocupando espaço para não dizer nada. */
         marcos={[
-          { n: D.EQUIPE.reduce((a, p) => a + p.atendimentosMes, 0), label: "atendimentos no mês", tom: "primary" },
-          ...(D.EQUIPE.length - ativos.length > 0
-            ? [{ n: D.EQUIPE.length - ativos.length, label: "pausados", tom: "neutral" as const }]
+          { n: st.cadastro.profissionais.reduce((a, p) => a + p.atendimentosMes, 0), label: "atendimentos no mês", tom: "primary" },
+          ...(st.cadastro.profissionais.length - ativos.length > 0
+            ? [{ n: st.cadastro.profissionais.length - ativos.length, label: "pausados", tom: "neutral" as const }]
             : []),
         ]}
       />
       {mobile ? (
         <GradeCartoes>
-          {D.EQUIPE.map((p) => {
+          {st.cadastro.profissionais.map((p) => {
             const on = st.profAtivo(p.id);
             return (
               <Cartao
@@ -274,7 +274,7 @@ export function Equipe() {
            ("quem trabalha sábado?", "quem tem a maior comissão?"). Em cartão, os atributos ficavam
            atrás de hover e comparar dois exigia memória de trabalho. */
         <Tabela
-          linhas={D.EQUIPE}
+          linhas={st.cadastro.profissionais}
           chaveDe={(p) => p.id}
           estreita={estreita}
           onLinha={(p) => st.abrir(p.id)}
@@ -379,7 +379,7 @@ export function Servicos() {
                 atenuado={!on}
                 onClick={() => st.abrir(sv.id)}
                 resumo={`${sv.categoria} · ${fmt(sv.preco)} · ${sv.duracao} min`}
-                chips={sv.profissionalIds.map((pid) => D.primeiroNome(D.nomeProfissional(pid)))}
+                chips={sv.profissionalIds.map((pid) => D.primeiroNome(st.nomeDoProfissional(pid)))}
               />
             );
           })}
@@ -424,7 +424,7 @@ export function Servicos() {
                 <span style={s("min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)")}>
                   {sv.profissionalIds.length === 0
                     ? "ninguém ainda"
-                    : sv.profissionalIds.map((pid) => D.primeiroNome(D.nomeProfissional(pid))).join(", ")}
+                    : sv.profissionalIds.map((pid) => D.primeiroNome(st.nomeDoProfissional(pid))).join(", ")}
                 </span>
               ),
             },
@@ -468,7 +468,7 @@ export function Servicos() {
  *  ficha de cada vez, como se fosse problema daquele profissional. */
 function Conexoes() {
   const st = useStore();
-  const equipe = D.EQUIPE;
+  const equipe = st.cadastro.profissionais;
   const conectados = equipe.filter((p) => st.googleDe(p.id)).length;
 
   /* Cabeçalho da seção: um número, não um adjetivo. "Parcialmente conectado"
@@ -637,8 +637,8 @@ export function Mais() {
             <Icon name="card" size={19} sw={1.9} />
           </span>
           <span style={s("flex:1;min-width:160px;line-height:1.3")}>
-            <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title)")}>Plano {D.NEGOCIO.plano}</span>
-            <span className="n" style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px")}>{fmt(D.NEGOCIO.precoPlano)}/mês</span>
+            <span style={s("display:block;font-size:var(--t-body);font-weight:var(--w-title)")}>Plano {st.cadastro.negocio.plano}</span>
+            <span className="n" style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px")}>{fmt(st.cadastro.negocio.precoPlano)}/mês</span>
           </span>
           {/* estado de cobrança com tom semântico de verdade — antes "em dia" era um chip neutro
               idêntico ao do nome do plano, ou seja um status de pagamento sem cor de status. */}

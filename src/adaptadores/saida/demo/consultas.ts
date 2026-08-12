@@ -7,12 +7,13 @@
 import { EQUIPE } from "./equipe";
 import { SERVICOS } from "./catalogo";
 import { CLIENTES } from "./clientes";
-import { CONVERSAS } from "./conversas";
 
 export const profissional = (id: string) => EQUIPE.find((p) => p.id === id);
 export const servico = (id: string) => SERVICOS.find((s) => s.id === id);
 export const cliente = (id: string) => CLIENTES.find((c) => c.id === id);
-export const conversa = (id: string) => CONVERSAS.find((c) => c.id === id);
+/* `conversa(id)` morava aqui. Saiu com os fixtures de conversa: conversa não tem como ser uma
+ * busca SÍNCRONA num array de módulo — ela vem do servidor. Quem precisa usa `st.conversaDe(id)`,
+ * que varre a lista carregada. */
 
 export const nomeProfissional = (id: string) => profissional(id)?.nome ?? "—";
 export const nomeCliente = (id: string) => cliente(id)?.nome ?? "—";

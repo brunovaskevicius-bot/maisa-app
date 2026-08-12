@@ -11,6 +11,7 @@ import type {
 } from "../portas/entrada/casos-de-uso";
 import type { AgendaExterna, ConexoesDeAgenda } from "../portas/saida/agenda-externa";
 import type { RepositorioNegocio } from "../portas/saida/repositorio-negocio";
+import type { RegistroDeAtendimentos } from "../portas/saida/registro-atendimentos";
 import { DadoInvalido } from "../dominio/erros";
 import { diasEntre, ehDataCivil } from "../dominio/tempo";
 
@@ -48,11 +49,23 @@ export function criarLerAgenda(deps: { agenda: AgendaExterna; negocio: Repositor
   };
 }
 
-export function criarCancelarAtendimento(deps: { agenda: AgendaExterna; negocio: RepositorioNegocio }): CancelarAtendimento {
+export function criarCancelarAtendimento(deps: {
+  agenda: AgendaExterna;
+  negocio: RepositorioNegocio;
+  registro: RegistroDeAtendimentos;
+}): CancelarAtendimento {
   return async (t, p) => {
     await exigirAgendaPermitida(deps.negocio, t, p.agendaId);
     if (!p.eventoId) throw new DadoInvalido("Evento não informado.", "eventoId");
     await deps.agenda.cancelar({ tenant: t, agendaId: p.agendaId }, { eventoId: p.eventoId });
+    /* Depois do provedor, na mesma ordem de `agendar-atendimento.ts` e pelo mesmo motivo:
+     * o espelho registra o que ACONTECEU. Marcar cancelado antes e a chamada ao Google
+     * falhar deixaria o banco dizendo que o horário está livre com o evento de pé.
+     *
+     * Não lança (ver a porta), então nada aqui precisa de try/catch. Se esta linha não
+     * existisse, cada cancelamento deixaria uma linha `marcado` para sempre — e o
+     * faturamento do mês cobraria por atendimento que ninguém fez. */
+    await deps.registro.cancelar(t, { eventoId: p.eventoId });
   };
 }
 
@@ -69,9 +82,30 @@ export function criarListarConexoes(deps: { conexoes: ConexoesDeAgenda }): Lista
  * não precisa de allowlist para ser seguro: a RLS garante que cada um só apaga a
  * própria linha, e a revogação usa o token daquela mesma linha.
  */
+/**
+ * Formatos de id de agenda que se aceita desconectar.
+ *
+ * Dois, e o segundo é dívida com data de validade:
+ *   • `uuid`      — `profissionais.id` no banco (`gen_random_uuid()`), o formato de hoje.
+ *   • `pr` + nº   — o id de texto dos fixtures, que é o que a tabela legada
+ *                   `google_integracoes` (arquivo 001) tem gravado. Enquanto existir uma
+ *                   linha dessas não migrada pelo `006_migrar_google.sql`, recusar o
+ *                   formato antigo aqui é justamente criar o refresh token preso e
+ *                   invisível que o comentário acima diz para evitar.
+ *
+ * A validação continua existindo (em vez de aceitar qualquer string) porque `agendaId`
+ * chega da query string: sem forma esperada, o campo vira escrita livre no `where` do
+ * delete. Ela é de FORMATO, não de existência — quem garante que ninguém apaga a linha de
+ * outro é o `tenant_id` do contexto, que nasce da sessão.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PR_LEGADO = /^pr\d+$/;
+
 export function criarDesconectarAgenda(deps: { conexoes: ConexoesDeAgenda }): DesconectarAgenda {
   return async (t, p) => {
-    if (!/^pr\d+$/.test(p.agendaId)) throw new DadoInvalido("Agenda inválida.", "agendaId");
+    if (!UUID.test(p.agendaId) && !PR_LEGADO.test(p.agendaId)) {
+      throw new DadoInvalido("Agenda inválida.", "agendaId");
+    }
     return deps.conexoes.desconectar({ tenant: t, agendaId: p.agendaId });
   };
 }
