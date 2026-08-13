@@ -32,6 +32,42 @@ export function statusDeEstadoEvolution(estado: string | null | undefined): Stat
   return "desconectado";
 }
 
+/**
+ * O número, do jeito que o provedor devolve, virando E.164 sem `+`.
+ *
+ * A Evolution devolve um JID: `5511994294906@s.whatsapp.net`, às vezes com sufixo de
+ * device (`:12@…`) e às vezes com `@lid` em vez de `@s.whatsapp.net`. Guardar o JID cru
+ * na coluna `numero` faria a tela mostrar "5511994294906@s.whatsapp.net" para o dono, e
+ * faria qualquer comparação futura com um telefone digitado falhar em silêncio.
+ *
+ * Fica no domínio, e não no adaptador, pela mesma razão de `statusDeEstadoEvolution`: a
+ * Cloud API entrega o número em outro formato e vai precisar da mesma normalização de
+ * chegada. Uma tradução por vocabulário de provedor, num lugar só.
+ */
+export function numeroDeJid(jid: string | null | undefined): string | null {
+  const so = String(jid ?? "").split("@")[0].split(":")[0].replace(/\D/g, "");
+  /* Menos de 8 dígitos não é telefone — é lixo ou identificador interno da Evolution.
+   * Devolver `null` deixa a tela dizer "conectado" sem número, que é honesto; devolver o
+   * lixo faria o dono ler um número que não é dele e desconfiar do produto inteiro. */
+  return so.length >= 8 ? so : null;
+}
+
+/**
+ * O que o PROVEDOR sabe sobre a instância agora.
+ *
+ * Nasceu com `status` só. O `numero` entrou depois, em 13/08/2026, porque a coluna
+ * `integracoes_whatsapp.numero` ficava `null` para sempre: nós gravávamos o que já
+ * tínhamos (nada) em vez de perguntar a quem sabe. Quem sabe qual número pareou é o
+ * provedor — o dono aponta a câmera para o QR e nunca digita o telefone em lugar nenhum.
+ *
+ * `numero: null` é resposta legítima e comum: instância que ainda não pareou não tem
+ * dono. Não confundir com "o provedor não respondeu" — esse caso lança.
+ */
+export type EstadoDoCanal = {
+  status: StatusDoCanal;
+  numero: string | null;
+};
+
 export type Canal = {
   status: StatusDoCanal;
   /** O nome da instância no provedor. Identificador técnico — não mostrar ao cliente. */

@@ -308,16 +308,60 @@ export function configurarWebhook(p: { url: string; segredo: string }): Promise<
 
 const enc = (instancia: string) => encodeURIComponent(instancia);
 
-/** `open` | `connecting` | `close` | `desconhecido`. Não lança se a instância não existe. */
-export async function estadoDaInstanciaPorNome(instancia: string): Promise<string> {
-  /* `chamar` e não `exigir`: instância inexistente devolve 404, e aqui isso NÃO é erro —
-   * é a resposta "essa instância não existe", que é exatamente o que se quer saber antes
-   * de criar. `exigir` transformaria em `PrecisaReconectar` e o fluxo de conexão de um
-   * cliente novo começaria pedindo para reconectar algo que nunca existiu. */
-  const { status, data } = await chamar(`/instance/connectionState/${enc(instancia)}`, { metodo: "GET", chave: EVOLUTION.apiKeyGlobal });
-  if (status === 404) return "close";
-  if (status < 200 || status >= 300) return "desconhecido";
-  return String(data?.instance?.state ?? data?.state ?? "desconhecido");
+/**
+ * Estado E dono da instância, na mesma chamada.
+ *
+ * `/instance/connectionState` (acima) devolve só o estado — por isso a coluna `numero`
+ * ficava `null` para sempre. `/instance/fetchInstances` devolve `ownerJid`, que é o
+ * único lugar onde o número pareado existe: o dono aponta a câmera para um QR e nunca
+ * digita o telefone.
+ *
+ * ⚠️ ACHA PELO NOME, NUNCA PEGA `[0]`.
+ *
+ * O parâmetro `?instanceName=` é um filtro do servidor, e servidor filtra quando quer:
+ * versões diferentes da Evolution o ignoram e devolvem TODAS as instâncias. Num servidor
+ * compartilhado — que é o caso aqui — confiar no primeiro item devolveria o número de
+ * OUTRO negócio para dentro do nosso `integracoes_whatsapp`. Seria vazamento entre
+ * inquilinos por um índice de array, e apareceria na tela como um telefone errado que
+ * ninguém sabe explicar.
+ *
+ * `chamar` e não `exigir`: instância inexistente devolve 404, e aqui isso NÃO é erro — é
+ * a resposta "essa instância não existe", que é exatamente o que se quer saber antes de
+ * criar. `exigir` viraria `PrecisaReconectar`, e o fluxo de um cliente novo começaria
+ * pedindo para reconectar algo que nunca existiu.
+ */
+export async function instanciaPorNome(
+  instancia: string,
+): Promise<{ estado: string; ownerJid: string | null }> {
+  const { status, data } = await chamar(`/instance/fetchInstances?instanceName=${enc(instancia)}`, {
+    metodo: "GET",
+    chave: EVOLUTION.apiKeyGlobal,
+  });
+  if (status === 404) return { estado: "close", ownerJid: null };
+  if (status < 200 || status >= 300) return { estado: "desconhecido", ownerJid: null };
+
+  /* A Evolution já devolveu as três formas em versões diferentes: array na raiz, `{
+   * instances: [...] }`, e objeto único. Ler as três é mais barato que amarrar o produto
+   * a uma versão do servidor — mesma decisão de `criarInstancia` com o QR. */
+  const bruto: unknown = Array.isArray(data) ? data : (data?.instances ?? data);
+  const lista: Record<string, unknown>[] = Array.isArray(bruto)
+    ? (bruto as Record<string, unknown>[])
+    : bruto && typeof bruto === "object"
+      ? [bruto as Record<string, unknown>]
+      : [];
+
+  const achada = lista
+    .map((i) => (i.instance && typeof i.instance === "object" ? (i.instance as Record<string, unknown>) : i))
+    .find((i) => String(i.name ?? i.instanceName ?? "") === instancia);
+
+  /* Não achou o nome: trata como inexistente, e NÃO como "desconhecido com o dado de
+   * alguém". Falha fechada — o pior resultado aqui é o certo. */
+  if (!achada) return { estado: "close", ownerJid: null };
+
+  return {
+    estado: String(achada.connectionStatus ?? achada.state ?? "desconhecido"),
+    ownerJid: (achada.ownerJid as string | undefined) ?? (achada.owner as string | undefined) ?? null,
+  };
 }
 
 /**

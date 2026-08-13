@@ -12,7 +12,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
-import type { Canal, Pareamento, StatusDoCanal } from "@/nucleo/dominio/canal";
+import type { Canal, EstadoDoCanal, Pareamento } from "@/nucleo/dominio/canal";
 import type { ProvisionamentoDeCanal } from "@/nucleo/portas/saida/provisionamento-canal";
 import type { RepositorioCanal } from "@/nucleo/portas/saida/repositorio-canal";
 
@@ -29,10 +29,16 @@ const pareiaEm = new Map<string, number>();
 export const provisionamentoDemo: ProvisionamentoDeCanal = {
   faltando: () => [],
 
-  async estado(instancia: string): Promise<StatusDoCanal> {
+  async estado(instancia: string): Promise<EstadoDoCanal> {
     const quando = pareiaEm.get(instancia);
-    if (quando === undefined) return "desconectado";
-    return Date.now() >= quando ? "conectado" : "pareando";
+    if (quando === undefined) return { status: "desconectado", numero: null };
+    /* Número de demonstração fixo, e propositalmente reconhecível como falso: o ponto de
+     * devolvê-lo é exercitar a tela mostrando "+55 11 99999-0000" depois do pareamento,
+     * que é o comportamento que ficou anos sem existir. Um número plausível aqui acabaria
+     * num screenshot de venda como se fosse cliente real. */
+    return Date.now() >= quando
+      ? { status: "conectado", numero: "5511999990000" }
+      : { status: "pareando", numero: null };
   },
 
   async conectar(p): Promise<Pareamento> {

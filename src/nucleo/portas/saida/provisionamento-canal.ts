@@ -24,11 +24,19 @@
  * multi-inquilino nenhum, por mais que o resto do sistema receba `ContextoTenant`.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { Pareamento, StatusDoCanal } from "../../dominio/canal";
+import type { EstadoDoCanal, Pareamento } from "../../dominio/canal";
 
 export interface ProvisionamentoDeCanal {
-  /** Em que pé está o pareamento desta instância no provedor. */
-  estado(instancia: string): Promise<StatusDoCanal>;
+  /**
+   * Em que pé está o pareamento desta instância no provedor — e com QUAL número.
+   *
+   * ⚠️ Devolve os dois juntos porque são a mesma pergunta, e separá-los reabriria o bug
+   * que criou este comentário: a coluna `numero` ficou `null` por dias porque o caso de
+   * uso gravava o número que já tinha (nenhum) em vez de perguntar. O dono nunca digita
+   * o telefone — ele aponta a câmera para um QR. A única fonte do número é o provedor,
+   * então quem responde "está conectado?" tem que responder "com quem?" no mesmo ato.
+   */
+  estado(instancia: string): Promise<EstadoDoCanal>;
 
   /**
    * Garante a instância no provedor e devolve o QR para parear.

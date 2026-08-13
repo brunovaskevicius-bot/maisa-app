@@ -51,9 +51,9 @@ export function criarLerCanal(deps: Deps): LerCanal {
      * sem que nada avise o nosso banco. Perguntar aqui é o que faz a tela parar de
      * mentir — e é barato, porque esta leitura acontece quando alguém ABRE a tela, não a
      * cada mensagem. */
-    let status = linha.status;
+    let estado;
     try {
-      status = await deps.provisionamento.estado(linha.instancia);
+      estado = await deps.provisionamento.estado(linha.instancia);
     } catch {
       /* Provedor fora do ar não pode derrubar a tela inteira: devolve o último status
        * conhecido. O sintoma de errar aqui é uma tela em branco no lugar de um aviso. */
@@ -61,11 +61,20 @@ export function criarLerCanal(deps: Deps): LerCanal {
     }
 
     /* Divergiu? Grava. É o auto-conserto: sem isto, o cache erraria para sempre e o
-     * onboarding contaria como "WhatsApp conectado" um pareamento que caiu ontem. */
-    if (status !== linha.status) {
-      return deps.canal.salvar(t, { instancia: linha.instancia, status, numero: linha.numero });
+     * onboarding contaria como "WhatsApp conectado" um pareamento que caiu ontem.
+     *
+     * ⚠️ O NÚMERO ENTRA NA COMPARAÇÃO, e não é detalhe: até 13/08/2026 esta linha
+     * gravava `numero: linha.numero` — o valor que já estava lá. Como ele nascia `null` e
+     * nada mais o escrevia, ficava `null` para sempre, e a tela dizia "Número conectado"
+     * sem saber qual. Um cache que só se compara consigo mesmo nunca se corrige. */
+    if (estado.status !== linha.status || estado.numero !== linha.numero) {
+      return deps.canal.salvar(t, {
+        instancia: linha.instancia,
+        status: estado.status,
+        numero: estado.numero,
+      });
     }
-    return { ...linha, status };
+    return { ...linha, status: estado.status };
   };
 }
 

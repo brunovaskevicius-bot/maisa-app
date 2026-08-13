@@ -22,10 +22,10 @@
  * alguém vai investigar.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { Pareamento, StatusDoCanal } from "@/nucleo/dominio/canal";
+import type { EstadoDoCanal, Pareamento } from "@/nucleo/dominio/canal";
 import type { ProvisionamentoDeCanal } from "@/nucleo/portas/saida/provisionamento-canal";
-import { statusDeEstadoEvolution } from "@/nucleo/dominio/canal";
-import { apagarInstancia, criarInstancia, estadoDaInstanciaPorNome } from "./cliente";
+import { numeroDeJid, statusDeEstadoEvolution } from "@/nucleo/dominio/canal";
+import { apagarInstancia, criarInstancia, instanciaPorNome } from "./cliente";
 import { evolutionFaltando } from "./config";
 
 /** Espera entre o DELETE e o CREATE. Ver o ⚠️ do cabeçalho. */
@@ -42,12 +42,19 @@ export const provisionamentoEvolution: ProvisionamentoDeCanal = {
     return evolutionFaltando().filter((v) => !v.startsWith("EVOLUTION_INSTANCIA"));
   },
 
-  async estado(instancia: string): Promise<StatusDoCanal> {
-    return statusDeEstadoEvolution(await estadoDaInstanciaPorNome(instancia));
+  async estado(instancia: string): Promise<EstadoDoCanal> {
+    const { estado, ownerJid } = await instanciaPorNome(instancia);
+    /* Devolve o número SEMPRE que o provedor souber dele, inclusive com a sessão caída —
+     * o `ownerJid` sobrevive ao `close` e diz qual número era. Quem decide não exibi-lo
+     * ao lado de "desconectado" é a tela; o adaptador só relata o que o provedor sabe.
+     *
+     * Instância recém-criada não tem dono, então "trocar número" zera isto sozinho: o
+     * número antigo sai no mesmo instante em que deixa de ser verdade. */
+    return { status: statusDeEstadoEvolution(estado), numero: numeroDeJid(ownerJid) };
   },
 
   async conectar(p): Promise<Pareamento> {
-    const atual = statusDeEstadoEvolution(await estadoDaInstanciaPorNome(p.instancia));
+    const atual = statusDeEstadoEvolution((await instanciaPorNome(p.instancia)).estado);
 
     /* Já pareado: NÃO recria. Recriar aqui seria derrubar o WhatsApp de um cliente que
      * está atendendo, porque ele clicou num botão que dizia "conectar". */
