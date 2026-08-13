@@ -27,6 +27,7 @@ nesta ordem. Todos são reexecutáveis (`if not exists`, `create or replace`,
 | 007 | `007_memoria_agente.sql` | Memória do cliente e a thread do WhatsApp (`mensagens_agente`) |
 | 008 | `008_seed_bruno.sql` | O negócio do Bruno, para o app abrir com dado de verdade |
 | 009 | `009_conversas_painel.sql` | O que faltava para o **painel** mostrar e responder a conversa: número completo em `mensagens_agente`, `conversas_estado` (quem conduz) e a view `v_conversas` |
+| 010 | `010_lembretes.sql` | `atendimentos.lembrete_em` e `reservar_lembretes()` — a claim atômica que impede a rotina de mandar o mesmo lembrete duas vezes |
 | 099 | `099_auditoria.sql` | **Falha se o isolamento estiver aberto.** Rode a cada mudança de schema |
 
 ⚠️ O 001–008 já rodou contra o Supabase do Bruno (o app lê `negocios` e `clientes` de lá).

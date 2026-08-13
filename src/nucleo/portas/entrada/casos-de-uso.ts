@@ -239,6 +239,27 @@ export type AjustarAssistente = (
  * `AjustarHorarios` recebe a semana INTEIRA, e não um dia — é grade, não campo. O porquê
  * está em `aplicacao/horarios.ts`. */
 
+/* ───────────────────────────── a rotina de lembretes ─────────────────────────────
+ * ⚠️ O ÚNICO CASO DE USO QUE NÃO RECEBE `ContextoTenant`, junto de `ProvisionarNegocio`
+ * — e pelo motivo oposto ao dele. Aquele não recebe porque PRODUZ o inquilino; este não
+ * recebe porque a pergunta é sobre TODOS eles: "quem tem lembrete para mandar agora?".
+ *
+ * Uma rotina agendada não tem sessão nem dono. Um `tenantId` de entrada aqui seria um
+ * parâmetro por onde disparar a rotina — e o WhatsApp — de outra pessoa.
+ *
+ * O isolamento é refeito imediatamente depois: cada linha da fila traz o inquilino dela,
+ * e o envio acontece com um `ContextoTenant` de ator `sistema`. Ver `aplicacao/lembretes.ts`.
+ *
+ * `agora` entra por argumento em vez de `new Date()` lá dentro porque é o que torna a
+ * rotina testável sem esperar três horas. */
+
+export type ResultadoDaRotina = {
+  enviados: number;
+  falhas: { atendimentoId: string; tenantId: string; motivo: string }[];
+};
+
+export type EnviarLembretes = (agora: Date) => Promise<ResultadoDaRotina>;
+
 export type LerHorarios = (t: ContextoTenant) => Promise<SemanaAnunciada>;
 
 export type AjustarHorarios = (

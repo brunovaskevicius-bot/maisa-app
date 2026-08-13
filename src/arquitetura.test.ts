@@ -153,9 +153,21 @@ describe("o inquilino nasce da sessão, nunca do request", () => {
    * cumpre. Um caso de uso novo que recebesse `tenantId: string` no lugar aceitaria um id
    * vindo de qualquer lugar, inclusive do corpo do request.
    *
-   * A ÚNICA exceção é `ProvisionarNegocio`, e ela é estrutural: ele é quem PRODUZ o
-   * inquilino, então no instante em que roda o inquilino ainda não existe. É a assimetria
-   * inteira do multi-inquilino, escrita em `portas/saida/provisionador-negocio.ts`. */
+   * DUAS exceções, e elas são simétricas — uma acontece antes do inquilino existir, a
+   * outra atravessa todos eles:
+   *
+   *   `ProvisionarNegocio` — PRODUZ o inquilino. No instante em que roda, ele ainda não
+   *     existe. Escrita em `portas/saida/provisionador-negocio.ts`.
+   *
+   *   `EnviarLembretes` .... É uma ROTINA AGENDADA. A pergunta que ela faz é sobre todos
+   *     os inquilinos ("quem tem lembrete para mandar agora?"), e não tem sessão nem dono.
+   *     Um `tenantId` de entrada seria um parâmetro por onde disparar a rotina — e o
+   *     WhatsApp — de outra pessoa. O isolamento é refeito na linha seguinte: cada item da
+   *     fila traz o inquilino dele, e o envio usa um `ContextoTenant` de ator `sistema`.
+   *     Escrita em `portas/saida/fila-de-lembretes.ts`.
+   *
+   * Uma terceira exceção não é impossível, mas é decisão de arquitetura: não a acrescente
+   * aqui sem escrever o limite no arquivo da porta, como estas duas fizeram. */
   it("toda porta de entrada recebe ContextoTenant primeiro, menos o provisionamento", () => {
     const fonte = readFileSync(join(SRC, "nucleo", "portas", "entrada", "casos-de-uso.ts"), "utf8");
 
@@ -183,7 +195,7 @@ describe("o inquilino nasce da sessão, nunca do request", () => {
       if (!primeiroParametro(abre).includes("ContextoTenant")) semContexto.push(m[1]);
     }
 
-    expect(semContexto).toEqual(["ProvisionarNegocio"]);
+    expect(semContexto.sort()).toEqual(["EnviarLembretes", "ProvisionarNegocio"]);
   });
 });
 

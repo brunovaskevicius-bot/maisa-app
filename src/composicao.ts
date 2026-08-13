@@ -30,6 +30,7 @@ import { criarLerCadastro } from "@/nucleo/aplicacao/cadastro";
 import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
 import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
 import { criarAjustarHorarios, criarLerHorarios } from "@/nucleo/aplicacao/horarios";
+import { criarEnviarLembretes } from "@/nucleo/aplicacao/lembretes";
 import { criarConectarCanal, criarDesconectarCanal, criarLerCanal } from "@/nucleo/aplicacao/canal";
 import { criarAnotarFato, criarLembrarCliente } from "@/nucleo/aplicacao/memoria";
 import {
@@ -46,8 +47,10 @@ import { provisionadorDemo } from "@/adaptadores/saida/demo/provisionador";
 import { provisionadorSupabase } from "@/adaptadores/saida/supabase/provisionador";
 import { assistenteDemo } from "@/adaptadores/saida/demo/assistente-repo";
 import { horariosDemo } from "@/adaptadores/saida/demo/horarios-repo";
+import { lembretesDemo } from "@/adaptadores/saida/demo/lembretes";
 import { assistenteSupabase } from "@/adaptadores/saida/supabase/assistente";
 import { horariosSupabase } from "@/adaptadores/saida/supabase/horarios";
+import { lembretesSupabase } from "@/adaptadores/saida/supabase/lembretes";
 import { canalSupabase } from "@/adaptadores/saida/supabase/canal";
 import { canalDemoRepo, provisionamentoDemo } from "@/adaptadores/saida/demo/canal";
 import { provisionamentoEvolution } from "@/adaptadores/saida/evolution/provisionamento-evolution";
@@ -57,6 +60,7 @@ import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import { registroSupabase } from "@/adaptadores/saida/supabase/atendimentos";
 import { registroDemo } from "@/adaptadores/saida/demo/atendimentos";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
+import { isAdminConfigured } from "@/adaptadores/saida/supabase/admin";
 import { canalDemo, conversasDemo, historicoDemo, memoriaDemo } from "@/adaptadores/saida/demo/memoria";
 import {
   conversasSupabase, historicoSupabase, memoriaSupabase,
@@ -105,6 +109,11 @@ const provisionador = isSupabaseConfigured ? provisionadorSupabase : provisionad
  */
 const assistente = isSupabaseConfigured ? assistenteSupabase : assistenteDemo;
 const horarios = isSupabaseConfigured ? horariosSupabase : horariosDemo;
+/* A fila de lembretes segue `isAdminConfigured`, e NÃO `isSupabaseConfigured` como as
+ * irmãs. É a única porta cuja service role é requisito duro: a rotina não tem sessão para
+ * cair, então um Supabase configurado sem service role a deixaria estourando a cada
+ * tique. Sem ela, a rotina roda em demonstração e devolve zero envios. */
+const filaLembretes = isAdminConfigured ? lembretesSupabase : lembretesDemo;
 
 /**
  * O CANAL DE WHATSAPP, por inquilino.
@@ -297,6 +306,16 @@ export const app = {
 
   lerHorarios: criarLerHorarios({ horarios }),
   ajustarHorarios: criarAjustarHorarios({ horarios }),
+
+  /**
+   * A ROTINA. É a única linha deste arquivo que monta um caso de uso sem inquilino.
+   *
+   * Recebe o MESMO `canal` que o agente usa — o que já resolve a instância de WhatsApp
+   * por inquilino (`instanciaDoInquilino`, acima). É o que garante que o lembrete sai
+   * pelo número do próprio negócio, e não por uma env global: um lembrete saindo do
+   * WhatsApp de outro cliente seria o pior vazamento visível do produto.
+   */
+  enviarLembretes: criarEnviarLembretes({ fila: filaLembretes, canal, negocio, assistente }),
 
   lembrarCliente: criarLembrarCliente({ negocio, memoria }),
   anotarFato: criarAnotarFato({ negocio, memoria }),
