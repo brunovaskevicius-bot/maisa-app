@@ -13,4 +13,5 @@ export * from "./expediente";
 export * from "./fiscal";
 export * from "./conversas";
 export * from "./assistente";
+export * from "./horarios";
 export * from "./erros";

@@ -29,6 +29,7 @@ import { criarOferecerHorarios } from "@/nucleo/aplicacao/oferecer-horarios";
 import { criarLerCadastro } from "@/nucleo/aplicacao/cadastro";
 import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
 import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
+import { criarAjustarHorarios, criarLerHorarios } from "@/nucleo/aplicacao/horarios";
 import { criarConectarCanal, criarDesconectarCanal, criarLerCanal } from "@/nucleo/aplicacao/canal";
 import { criarAnotarFato, criarLembrarCliente } from "@/nucleo/aplicacao/memoria";
 import {
@@ -44,7 +45,9 @@ import { repositorioSupabase } from "@/adaptadores/saida/supabase/repositorio";
 import { provisionadorDemo } from "@/adaptadores/saida/demo/provisionador";
 import { provisionadorSupabase } from "@/adaptadores/saida/supabase/provisionador";
 import { assistenteDemo } from "@/adaptadores/saida/demo/assistente-repo";
+import { horariosDemo } from "@/adaptadores/saida/demo/horarios-repo";
 import { assistenteSupabase } from "@/adaptadores/saida/supabase/assistente";
+import { horariosSupabase } from "@/adaptadores/saida/supabase/horarios";
 import { canalSupabase } from "@/adaptadores/saida/supabase/canal";
 import { canalDemoRepo, provisionamentoDemo } from "@/adaptadores/saida/demo/canal";
 import { provisionamentoEvolution } from "@/adaptadores/saida/evolution/provisionamento-evolution";
@@ -101,6 +104,7 @@ const provisionador = isSupabaseConfigured ? provisionadorSupabase : provisionad
  * daria um agente que sabe o catálogo real do inquilino e responde com o tom de outro.
  */
 const assistente = isSupabaseConfigured ? assistenteSupabase : assistenteDemo;
+const horarios = isSupabaseConfigured ? horariosSupabase : horariosDemo;
 
 /**
  * O CANAL DE WHATSAPP, por inquilino.
@@ -291,6 +295,9 @@ export const app = {
   lerAssistente: criarLerAssistente({ assistente }),
   ajustarAssistente: criarAjustarAssistente({ assistente }),
 
+  lerHorarios: criarLerHorarios({ horarios }),
+  ajustarHorarios: criarAjustarHorarios({ horarios }),
+
   lembrarCliente: criarLembrarCliente({ negocio, memoria }),
   anotarFato: criarAnotarFato({ negocio, memoria }),
 
@@ -413,11 +420,17 @@ export const agenteConfigurado = () => isGeminiConfigured || !!process.env.ANTHR
  * pagar duas vezes pela mesma linha.
  */
 const configuracaoDoAgente: ResolvedorDeConfiguracao = async (t) => {
-  const [dados, servicos, profissionais, ajustes] = await Promise.all([
+  const [dados, servicos, profissionais, ajustes, semana] = await Promise.all([
     negocio.negocio(t),
     negocio.servicos(t),
     negocio.profissionais(t),
     assistente.ler(t),
+    /* O horário ANUNCIADO entrou aqui em 13/08/2026, e o motivo é o mesmo de `assistente`
+     * horas antes: quem perguntasse "que horas vocês atendem?" era respondido com o
+     * expediente do PROFISSIONAL, que é outro dado com outra finalidade. O dono editava
+     * a grade na tela, ela morria no `localStorage` do aparelho dele, e a MAISA nunca
+     * soube dela. Ver `dominio/horarios.ts` para a distinção entre os dois horários. */
+    horarios.ler(t),
   ]);
 
   /* Linha ausente NÃO derruba a conversa. Aqui o `?? padrão` é a escolha certa, e é o
@@ -437,6 +450,10 @@ const configuracaoDoAgente: ResolvedorDeConfiguracao = async (t) => {
     profissionais,
     expedientes: Object.fromEntries(profissionais.map((p) => [p.id, p.expediente])),
     assistente: ajustes?.assistente ?? ASSISTENTE_PADRAO,
+    /* `null` e não um padrão inventado. A persona escreve "horário não cadastrado", e a
+     * MAISA prefere dizer que não sabe a anunciar 8h–20h para um negócio que abre às 14h
+     * — anunciar errado traz cliente na porta fechada. */
+    semana: semana ?? null,
     faqs: FAQS,
     cfg: ajustes?.cfg ?? CFG_PADRAO,
   };

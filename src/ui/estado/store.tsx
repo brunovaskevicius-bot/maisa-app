@@ -151,11 +151,15 @@ type Persistido = {
    * configurava nada. Agora vêm de `GET /api/assistente` e vão por `PATCH`, e o agente lê
    * a MESMA linha (ver `composicao.ts`, `configuracaoDoAgente`).
    *
-   * `dias` continua aqui, e é uma exceção consciente, não esquecimento: o horário
-   * anunciado tem tabela própria (`horarios_anunciados`) e ainda não tem porta. Enquanto
-   * não tiver, é preferência de tela — e some se o dono trocar de aparelho, que é a
-   * dívida honesta a pagar depois. */
-  dias: D.Dia[];
+   * `dias` foi junto, algumas horas depois, e a dívida que estava escrita aqui ("tem
+   * tabela e ainda não tem porta… some se o dono trocar de aparelho") ficou paga. Era
+   * pior do que a frase dizia: a MAISA respondia "que horas vocês atendem?" com o
+   * expediente do PROFISSIONAL — outro dado, com outra finalidade. Agora vem de
+   * `GET /api/horarios` e vai por `PUT`, e a persona anuncia a MESMA grade.
+   *
+   * Sobra a regra, e ela vale para o próximo campo que alguém pensar em pôr aqui: só
+   * mora no `localStorage` o que é preferência de APARELHO (a aba aberta, o rascunho de
+   * um formulário). O que muda o comportamento do agente, não. */
 };
 
 const CHAVE = "maisa.app.v3";
@@ -291,6 +295,19 @@ const MOTIVO_AJUSTES: Record<string, string> = {
   salvar: "Não foi possível salvar os ajustes da MAISA.",
 };
 
+/* O horário anunciado. `payload_invalido` aqui é quase sempre uma recusa COM frase
+ * própria (`"Sábado: o fechamento tem que ser depois da abertura."`), e por isso quem
+ * envia prefere o `info` do servidor a este mapa — ver `enviarSemana`. */
+const MOTIVO_HORARIOS: Record<string, string> = {
+  nao_autenticado: "Faça login para ajustar o horário.",
+  login_necessario: "Faça login para ajustar o horário.",
+  sem_negocio: "Esta conta ainda não tem um negócio criado.",
+  nao_configurado: "O banco de dados não está configurado neste ambiente.",
+  payload_invalido: "Este negócio não tem horário gravado. Ele foi criado sem passar por criar_negocio().",
+  carregar: "Não foi possível carregar o horário de atendimento.",
+  salvar: "Não foi possível salvar o horário de atendimento.",
+};
+
 /* O canal de WhatsApp. `reconectar` é o status que `respostas.ts:39` devolve para
  * `PrecisaReconectar` — e aqui ele chega quando o inquilino não tem canal e alguém tentou
  * mandar mensagem. A frase precisa dizer a AÇÃO, porque existe uma e é esta tela. */
@@ -403,7 +420,6 @@ const INICIAL: Persistido = {
   resolvidos: {},
   notas: {},
   proximoNumero: D.PROXIMO_NUMERO,
-  dias: D.DIAS_PADRAO,
 };
 
 /**
@@ -423,6 +439,20 @@ const AJUSTES_PLACEHOLDER = {
   },
   cfg: D.CFG_PADRAO,
 };
+
+/**
+ * A semana enquanto `GET /api/horarios` não respondeu.
+ *
+ * Mesmo papel do `AJUSTES_PLACEHOLDER`, e o mesmo aviso: se estes valores ficarem na
+ * tela, é porque a resposta não chegou. O padrão de verdade nasce no provisionamento,
+ * derivado do expediente do primeiro profissional (`005_provisionar.sql:195`).
+ */
+const SEMANA_PLACEHOLDER: D.SemanaAnunciada = D.DIAS_PADRAO.map((d, dow) => ({
+  dow,
+  aberto: d.aberto,
+  de: d.aberto ? d.de : null,
+  ate: d.aberto ? d.ate : null,
+}));
 
 /**
  * Traz o que dá do `maisa.app.v2` para o v3, uma única vez.
@@ -639,9 +669,13 @@ export type StoreValue = {
   desconectarCanal: () => Promise<void>;
   /** Desconecta e já pede QR novo. Perde o número atual — confirme antes de chamar. */
   trocarNumero: () => Promise<void>;
-  dias: D.Dia[];
-  alternarDia: (nome: string) => void;
-  setHorario: (nome: string, campo: "de" | "ate", valor: string) => void;
+  /** O horário ANUNCIADO — o que a MAISA responde a "que horas vocês atendem?".
+   *  Vem de `GET /api/horarios`; `semanaCarregada` diz se já é o do servidor. */
+  semana: D.SemanaAnunciada;
+  semanaErro: string | null;
+  semanaCarregada: boolean;
+  alternarDia: (dow: number) => void;
+  setHorario: (dow: number, campo: "de" | "ate", valor: string) => void;
   cfg: Record<D.ChaveCfg, boolean>;
   alternarCfg: (chave: D.ChaveCfg) => void;
   salvo: boolean;
@@ -794,6 +828,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
            * torna o servidor a única fonte. */
           assistente: _tomAgoraNoServidor,
           cfg: _togglesAgoraNoServidor,
+          /* `dias` seguiu o mesmo caminho horas depois — `GET /api/horarios`. A dívida
+           * que estava escrita em `Persistido` ("tem tabela e ainda não tem porta") ficou
+           * paga, e o motivo de descartar é idêntico ao dos dois acima. */
+          dias: _horarioAgoraNoServidor,
           ...p
         } = JSON.parse(cru) as Partial<Persistido> & {
           posicoes?: unknown;
@@ -803,6 +841,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           enviadas?: unknown;
           assistente?: unknown;
           cfg?: unknown;
+          dias?: unknown;
         };
         if (agLocais?.length) {
           console.info(
@@ -811,12 +850,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             agLocais.map((a) => `${a.data ?? "?"} ${D.hhmm(a.inicio ?? 0)} ${nomeDoCliente(a.clienteId ?? "")}`).join("; "),
           );
         }
-        setDb((prev) => ({
-          ...prev,
-          ...p,
-          // `dias` é array de tamanho fixo: só aceita se vier íntegro, senão o padrão.
-          dias: Array.isArray(p.dias) && p.dias.length === D.DIAS_PADRAO.length ? p.dias : prev.dias,
-        }));
+        setDb((prev) => ({ ...prev, ...p }));
       }
     } catch {
       /* localStorage indisponível — segue nos defaults */
@@ -1854,6 +1888,135 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [enviarAjustes]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
+   * O HORÁRIO ANUNCIADO — a terceira coisa a sair do `localStorage`.
+   *
+   * O comentário de `Persistido` dizia, sobre `dias`: "exceção consciente, não
+   * esquecimento — tem tabela e ainda não tem porta. Enquanto não tiver, é preferência de
+   * tela, e some se o dono trocar de aparelho, que é a dívida honesta a pagar depois".
+   * Esta é a hora de pagar. Era pior que perder no aparelho: a MAISA respondia "que horas
+   * vocês atendem?" com o expediente do PROFISSIONAL, que é outro dado.
+   *
+   * ── PUT DA SEMANA INTEIRA, E NÃO PATCH DO DIA ──
+   *
+   * Diferente dos ajustes acima. Não é gosto: "quando abrimos" é uma GRADE, e mandar
+   * sábado sozinho abriria a pergunta "e a quarta que a outra aba mexeu?". Semana
+   * completa faz duas telas convergirem para a última que salvou, em vez de produzirem
+   * uma semana que nunca existiu em nenhuma das duas. Ver `aplicacao/horarios.ts`.
+   *
+   * A coalescência continua valendo, e aqui ela vale MAIS: arrastar o relógio de um
+   * `<input type="time">` dispara um `onChange` por minuto. Sem a janela, seria uma
+   * requisição por minuto arrastado.
+   * ────────────────────────────────────────────────────────────────────────────── */
+
+  const [semana, setSemana] = useState<D.SemanaAnunciada>(SEMANA_PLACEHOLDER);
+  const [semanaErro, setSemanaErro] = useState<string | null>(null);
+  const [semanaCarregada, setSemanaCarregada] = useState(false);
+  const semanaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** A foto de antes da rajada, para a volta atrás. Mesma mecânica de `ajustesAntes`. */
+  const semanaAntes = useRef<D.SemanaAnunciada | null>(null);
+  /** A grade que ainda não foi mandada. Existe para o desmonte ter o que enviar. */
+  const semanaPendente = useRef<D.SemanaAnunciada | null>(null);
+
+  useEffect(() => {
+    if (!hidratado) return;
+    let vivo = true;
+
+    void (async () => {
+      try {
+        const r = await fetch("/api/horarios").then((x) => x.json());
+        if (!vivo) return;
+        if (!r?.ok) {
+          setSemanaErro(MOTIVO_HORARIOS[r?.status] ?? MOTIVO_HORARIOS.carregar);
+          return;
+        }
+        setSemana(r.semana);
+        setSemanaErro(null);
+        setSemanaCarregada(true);
+      } catch {
+        if (vivo) setSemanaErro(MOTIVO_HORARIOS.carregar);
+      }
+    })();
+
+    return () => { vivo = false; };
+  }, [hidratado]);
+
+  const enviarSemana = useCallback(async (corpo: D.SemanaAnunciada) => {
+    const antes = semanaAntes.current;
+    semanaAntes.current = null;
+    semanaPendente.current = null;
+
+    try {
+      const r = await fetch("/api/horarios", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      }).then((x) => x.json());
+
+      if (!r?.ok) {
+        if (antes) setSemana(antes);
+        /* `info` antes do genérico: as recusas daqui são específicas e acionáveis
+         * ("Sábado: o fechamento tem que ser depois da abertura"), e trocá-las por "não
+         * foi possível salvar" esconderia exatamente o que o dono precisa corrigir. */
+        const motivo = r?.info ?? MOTIVO_HORARIOS[r?.status] ?? MOTIVO_HORARIOS.salvar;
+        setSemanaErro(motivo);
+        toast(motivo);
+        return;
+      }
+
+      /* Pinta com o que o banco gravou: dia fechado volta com `de`/`ate` em `null`, e a
+       * tela precisa ver isso para não reexibir a hora de um dia que fechou. */
+      setSemana(r.semana);
+      setSemanaErro(null);
+      setSalvo(true);
+      agendar(() => setSalvo(false), 2200);
+    } catch {
+      if (antes) setSemana(antes);
+      setSemanaErro(MOTIVO_HORARIOS.salvar);
+    }
+  }, [agendar, toast]);
+
+  /** Aplica na tela agora e agenda o envio da semana inteira. */
+  const mexerNaSemana = useCallback((f: (s: D.SemanaAnunciada) => D.SemanaAnunciada) => {
+    setSemana((s) => {
+      if (!semanaAntes.current) semanaAntes.current = s;
+      const nova = f(s);
+      semanaPendente.current = nova;
+      if (semanaTimer.current) clearTimeout(semanaTimer.current);
+      /* O corpo é montado AQUI DENTRO, com o estado novo em mãos. Montá-lo fora leria um
+       * `semana` de closure que pode estar um clique atrasado — e como aqui se manda a
+       * grade completa, um clique atrasado significa mandar de volta o dia que acabou de
+       * mudar, desfazendo silenciosamente o que o dono fez. */
+      semanaTimer.current = setTimeout(() => { void enviarSemana(nova); }, JANELA_AJUSTES);
+      return nova;
+    });
+  }, [enviarSemana]);
+
+  const alternarDia = useCallback((dow: number) => {
+    mexerNaSemana((s) => s.map((d) => {
+      if (d.dow !== dow) return d;
+      const aberto = !d.aberto;
+      /* Ao reabrir, repõe um horário válido: o domínio zera as horas de dia fechado, e um
+       * `<input type="time">` que recebe `null` fica em branco sem dizer por quê. */
+      return aberto
+        ? { ...d, aberto, de: d.de ?? "09:00", ate: d.ate ?? "18:00" }
+        : { ...d, aberto, de: null, ate: null };
+    }));
+  }, [mexerNaSemana]);
+
+  const setHorario = useCallback((dow: number, campo: "de" | "ate", valor: string) => {
+    mexerNaSemana((s) => s.map((d) => (d.dow === dow ? { ...d, [campo]: valor } : d)));
+  }, [mexerNaSemana]);
+
+  /* Mesma rede de segurança dos ajustes: sair da tela com o relógio mexido manda antes
+   * de morrer, em vez de perder a última alteração. */
+  useEffect(() => () => {
+    if (semanaTimer.current) {
+      clearTimeout(semanaTimer.current);
+      if (semanaPendente.current) void enviarSemana(semanaPendente.current);
+    }
+  }, [enviarSemana]);
+
+  /* ─────────────────────────────────────────────────────────────────────────────
    * O CANAL DE WHATSAPP — conectar, trocar número, desconectar.
    *
    * ── POR QUE "TROCAR NÚMERO" É DESCONECTAR + CONECTAR, E NÃO UM BOTÃO SÓ ──
@@ -2007,23 +2170,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setAssistente = useCallback((p: Partial<Assistente>) => {
     mexerNosAjustes({ assistente: p });
   }, [mexerNosAjustes]);
-
-  const alternarDia = useCallback((nome: string) => {
-    patch((d) => ({
-      dias: d.dias.map((x) => {
-        if (x.nome !== nome) return x;
-        const aberto = !x.aberto;
-        // Dia fechado guarda "—" nos horários; ao abrir precisa de hora válida,
-        // senão o <input type="time"> recebe um valor que ele não sabe exibir.
-        const semHora = x.de === "—" || x.ate === "—";
-        return aberto && semHora ? { ...x, aberto, de: "09:00", ate: "18:00" } : { ...x, aberto };
-      }),
-    }));
-  }, [patch]);
-
-  const setHorario = useCallback((nome: string, campo: "de" | "ate", valor: string) => {
-    patch((d) => ({ dias: d.dias.map((x) => (x.nome === nome ? { ...x, [campo]: valor } : x)) }));
-  }, [patch]);
 
   const alternarCfg = useCallback((chave: D.ChaveCfg) => {
     /* Lê do estado dentro do updater, e não da closure, porque duas batidas rápidas no
@@ -2514,7 +2660,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados,
     canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
-    dias: db.dias, alternarDia, setHorario,
+    semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     cfg: ajustes.cfg, alternarCfg,
     salvo, salvar,
     diaSel, verDia,
@@ -2542,7 +2688,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados,
     canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
-    db.dias, alternarDia, setHorario,
+    semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     ajustes.cfg, alternarCfg,
     salvo, salvar,
     diaSel, rascunho, rascunhoEstado, novoAgendamento, editarRascunho, confirmarRascunho, descartarRascunho,

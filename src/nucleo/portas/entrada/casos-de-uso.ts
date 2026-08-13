@@ -25,6 +25,7 @@ import type { Conversa, Msg } from "../../dominio/conversas";
 import type { Conexao } from "../saida/agenda-externa";
 import type { AjustesDaAssistente, AjustesParciais } from "../saida/repositorio-assistente";
 import type { Canal, Pareamento } from "../../dominio/canal";
+import type { SemanaAnunciada } from "../../dominio/horarios";
 import type { ResultadoDeNota, Tomador } from "../../dominio/fiscal";
 import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
 import type { VagasDoDia } from "../../dominio/vagas";
@@ -227,6 +228,23 @@ export type AjustarAssistente = (
   t: ContextoTenant,
   p: AjustesParciais,
 ) => Promise<AjustesDaAssistente>;
+
+/* ───────────────────────────── horário anunciado ─────────────────────────────
+ * O horário EXTERNO — a frase que a MAISA responde a "que horas vocês atendem?".
+ *
+ * ⚠️ Não confundir com o `Expediente` do profissional, que é o que decide se cabe marcar
+ * às 15h de terça. Os dois divergem na vida real e é legítimo: o negócio anuncia 8h–20h e
+ * o profissional das terças entra ao meio-dia. Ver `dominio/horarios.ts`.
+ *
+ * `AjustarHorarios` recebe a semana INTEIRA, e não um dia — é grade, não campo. O porquê
+ * está em `aplicacao/horarios.ts`. */
+
+export type LerHorarios = (t: ContextoTenant) => Promise<SemanaAnunciada>;
+
+export type AjustarHorarios = (
+  t: ContextoTenant,
+  p: SemanaAnunciada,
+) => Promise<SemanaAnunciada>;
 
 /* ───────────────────────────── conversas de WhatsApp ─────────────────────────────
  * O painel, do lado da conversa. O AGENTE não passa por aqui: para ele a conversa é o

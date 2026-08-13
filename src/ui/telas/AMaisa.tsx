@@ -258,40 +258,61 @@ function Personalidade() {
 
 function Horarios() {
   const st = useStore();
+  const CAMPO_HORA = "width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border-field);background:var(--surface);font-variant-numeric:tabular-nums;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--ink);outline:none";
+
   return (
     <div style={s("display:flex;flex-direction:column")}>
-      {st.dias.map((d) => (
-        <div
-          key={d.nome}
-          style={s("display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)")}
-        >
-          <span style={s(`font-size:var(--t-sm);font-weight:var(--w-title);width:96px;flex-shrink:0;color:${d.aberto ? "var(--ink)" : "var(--muted)"}`)}>{d.nome}</span>
-          <Toggle on={d.aberto} onChange={() => st.alternarDia(d.nome)} rotulo={`${d.nome} — atende`} />
-          {d.aberto ? (
-            <div style={s("margin-left:auto;display:flex;align-items:center;gap:9px")}>
-              <input
-                type="time"
-                value={d.de}
-                onChange={(e) => st.setHorario(d.nome, "de", e.target.value)}
-                aria-label={`${d.nome} — abre às`}
-                className="m-focus"
-                style={s("width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border-field);background:var(--surface);font-variant-numeric:tabular-nums;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--ink);outline:none")}
-              />
-              <span style={s("font-size:var(--t-sm);color:var(--muted)")}>às</span>
-              <input
-                type="time"
-                value={d.ate}
-                onChange={(e) => st.setHorario(d.nome, "ate", e.target.value)}
-                aria-label={`${d.nome} — fecha às`}
-                className="m-focus"
-                style={s("width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border-field);background:var(--surface);font-variant-numeric:tabular-nums;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--ink);outline:none")}
-              />
-            </div>
-          ) : (
-            <span style={s("margin-left:auto;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--muted)")}>Fechado</span>
-          )}
-        </div>
-      ))}
+      {/* Este é o horário do NEGÓCIO, e a frase existe porque a tela tem dois horários a
+          poucos cliques de distância: este e o expediente de cada profissional, na tela
+          de Equipe. Quem edita aqui achando que muda a agenda não muda — e vice-versa. */}
+      <p style={s("margin:0 0 12px;font-size:var(--t-label);color:var(--muted);line-height:1.55")}>
+        É o que a MAISA responde quando perguntam <b>&quot;que horas vocês atendem?&quot;</b>. Quem
+        decide se cabe marcar às 15h é o expediente de cada profissional, na tela de Equipe.
+      </p>
+
+      {st.semanaErro && (
+        <p style={s("margin:0 0 12px;font-size:var(--t-label);color:var(--danger);line-height:1.5")}>{st.semanaErro}</p>
+      )}
+
+      {st.semana.map((d) => {
+        const nome = D.DIAS_DA_SEMANA[d.dow];
+        return (
+          <div
+            key={d.dow}
+            style={s("display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)")}
+          >
+            <span style={s(`font-size:var(--t-sm);font-weight:var(--w-title);width:96px;flex-shrink:0;color:${d.aberto ? "var(--ink)" : "var(--muted)"}`)}>{nome}</span>
+            <Toggle on={d.aberto} onChange={() => st.alternarDia(d.dow)} rotulo={`${nome} — atende`} />
+            {d.aberto ? (
+              <div style={s("margin-left:auto;display:flex;align-items:center;gap:9px")}>
+                <input
+                  type="time"
+                  /* `?? ""` porque dia aberto SEM hora não deveria existir — o domínio
+                     zera as duas ao fechar e a tela repõe ao reabrir. Se acontecer, o
+                     input vazio é melhor que o React trocar de controlado para não
+                     controlado no meio da edição. */
+                  value={d.de ?? ""}
+                  onChange={(e) => st.setHorario(d.dow, "de", e.target.value)}
+                  aria-label={`${nome} — abre às`}
+                  className="m-focus"
+                  style={s(CAMPO_HORA)}
+                />
+                <span style={s("font-size:var(--t-sm);color:var(--muted)")}>às</span>
+                <input
+                  type="time"
+                  value={d.ate ?? ""}
+                  onChange={(e) => st.setHorario(d.dow, "ate", e.target.value)}
+                  aria-label={`${nome} — fecha às`}
+                  className="m-focus"
+                  style={s(CAMPO_HORA)}
+                />
+              </div>
+            ) : (
+              <span style={s("margin-left:auto;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--muted)")}>Fechado</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -319,9 +340,11 @@ function Corpo({ id }: { id: string }) {
 function resumoDaSecao(id: string, st: ReturnType<typeof useStore>): string {
   if (id === "personalidade") return `${st.assistente.nome} · tom ${st.assistente.tom}${st.assistente.ativa ? "" : " · pausada"}`;
   if (id === "horarios") {
-    const abertos = st.dias.filter((d) => d.aberto);
-    if (!abertos.length) return "Nenhum dia aberto — a MAISA não agenda";
-    return `${abertos.length} dias abertos · ${abertos[0].nome.slice(0, 3)}–${abertos[abertos.length - 1].nome.slice(0, 3)}, ${abertos[0].de}–${abertos[0].ate}`;
+    /* A MESMA frase que vai no prompt do agente (`persona.ts` chama `semanaEmTexto`).
+     * Não é economia de código: é o que garante que o resumo na tela e o que a MAISA
+     * anuncia no WhatsApp nunca divirjam — duas formatações do mesmo dado divergem. */
+    if (!st.semana.some((d) => d.aberto)) return "Nenhum dia aberto — a MAISA não agenda";
+    return D.semanaEmTexto(st.semana);
   }
   if (id === "agendamentos") {
     const n = D.TOGGLES_AGENDAMENTO.filter((t) => st.cfg[t.chave]).length;
