@@ -15,6 +15,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as D from "@/adaptadores/saida/demo";
+import type { Canal } from "@/nucleo/dominio/canal";
 import { toast } from "@/ui/primitivos";
 
 /* ───────────────────────────── tipos ───────────────────────────── */
@@ -139,13 +140,41 @@ type Persistido = {
   resolvidos: Record<string, boolean>;
   notas: Record<string, D.Nota>;
   proximoNumero: number;
-  assistente: Assistente;
+  /* Aqui moravam `assistente` e `cfg` — o nome, o tom, a saudação e os sete toggles de
+   * comportamento. Saíram em 13/08/2026 pelo MESMO motivo que `assumidas` saiu, e a
+   * frase que está escrita quinze linhas acima já dizia o porquê antes de existir para
+   * onde ir: "estado que muda o comportamento do AGENTE não pode morar no `localStorage`
+   * de um dos aparelhos do dono".
+   *
+   * Era literalmente isso: o dono escrevia o tom no notebook, e no WhatsApp a MAISA
+   * respondia com a fixture global — a mesma para todo inquilino. Configurar não
+   * configurava nada. Agora vêm de `GET /api/assistente` e vão por `PATCH`, e o agente lê
+   * a MESMA linha (ver `composicao.ts`, `configuracaoDoAgente`).
+   *
+   * `dias` continua aqui, e é uma exceção consciente, não esquecimento: o horário
+   * anunciado tem tabela própria (`horarios_anunciados`) e ainda não tem porta. Enquanto
+   * não tiver, é preferência de tela — e some se o dono trocar de aparelho, que é a
+   * dívida honesta a pagar depois. */
   dias: D.Dia[];
-  cfg: Record<D.ChaveCfg, boolean>;
 };
 
 const CHAVE = "maisa.app.v3";
 const CHAVE_ANTIGA = "maisa.app.v2";
+
+/**
+ * Quanto se espera antes de mandar os ajustes da MAISA ao servidor.
+ *
+ * 500ms é o intervalo em que uma pausa de digitação já parece fim de palavra, e curto o
+ * bastante para que sair da tela logo depois ainda encontre o timer vivo (o desmonte
+ * força o envio de qualquer jeito). Aumentar economiza requisição e aumenta a chance de
+ * perder a última tecla; diminuir faz o contrário.
+ */
+const JANELA_AJUSTES = 500;
+
+/** De quanto em quanto se pergunta se o QR já foi escaneado. */
+const INTERVALO_PAREAMENTO = 3000;
+/** Quantas perguntas antes de desistir. 3s × 40 ≈ 2min, mais que a validade de um QR. */
+const TENTATIVAS_PAREAMENTO = 40;
 
 /* Motivos que a rota de conexão devolve na query string, em português de gente.
  * Cada um diz o que aconteceu E o que fazer — "erro genérico" não ajuda ninguém. */
@@ -242,6 +271,40 @@ const MOTIVO_CADASTRO: Record<string, string> = {
   erro: "Não foi possível carregar o cadastro do negócio.",
 };
 
+/* Idem para os ajustes da MAISA. Mesmos nomes de `status` — contrato com `respostas.ts`.
+ *
+ * ⚠️ `carregar` e `salvar` são fallbacks SEPARADOS de propósito. Uma frase só para os dois
+ * mente na metade das vezes: "não foi possível salvar" numa falha de LEITURA manda o dono
+ * procurar o que ele fez de errado ao editar, quando o problema é que a tela nunca chegou
+ * a ter o dado dele.
+ *
+ * `payload_invalido` é o que `respostas.ts:34` devolve para `NaoEncontrado` — e aqui isso
+ * tem UM significado concreto: não existe linha em `assistente` para este inquilino. Só
+ * acontece com negócio nascido fora de `criar_negocio()`, e a frase diz o que fazer. */
+const MOTIVO_AJUSTES: Record<string, string> = {
+  nao_autenticado: "Faça login para ajustar a MAISA.",
+  login_necessario: "Faça login para ajustar a MAISA.",
+  sem_negocio: "Esta conta ainda não tem um negócio criado.",
+  nao_configurado: "O banco de dados não está configurado neste ambiente.",
+  payload_invalido: "Este negócio não tem ajustes da MAISA gravados. Ele foi criado sem passar por criar_negocio().",
+  carregar: "Não foi possível carregar os ajustes da MAISA.",
+  salvar: "Não foi possível salvar os ajustes da MAISA.",
+};
+
+/* O canal de WhatsApp. `reconectar` é o status que `respostas.ts:39` devolve para
+ * `PrecisaReconectar` — e aqui ele chega quando o inquilino não tem canal e alguém tentou
+ * mandar mensagem. A frase precisa dizer a AÇÃO, porque existe uma e é esta tela. */
+const MOTIVO_CANAL: Record<string, string> = {
+  nao_autenticado: "Faça login para conectar o WhatsApp.",
+  login_necessario: "Faça login para conectar o WhatsApp.",
+  sem_negocio: "Esta conta ainda não tem um negócio criado.",
+  nao_configurado: "Falta configuração no servidor para conectar o WhatsApp.",
+  reconectar: "O WhatsApp deste negócio não está conectado.",
+  ler: "Não foi possível consultar o WhatsApp.",
+  conectar: "Não foi possível gerar o QR code.",
+  desconectar: "Não foi possível desconectar.",
+};
+
 /** Idem para as conversas. Mesmos nomes de `status` — eles são contrato com `respostas.ts`. */
 const MOTIVO_CONVERSAS: Record<string, string> = {
   nao_autenticado: "Faça login para ver as conversas do WhatsApp.",
@@ -326,13 +389,24 @@ const INICIAL: Persistido = {
   resolvidos: {},
   notas: {},
   proximoNumero: D.PROXIMO_NUMERO,
+  dias: D.DIAS_PADRAO,
+};
+
+/**
+ * Os ajustes da MAISA enquanto `GET /api/assistente` não respondeu.
+ *
+ * É placeholder de PRIMEIRA PINTURA, não default de produto: o padrão de verdade nasce
+ * no banco, no provisionamento, com o tom variando por vertical
+ * (`005_provisionar.sql:209`). Se estes valores ficarem na tela, é porque a resposta não
+ * chegou — e é isso que `ajustesErro` existe para dizer.
+ */
+const AJUSTES_PLACEHOLDER = {
   assistente: {
     nome: "MAISA",
-    tom: "amigável",
+    tom: "amigável" as D.Tom,
     saudacao: `Olá! Aqui é a MAISA, assistente do ${D.NEGOCIO.nome}. Como posso te ajudar hoje?`,
     ativa: true,
   },
-  dias: D.DIAS_PADRAO,
   cfg: D.CFG_PADRAO,
 };
 
@@ -530,6 +604,24 @@ export type StoreValue = {
   abrirSecao: (id: string) => void;
   assistente: Assistente;
   setAssistente: (patch: Partial<Assistente>) => void;
+  /** Frase quando os ajustes não carregaram ou não salvaram. Não-nulo = o que está na
+   *  tela pode não ser o que a MAISA está usando no WhatsApp. */
+  ajustesErro: string | null;
+  /** Já voltou do servidor? `false` = o que se vê é placeholder de primeira pintura. */
+  ajustesCarregados: boolean;
+
+  /* ── o canal de WhatsApp ── */
+  /** `null` enquanto não voltou do servidor. */
+  canal: Canal | null;
+  canalErro: string | null;
+  /** Há uma chamada em voo — a tela desabilita os botões para não disparar duas. */
+  canalOcupado: boolean;
+  /** QR do pareamento em curso, pronto para `<img src>`. `null` = nenhum. */
+  qrcode: string | null;
+  conectarCanal: () => Promise<void>;
+  desconectarCanal: () => Promise<void>;
+  /** Desconecta e já pede QR novo. Perde o número atual — confirme antes de chamar. */
+  trocarNumero: () => Promise<void>;
   dias: D.Dia[];
   alternarDia: (nome: string) => void;
   setHorario: (nome: string, campo: "de" | "ate", valor: string) => void;
@@ -676,6 +768,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
            * cliente nunca recebeu, o que é pior que silêncio. */
           assumidas: _posseAgoraNoServidor,
           enviadas: _respostasQueNuncaSairam,
+          /* Os ajustes da MAISA, que passaram a vir de `GET /api/assistente`.
+           *
+           * DESCARTAR é obrigatório, não higiene: mantê-los daria uma corrida em que o
+           * disco (escrito na sessão passada, talvez noutro aparelho) sobrescreveria a
+           * resposta do servidor sempre que chegasse depois — e o dono veria o tom voltar
+           * sozinho ao que era, sem nada na tela explicando. Sumir com eles aqui é o que
+           * torna o servidor a única fonte. */
+          assistente: _tomAgoraNoServidor,
+          cfg: _togglesAgoraNoServidor,
           ...p
         } = JSON.parse(cru) as Partial<Persistido> & {
           posicoes?: unknown;
@@ -683,6 +784,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           googleEventos?: unknown;
           assumidas?: unknown;
           enviadas?: unknown;
+          assistente?: unknown;
+          cfg?: unknown;
         };
         if (agLocais?.length) {
           console.info(
@@ -696,8 +799,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           ...p,
           // `dias` é array de tamanho fixo: só aceita se vier íntegro, senão o padrão.
           dias: Array.isArray(p.dias) && p.dias.length === D.DIAS_PADRAO.length ? p.dias : prev.dias,
-          assistente: { ...prev.assistente, ...(p.assistente ?? {}) },
-          cfg: { ...prev.cfg, ...(p.cfg ?? {}) },
         }));
       }
     } catch {
@@ -1599,14 +1700,270 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const fecharLote = useCallback(() => setLoteAberto(false), []);
   const confirmarLote = useCallback(() => { setLoteAberto(false); emitirPendentes(); }, [emitirPendentes]);
 
-  /* ── ajustes da MAISA ── */
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * OS AJUSTES DA MAISA — servidor, não localStorage.
+   *
+   * O que a tela "A MAISA" edita é o PROMPT do agente. Enquanto isto morava no disco do
+   * navegador, o dono escrevia o tom e a MAISA respondia no WhatsApp com a fixture
+   * global — a mesma para todo inquilino. Agora entra por `GET /api/assistente`, sai por
+   * `PATCH`, e o agente lê a MESMA linha (`composicao.ts`, `configuracaoDoAgente`).
+   *
+   * ── OTIMISTA, COALESCIDO, COM VOLTA ATRÁS ──
+   *
+   * A tela pinta na hora e o servidor é avisado depois, porque um toggle que espera a
+   * rede parece quebrado. Mas otimismo sem volta atrás é mentira: se o PATCH falhar, o
+   * estado volta ao que era ANTES da primeira mexida pendente — não ao valor anterior
+   * daquele campo, que já não é o que o servidor tem.
+   *
+   * Coalescido porque digitar o nome dispara um evento por tecla. Sem juntar, "Aurora"
+   * seriam seis PATCH, seis linhas de log e uma corrida em que a resposta de "Auro" pode
+   * chegar depois da de "Aurora" e pintar a tela de volta. Junta-se por `JANELA_AJUSTES`
+   * e manda-se UM patch com tudo que mudou.
+   * ────────────────────────────────────────────────────────────────────────────── */
+
+  const [ajustes, setAjustes] = useState(AJUSTES_PLACEHOLDER);
+  const [ajustesErro, setAjustesErro] = useState<string | null>(null);
+  const [ajustesCarregados, setAjustesCarregados] = useState(false);
+
+  /** O patch que ainda não foi para o servidor, acumulado entre teclas. */
+  const ajustesPendentes = useRef<{ assistente?: Partial<Assistente>; cfg?: Partial<Record<D.ChaveCfg, boolean>> }>({});
+  /** O estado ANTES da primeira mexida pendente. É para onde se volta se o PATCH falhar. */
+  const ajustesAntes = useRef<typeof AJUSTES_PLACEHOLDER | null>(null);
+  const ajustesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* Depois da hidratação, não antes: a hidratação sobrescreve `db` com o disco, e um
+   * efeito que corresse em paralelo poderia ter a resposta do servidor descartada por
+   * ela. Aqui os dois não competem — `assistente` e `cfg` nem existem mais em `db`. */
+  useEffect(() => {
+    if (!hidratado) return;
+    let vivo = true;
+
+    void (async () => {
+      try {
+        const r = await fetch("/api/assistente").then((x) => x.json());
+        if (!vivo) return;
+        if (!r?.ok) {
+          /* Mantém o placeholder na tela e acende o aviso, como `/api/cadastro` faz.
+           * Zerar aqui deixaria a tela de ajustes em branco, sintoma que não aponta para
+           * "não carregou". */
+          setAjustesErro(MOTIVO_AJUSTES[r?.status] ?? MOTIVO_AJUSTES.carregar);
+          return;
+        }
+        setAjustes({ assistente: r.assistente, cfg: r.cfg });
+        setAjustesErro(null);
+        setAjustesCarregados(true);
+      } catch {
+        if (vivo) setAjustesErro(MOTIVO_AJUSTES.carregar);
+      }
+    })();
+
+    return () => { vivo = false; };
+  }, [hidratado]);
+
+  const enviarAjustes = useCallback(async () => {
+    const corpo = ajustesPendentes.current;
+    const antes = ajustesAntes.current;
+    ajustesPendentes.current = {};
+    ajustesAntes.current = null;
+    if (!corpo.assistente && !corpo.cfg) return;
+
+    try {
+      const r = await fetch("/api/assistente", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      }).then((x) => x.json());
+
+      if (!r?.ok) {
+        if (antes) setAjustes(antes);
+        /* O toast repete o MOTIVO, não um genérico. Foi assim que o primeiro teste real
+         * quase virou caça ao fantasma: o servidor respondia 409 `sem_negocio`, a frase
+         * certa ficava guardada em `ajustesErro` e a tela dizia só "não foi possível
+         * salvar" — mandando procurar defeito na edição quando o problema era que a conta
+         * não tinha negócio. */
+        const motivo = MOTIVO_AJUSTES[r?.status] ?? r?.info ?? MOTIVO_AJUSTES.salvar;
+        setAjustesErro(motivo);
+        toast(motivo);
+        return;
+      }
+
+      /* Pinta com o que o BANCO gravou, não com o que foi mandado: normalização (espaço
+       * colapsado no nome) e saudação vazia virando nada acontecem lá. Sem isto, a tela
+       * mostraria "Aurora  Bot" e o agente usaria "Aurora Bot". */
+      setAjustes({ assistente: r.assistente, cfg: r.cfg });
+      setAjustesErro(null);
+      setSalvo(true);
+      agendar(() => setSalvo(false), 2200);
+    } catch {
+      if (antes) setAjustes(antes);
+      setAjustesErro(MOTIVO_AJUSTES.salvar);
+      toast(MOTIVO_AJUSTES.salvar);
+    }
+  }, [agendar, toast]);
+
+  /** Aplica na tela agora e agenda o envio, juntando com o que já estava pendente. */
+  const mexerNosAjustes = useCallback((
+    p: { assistente?: Partial<Assistente>; cfg?: Partial<Record<D.ChaveCfg, boolean>> },
+  ) => {
+    setAjustes((a) => {
+      /* A foto para a volta atrás é tirada UMA vez por rajada, aqui dentro do updater,
+       * onde `a` é garantidamente o estado corrente. Tirá-la fora leria um `ajustes` de
+       * closure que pode estar uma tecla atrasado. */
+      if (!ajustesAntes.current) ajustesAntes.current = a;
+      return {
+        assistente: { ...a.assistente, ...(p.assistente ?? {}) },
+        cfg: { ...a.cfg, ...(p.cfg ?? {}) },
+      };
+    });
+
+    ajustesPendentes.current = {
+      assistente: { ...ajustesPendentes.current.assistente, ...(p.assistente ?? {}) },
+      cfg: { ...ajustesPendentes.current.cfg, ...(p.cfg ?? {}) },
+    };
+    if (!Object.keys(ajustesPendentes.current.assistente ?? {}).length) delete ajustesPendentes.current.assistente;
+    if (!Object.keys(ajustesPendentes.current.cfg ?? {}).length) delete ajustesPendentes.current.cfg;
+
+    if (ajustesTimer.current) clearTimeout(ajustesTimer.current);
+    ajustesTimer.current = setTimeout(() => { void enviarAjustes(); }, JANELA_AJUSTES);
+  }, [enviarAjustes]);
+
+  /* Sai da tela com tecla pendente? Manda antes de morrer. `clearTimeout` sozinho
+   * perderia a última palavra digitada — o caso mais comum de todos. */
+  useEffect(() => () => {
+    if (ajustesTimer.current) {
+      clearTimeout(ajustesTimer.current);
+      void enviarAjustes();
+    }
+  }, [enviarAjustes]);
+
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * O CANAL DE WHATSAPP — conectar, trocar número, desconectar.
+   *
+   * ── POR QUE "TROCAR NÚMERO" É DESCONECTAR + CONECTAR, E NÃO UM BOTÃO SÓ ──
+   *
+   * `POST /api/canal` se RECUSA a recriar quando o canal já está conectado: recriar ali
+   * derrubaria o WhatsApp de um negócio que está atendendo, por causa de um clique. Essa
+   * recusa é proposital e fica no servidor, onde nenhuma tela pode contorná-la.
+   *
+   * A consequência é que trocar de número exige dizer que se quer perder o atual. Então a
+   * tela faz os dois passos, com confirmação no meio. Um botão só, "esperto", teria que
+   * mandar um `forçar: true` — e aí a proteção viraria enfeite.
+   *
+   * ── O POLLING ──
+   *
+   * Parear é assíncrono e o único aviso é o WhatsApp do cliente conectando. Sem polling, a
+   * tela ficaria em "pareando" para sempre e o dono acharia que falhou. Ele PARA sozinho:
+   * ao conectar, ao sair da tela, e depois de `TENTATIVAS_PAREAMENTO` — QR expira, e um
+   * intervalo que roda para sempre num painel aberto o dia inteiro é bateria e requisição
+   * queimadas por nada.
+   * ────────────────────────────────────────────────────────────────────────────── */
+
+  const [canal, setCanal] = useState<Canal | null>(null);
+  const [canalErro, setCanalErro] = useState<string | null>(null);
+  const [canalOcupado, setCanalOcupado] = useState(false);
+  /** O QR do pareamento em curso. `null` = não há pareamento na tela. */
+  const [qrcode, setQrcode] = useState<string | null>(null);
+  const pollCanal = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pararPolling = useCallback(() => {
+    if (pollCanal.current) { clearInterval(pollCanal.current); pollCanal.current = null; }
+  }, []);
+
+  const buscarCanal = useCallback(async (): Promise<Canal | null> => {
+    try {
+      const r = await fetch("/api/canal").then((x) => x.json());
+      if (!r?.ok) { setCanalErro(MOTIVO_CANAL[r?.status] ?? r?.info ?? MOTIVO_CANAL.ler); return null; }
+      setCanal(r.canal);
+      setCanalErro(null);
+      return r.canal as Canal;
+    } catch {
+      setCanalErro(MOTIVO_CANAL.ler);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hidratado) return;
+    let vivo = true;
+    void (async () => { if (vivo) await buscarCanal(); })();
+    return () => { vivo = false; };
+  }, [hidratado, buscarCanal]);
+
+  const iniciarPolling = useCallback(() => {
+    pararPolling();
+    let tentativas = 0;
+    pollCanal.current = setInterval(() => {
+      tentativas++;
+      void (async () => {
+        const c = await buscarCanal();
+        if (c?.status === "conectado") {
+          pararPolling();
+          /* O QR some no instante em que conecta. Deixá-lo na tela convidaria a apontar a
+           * câmera de novo para um código morto — e o cliente concluiria que não funcionou. */
+          setQrcode(null);
+          toast("WhatsApp conectado");
+        } else if (tentativas >= TENTATIVAS_PAREAMENTO) {
+          pararPolling();
+          setQrcode(null);
+          setCanalErro("O QR expirou sem ninguém escanear. Clique em conectar para gerar outro.");
+        }
+      })();
+    }, INTERVALO_PAREAMENTO);
+  }, [buscarCanal, pararPolling, toast]);
+
+  /* Sair da tela para o polling. Sem isto, um painel aberto numa aba esquecida continuaria
+   * batendo na rota para sempre. */
+  useEffect(() => () => pararPolling(), [pararPolling]);
+
+  const conectarCanal = useCallback(async () => {
+    setCanalOcupado(true);
+    setCanalErro(null);
+    try {
+      const r = await fetch("/api/canal", { method: "POST" }).then((x) => x.json());
+      if (!r?.ok) {
+        setCanalErro(MOTIVO_CANAL[r?.status] ?? r?.info ?? MOTIVO_CANAL.conectar);
+        return;
+      }
+      setQrcode(r.pareamento?.qrcode ?? null);
+      await buscarCanal();
+      if (r.pareamento?.status !== "conectado") iniciarPolling();
+    } catch {
+      setCanalErro(MOTIVO_CANAL.conectar);
+    } finally {
+      setCanalOcupado(false);
+    }
+  }, [buscarCanal, iniciarPolling]);
+
+  const desconectarCanal = useCallback(async () => {
+    setCanalOcupado(true);
+    setCanalErro(null);
+    pararPolling();
+    setQrcode(null);
+    try {
+      const r = await fetch("/api/canal", { method: "DELETE" }).then((x) => x.json());
+      if (!r?.ok) { setCanalErro(MOTIVO_CANAL[r?.status] ?? r?.info ?? MOTIVO_CANAL.desconectar); return; }
+      await buscarCanal();
+      toast("WhatsApp desconectado");
+    } catch {
+      setCanalErro(MOTIVO_CANAL.desconectar);
+    } finally {
+      setCanalOcupado(false);
+    }
+  }, [buscarCanal, pararPolling, toast]);
+
+  /** Desconecta e já pede o QR novo. Ver o cabeçalho para por que não é um botão só. */
+  const trocarNumero = useCallback(async () => {
+    await desconectarCanal();
+    await conectarCanal();
+  }, [conectarCanal, desconectarCanal]);
+
   const abrirSecao = useCallback((id: string) => {
     setSecAtiva((s) => (s === id ? null : id));
   }, []);
 
   const setAssistente = useCallback((p: Partial<Assistente>) => {
-    patch((d) => ({ assistente: { ...d.assistente, ...p } }));
-  }, [patch]);
+    mexerNosAjustes({ assistente: p });
+  }, [mexerNosAjustes]);
 
   const alternarDia = useCallback((nome: string) => {
     patch((d) => ({
@@ -1626,13 +1983,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [patch]);
 
   const alternarCfg = useCallback((chave: D.ChaveCfg) => {
-    patch((d) => ({ cfg: { ...d.cfg, [chave]: !d.cfg[chave] } }));
-  }, [patch]);
+    /* Lê do estado dentro do updater, e não da closure, porque duas batidas rápidas no
+     * mesmo toggle precisam ver a primeira já aplicada — senão a segunda manda o mesmo
+     * valor e o switch fica preso. */
+    setAjustes((a) => {
+      if (!ajustesAntes.current) ajustesAntes.current = a;
+      const valor = !a.cfg[chave];
+      ajustesPendentes.current.cfg = { ...ajustesPendentes.current.cfg, [chave]: valor };
+      if (ajustesTimer.current) clearTimeout(ajustesTimer.current);
+      ajustesTimer.current = setTimeout(() => { void enviarAjustes(); }, JANELA_AJUSTES);
+      return { ...a, cfg: { ...a.cfg, [chave]: valor } };
+    });
+  }, [enviarAjustes]);
 
+  /**
+   * O botão "Salvar" da tela de ajustes.
+   *
+   * Antes ele só acendia um "salvo" por 2,2s — não gravava nada, porque não havia onde
+   * gravar. Agora ele FORÇA o envio do que estiver pendente, em vez de esperar a janela
+   * de debounce fechar. Quem clica em salvar quer certeza agora; e o "salvo" passou a
+   * ser aceso pela resposta do servidor, dentro de `enviarAjustes`, não por um timer.
+   *
+   * Sem nada pendente, `enviarAjustes` devolve na hora e o indicador não acende — o que
+   * está certo: não houve o que salvar.
+   */
   const salvar = useCallback(() => {
-    setSalvo(true);
-    agendar(() => setSalvo(false), 2200);
-  }, [agendar]);
+    if (ajustesTimer.current) clearTimeout(ajustesTimer.current);
+    void enviarAjustes();
+  }, [enviarAjustes]);
 
   /* ── google calendar ──
    * Duas metades bem separadas: a CONEXÃO (tokens) vive no Supabase e é consultada
@@ -2091,9 +2469,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
-    assistente: db.assistente, setAssistente,
+    assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados,
+    canal, canalErro, canalOcupado, qrcode, conectarCanal, desconectarCanal, trocarNumero,
     dias: db.dias, alternarDia, setHorario,
-    cfg: db.cfg, alternarCfg,
+    cfg: ajustes.cfg, alternarCfg,
     salvo, salvar,
     diaSel, verDia,
     rascunho, rascunhoEstado, novoAgendamento, editarRascunho, confirmarRascunho, descartarRascunho,
@@ -2118,9 +2497,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
-    db.assistente, setAssistente,
+    ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados,
+    canal, canalErro, canalOcupado, qrcode, conectarCanal, desconectarCanal, trocarNumero,
     db.dias, alternarDia, setHorario,
-    db.cfg, alternarCfg,
+    ajustes.cfg, alternarCfg,
     salvo, salvar,
     diaSel, rascunho, rascunhoEstado, novoAgendamento, editarRascunho, confirmarRascunho, descartarRascunho,
     google, googleDe, conectarGoogle, desconectarGoogle, googleOcupado,

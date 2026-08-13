@@ -80,6 +80,38 @@ export const TENANT_DEMO: ContextoTenant = {
 
 const json = (corpo: object, status: number) => NextResponse.json(corpo, { status });
 
+/** Só quem está logado, sem dizer de qual negócio. */
+export type Usuario = { usuarioId: string };
+export type PorteiroDeUsuario = { usuario: Usuario } | { barrado: NextResponse };
+
+export const barrouUsuario = (p: PorteiroDeUsuario): p is { barrado: NextResponse } => "barrado" in p;
+
+/**
+ * A sessão logada, SEM exigir negócio. O porteiro de `POST /api/negocio`.
+ *
+ * Precisa existir separado de `exigirSessao` por um motivo circular: `exigirSessao`
+ * barra com 409 `sem_negocio` justamente quem ainda não tem inquilino — que é exatamente
+ * quem vai criar um. Usá-lo na rota de criação tornaria impossível criar o primeiro
+ * negócio de qualquer conta.
+ *
+ * ⚠️ Não devolve `ContextoTenant`, e isso é o ponto: não há inquilino ainda. Quem chamar
+ * isto NÃO pode tocar em nenhuma porta de dados — só na `ProvisionadorDeNegocio`, que é
+ * a única que produz tenant em vez de consumir. A tipagem impede o engano: `Usuario` não
+ * é atribuível a `ContextoTenant`.
+ */
+export async function exigirUsuario(): Promise<PorteiroDeUsuario> {
+  if (!isSupabaseConfigured) {
+    /* Sem Supabase o app é demonstração aberta. Devolver o usuário de demonstração deixa
+     * o fluxo de cadastro exercitável por `curl` — que é onde ele será afinado antes de
+     * existir tela. O adaptador demo do provisionador é quem responde. */
+    return { usuario: { usuarioId: TENANT_DEMO.usuarioId } };
+  }
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { barrado: json({ ok: false, status: "nao_autenticado" }, 401) };
+  return { usuario: { usuarioId: user.id } };
+}
+
 /** A sessão logada, ou 401. Usada pelas rotas que só precisam de "tem alguém aí?". */
 export async function exigirSessao(): Promise<Porteiro> {
   if (!isSupabaseConfigured) {
@@ -103,11 +135,21 @@ export async function exigirSessao(): Promise<Porteiro> {
    * infinito com uma sessão perfeitamente válida. Existe uma AÇÃO que resolve (provisionar
    * o negócio), que é exatamente a semântica de 409 que `respostas.ts` já usa para
    * `reconectar`.
+   *
+   * A AÇÃO agora existe de verdade: `POST /api/negocio`. Até 13/08/2026 esta resposta
+   * dizia "Rode criar_negocio() no Supabase" — uma instrução de desenvolvedor entregue ao
+   * cliente final, que era a confissão de que o produto não sabia se ativar sozinho. O
+   * campo `acao` é contrato com a tela: ela usa para saber para onde mandar a pessoa.
    */
   if (!tenant) {
     return {
       barrado: json(
-        { ok: false, status: "sem_negocio", info: "Esta conta ainda não tem um negócio. Rode criar_negocio() no Supabase." },
+        {
+          ok: false,
+          status: "sem_negocio",
+          info: "Esta conta ainda não tem um negócio.",
+          acao: { metodo: "POST", rota: "/api/negocio" },
+        },
         409,
       ),
     };

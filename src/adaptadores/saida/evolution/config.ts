@@ -25,6 +25,21 @@ export const EVOLUTION = {
   baseUrl: clean(env.EVOLUTION_API_URL).replace(/\/+$/, ""),
   /** Token da instância (o `hash` do `/instance/create`). Vai no header `apikey`. */
   apiKey: clean(env.EVOLUTION_API_KEY),
+  /**
+   * Token GLOBAL do servidor (o `AUTHENTICATION_API_KEY` da Evolution). Só o
+   * provisionamento usa: criar, apagar e listar instância.
+   *
+   * ⚠️ CAI PARA `EVOLUTION_API_KEY` QUANDO AUSENTE, e isso é compatibilidade, não
+   * desenho. Até 13/08/2026 havia uma variável só, e ela era a global — dava para
+   * confirmar chamando `/instance/fetchInstances`, que só o token global responde. Nesse
+   * arranjo, vazar a credencial que manda mensagem era vazar a que apaga o servidor
+   * inteiro, incluindo instância de terceiro.
+   *
+   * Com as duas definidas, o poder fica separado: `apiKey` manda mensagem por um número,
+   * `apiKeyGlobal` administra. Enquanto o fallback for exercido, o ganho é zero — é só
+   * um lugar onde a intenção está escrita antes de valer.
+   */
+  apiKeyGlobal: clean(env.EVOLUTION_API_KEY_GLOBAL) || clean(env.EVOLUTION_API_KEY),
   /** Nome da instância — é ele que entra no path de TODA chamada e é o identificador
    *  que o webhook devolve em `instance`. Ver `entrada/whatsapp/contexto.ts`. */
   instancia: clean(env.EVOLUTION_INSTANCIA),

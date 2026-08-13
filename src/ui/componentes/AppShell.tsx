@@ -303,6 +303,40 @@ function AvisoCadastro() {
   );
 }
 
+/**
+ * O mesmo aviso, para os ajustes da MAISA.
+ *
+ * Separado de `AvisoCadastro` porque as duas falhas são independentes e dizem coisas
+ * diferentes: o cadastro falhar significa "os números na tela são inventados"; os ajustes
+ * falharem significa "o que você está lendo aqui pode não ser o que a MAISA usa no
+ * WhatsApp do seu cliente". A segunda é pior e não pode ficar escondida atrás da primeira.
+ *
+ * ⚠️ ISTO FALTAVA, e a falta apareceu no primeiro teste real: com a conta sem negócio, o
+ * `PATCH` voltava 409, o store guardava a frase certa ("Esta conta ainda não tem um
+ * negócio criado") e a tela mostrava um toast genérico dizendo "não foi possível salvar".
+ * A informação existia e não chegava a ninguém — que é o mesmo defeito que o `ajustesErro`
+ * foi criado para não ter.
+ */
+function AvisoAjustes() {
+  const st = useStore();
+  if (!st.ajustesErro) return null;
+
+  return (
+    <div
+      role="status"
+      style={s(
+        "flex-shrink:0;display:flex;align-items:center;gap:10px;padding:9px 24px;" +
+        "background:var(--danger-soft);color:var(--danger);border-bottom:1px solid var(--danger)",
+      )}
+    >
+      <Icon name="alert" size={15} />
+      <span style={s("font-size:var(--t-label);font-weight:var(--w-title)")}>
+        {st.ajustesErro} Os ajustes da MAISA abaixo podem não ser os que ela está usando.
+      </span>
+    </div>
+  );
+}
+
 function Topbar({ onBuscar }: { onBuscar: () => void }) {
   const st = useStore();
   const t = TELA[st.tela];
@@ -455,6 +489,7 @@ export default function AppShell() {
         {/* Acima do conteúdo e FORA do `key={st.tela}`: o aviso vale para todas as telas e
             não deve remontar (nem piscar) a cada troca de tela. */}
         <AvisoCadastro />
+        <AvisoAjustes />
         <div key={st.tela} style={s("flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden")}>
           <Ativa />
         </div>

@@ -27,6 +27,9 @@ import {
 } from "@/nucleo/aplicacao/agenda";
 import { criarOferecerHorarios } from "@/nucleo/aplicacao/oferecer-horarios";
 import { criarLerCadastro } from "@/nucleo/aplicacao/cadastro";
+import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
+import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
+import { criarConectarCanal, criarDesconectarCanal, criarLerCanal } from "@/nucleo/aplicacao/canal";
 import { criarAnotarFato, criarLembrarCliente } from "@/nucleo/aplicacao/memoria";
 import {
   criarLerConversa, criarListarConversas, criarMudarPosseConversa, criarResponderConversa,
@@ -38,6 +41,16 @@ import { isGoogleConfigured } from "@/adaptadores/saida/google/config";
 import { emissorFocus } from "@/adaptadores/saida/focus/emissor-focus";
 import { repositorioDemo } from "@/adaptadores/saida/demo/repositorio";
 import { repositorioSupabase } from "@/adaptadores/saida/supabase/repositorio";
+import { provisionadorDemo } from "@/adaptadores/saida/demo/provisionador";
+import { provisionadorSupabase } from "@/adaptadores/saida/supabase/provisionador";
+import { assistenteDemo } from "@/adaptadores/saida/demo/assistente-repo";
+import { assistenteSupabase } from "@/adaptadores/saida/supabase/assistente";
+import { canalSupabase } from "@/adaptadores/saida/supabase/canal";
+import { canalDemoRepo, provisionamentoDemo } from "@/adaptadores/saida/demo/canal";
+import { provisionamentoEvolution } from "@/adaptadores/saida/evolution/provisionamento-evolution";
+import { SEGREDO as WHATSAPP_SEGREDO } from "@/adaptadores/entrada/whatsapp/contexto";
+import { NaoConfigurado, PrecisaReconectar } from "@/nucleo/dominio/erros";
+import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import { registroSupabase } from "@/adaptadores/saida/supabase/atendimentos";
 import { registroDemo } from "@/adaptadores/saida/demo/atendimentos";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
@@ -46,7 +59,7 @@ import {
   conversasSupabase, historicoSupabase, memoriaSupabase,
 } from "@/adaptadores/saida/supabase/memoria";
 import { agendaDemo, conexoesDemo } from "@/adaptadores/saida/demo/agenda";
-import { canalEvolution } from "@/adaptadores/saida/evolution/canal-evolution";
+import { criarCanalEvolution } from "@/adaptadores/saida/evolution/canal-evolution";
 import { isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 
 /* As implementações escolhidas HOJE. Uma linha por decisão. */
@@ -80,6 +93,66 @@ const emissor = emissorFocus;
  * para o outro não casa.
  */
 const negocio = isSupabaseConfigured ? repositorioSupabase : repositorioDemo;
+const provisionador = isSupabaseConfigured ? provisionadorSupabase : provisionadorDemo;
+
+/**
+ * Os ajustes da MAISA. Segue o cadastro pela mesma razão que `registro` e `memoria`: as
+ * duas leituras acontecem no mesmo turno de conversa, e um par banco/fixture misturado
+ * daria um agente que sabe o catálogo real do inquilino e responde com o tom de outro.
+ */
+const assistente = isSupabaseConfigured ? assistenteSupabase : assistenteDemo;
+
+/**
+ * O CANAL DE WHATSAPP, por inquilino.
+ *
+ * Duas portas, dois critérios diferentes — e essa diferença é a decisão:
+ *   • o REPOSITÓRIO segue o Supabase, como todo o resto do cadastro;
+ *   • o PROVISIONAMENTO segue a Evolution, porque é ela que cria a instância.
+ *
+ * Separados porque as duas metades falham por motivos independentes. Um ambiente com
+ * banco e sem Evolution (o do desenvolvimento) precisa conseguir desenhar a tela de
+ * conectar com um QR de mentira; um com Evolution e sem banco não precisa existir.
+ */
+const canalRepo = isSupabaseConfigured ? canalSupabase : canalDemoRepo;
+const provisionamento = isEvolutionConfigured ? provisionamentoEvolution : provisionamentoDemo;
+
+/**
+ * Para onde a Evolution deve entregar as mensagens deste deploy.
+ *
+ * ⚠️ TEM QUE SER ALCANÇÁVEL PELA INTERNET. A Evolution roda em outro servidor: apontar
+ * para `localhost` faz ela aceitar a configuração, tentar entregar, falhar do lado dela —
+ * e daqui parece ter dado certo. É a falha mais cara de diagnosticar do produto, então
+ * falha ALTO aqui, antes de criar a instância, em vez de silenciosamente depois.
+ *
+ * A URL vem de env própria e não do `origin` do request (que é como
+ * `/api/whatsapp/conexao` faz) porque este caminho é chamado por um botão do painel: o
+ * `origin` seria o domínio que o USUÁRIO está usando, e um cliente que abrisse o painel
+ * por um domínio alternativo apontaria o webhook do canal dele para lá.
+ */
+function webhookDoAgente(): { url: string; segredo: string } {
+  /* ⚠️ O fallback é `VERCEL_PROJECT_PRODUCTION_URL`, NÃO `VERCEL_URL`.
+   *
+   * `VERCEL_URL` é o endereço do DEPLOY (`maisa-app-a1b2c3.vercel.app`) e muda a cada
+   * publicação. Um webhook apontado para ele fica preso ao deploy que estava no ar no dia
+   * em que o cliente pareou — e para de receber mensagem no próximo `git push`, sem nada
+   * quebrar visivelmente. `VERCEL_PROJECT_PRODUCTION_URL` é o domínio estável do projeto.
+   *
+   * Mesmo assim, `MAISA_PUBLIC_URL` vem primeiro: quando houver domínio próprio, é ele
+   * que deve estar no webhook, e não o `.vercel.app`. */
+  const base = (
+    process.env.MAISA_PUBLIC_URL ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "")
+  ).trim();
+  const faltando: string[] = [];
+  if (!base) faltando.push("MAISA_PUBLIC_URL (a URL pública deste deploy, ex: https://app.maisa.com.br)");
+  if (!WHATSAPP_SEGREDO) faltando.push("WHATSAPP_WEBHOOK_SECRET");
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(base)) {
+    faltando.push("MAISA_PUBLIC_URL (a Evolution não alcança localhost — use um túnel ou o domínio do deploy)");
+  }
+  if (faltando.length) throw new NaoConfigurado(faltando);
+
+  return { url: `${base.replace(/\/+$/, "")}/api/whatsapp`, segredo: WHATSAPP_SEGREDO };
+}
 /**
  * O ESPELHO do que a MAISA marcou — a tabela `atendimentos`.
  *
@@ -125,7 +198,29 @@ const conversas = isSupabaseConfigured ? conversasSupabase : conversasDemo;
  * número contratado. Um agente que só roda com a integração de pé é um agente que
  * ninguém testa antes de pagar — e o tom é justamente o que precisa de mais iteração.
  */
-const canal = isEvolutionConfigured ? canalEvolution : canalDemo;
+/**
+ * QUAL INSTÂNCIA ATENDE ESTE INQUILINO.
+ *
+ * ⚠️ FALHA FECHADA, e é a decisão mais importante deste arquivo. Inquilino sem canal
+ * próprio NÃO cai na `EVOLUTION_INSTANCIA` do ambiente. Cair seria o pior defeito
+ * possível do produto: a resposta ao cliente de um negócio sairia pelo WhatsApp de
+ * outro — número errado, nome errado, e uma conversa privada aterrissando num terceiro.
+ *
+ * `PrecisaReconectar` e não `NaoConfigurado` porque existe uma AÇÃO que resolve, e a UI
+ * já sabe oferecer botão para esse status (é o mesmo que a agenda do Google usa): abrir
+ * a tela e conectar o WhatsApp. "Não configurado" mandaria procurar variável de ambiente.
+ */
+const instanciaDoInquilino = async (t: ContextoTenant): Promise<string> => {
+  const c = await canalRepo.ler(t);
+  if (!c?.instancia) {
+    throw new PrecisaReconectar(
+      "Este negócio ainda não tem um WhatsApp conectado. Conecte na tela do canal para a MAISA poder responder.",
+    );
+  }
+  return c.instancia;
+};
+
+const canal = isEvolutionConfigured ? criarCanalEvolution({ instanciaDe: instanciaDoInquilino }) : canalDemo;
 
 /** Tudo que o app sabe fazer, já montado. */
 export const app = {
@@ -137,6 +232,38 @@ export const app = {
 
   /** Nasceu para a TELA: é por aqui que o painel para de importar fixture. */
   lerCadastro: criarLerCadastro({ negocio }),
+
+  /**
+   * CRIAR O NEGÓCIO — o único caso de uso que não recebe inquilino, porque o produz.
+   *
+   * Segue `isSupabaseConfigured` como o resto, mas por uma razão diferente das outras
+   * linhas deste arquivo: as outras escolhem ONDE ler; esta escolhe se o cadastro é real
+   * ou encenado. Sem banco, `provisionadorDemo` devolve um uuid de mentira para que o
+   * fluxo inteiro seja percorrível por `curl` antes de existir tela.
+   */
+  provisionarNegocio: criarProvisionarNegocio({ provisionador }),
+
+  /**
+   * OS AJUSTES DA MAISA — a mesma linha que o agente lê para montar o prompt.
+   *
+   * `assistente` aqui e `assistente.ler(t)` no `configuracaoDoAgente` abaixo são a MESMA
+   * porta, de propósito: é isso que garante que salvar na tela muda o que o cliente
+   * recebe no WhatsApp na mensagem seguinte. Duas fontes aqui seriam uma tela que salva
+   * e um agente que não lê — que é exatamente o estado de que este passo saiu.
+   */
+  /**
+   * O CANAL — conectar o WhatsApp do cliente sem ninguém criar instância na mão.
+   *
+   * As três recebem o mesmo trio de dependências porque são a mesma conversa com o
+   * provedor vista de três ângulos, e porque `conectar` precisa saber o que `ler` sabe
+   * (qual instância já é deste inquilino) para não gerar um nome novo a cada clique.
+   */
+  lerCanal: criarLerCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
+  conectarCanal: criarConectarCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
+  desconectarCanal: criarDesconectarCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
+
+  lerAssistente: criarLerAssistente({ assistente }),
+  ajustarAssistente: criarAjustarAssistente({ assistente }),
 
   lembrarCliente: criarLembrarCliente({ negocio, memoria }),
   anotarFato: criarAnotarFato({ negocio, memoria }),
@@ -235,37 +362,57 @@ export const agenteConfigurado = () => isGeminiConfigured || !!process.env.ANTHR
  *
  * É esta linha que faz o id no prompt e o id no banco serem o mesmo id. Ver o bloco acima.
  *
- * ⚠️ O QUE AINDA VEM DE FIXTURE, e por quê: `assistente`, `faqs` e `cfg`. As tabelas
- * existem (`assistente`, `faqs` no `002_multitenant.sql`), mas nenhuma tela grava nelas
- * ainda — a "A MAISA" vive no `localStorage` do navegador. Trocar agora daria um agente
- * sem tom e sem FAQ para todo inquilino, o que é pior que o padrão. E note que a metade
- * que faltava é justamente a que NÃO tinha id: nome, tom e liga/desliga não entram em
- * nenhuma consulta. O bug morava só em `servicos`/`profissionais`/`expedientes`, e é essa
- * metade que agora vem do banco.
+ * ⚠️ O QUE AINDA VEM DE FIXTURE, e por quê: `faqs`, e só. A tabela existe
+ * (`002_multitenant.sql`), o provisionamento a semeia por vertical, mas nenhuma tela
+ * grava nela e `RepositorioNegocio` não tem método de FAQ — então trocar agora daria a
+ * mesma FAQ genérica com cara de conteúdo próprio. É o passo seguinte, e é uma porta
+ * nova, não uma linha aqui.
  *
- * `Promise.all` porque as três falham juntas e ninguém sabe atender com duas de três: sem
- * serviço não há duração, sem profissional não há agenda, sem negócio não há nome. Em
- * série custaria três round-trips no caminho quente de cada mensagem.
+ * ── `assistente` E `cfg` SAÍRAM DA FIXTURE EM 13/08/2026 ──
  *
- * O expediente sai de `profissionais` em vez de uma quarta consulta: `Profissional` já
+ * Enquanto a tela "A MAISA" vivia no `localStorage`, ler do banco daria a MESMA
+ * assistente para todo inquilino — e era esse o argumento para manter a fixture. Com
+ * `PATCH /api/assistente` a tela passa a gravar, e a linha de `assistente` já nasce
+ * preenchida no provisionamento, com o tom variando por vertical
+ * (`005_provisionar.sql:209`). Manter a fixture agora seria o contrário do que era: uma
+ * configuração que o cliente escreve, salva, e que o agente ignora.
+ *
+ * `Promise.all` porque as quatro falham juntas e ninguém sabe atender com três de quatro:
+ * sem serviço não há duração, sem profissional não há agenda, sem negócio não há nome, sem
+ * assistente não há tom. Em série custaria quatro round-trips no caminho quente de cada
+ * mensagem.
+ *
+ * O expediente sai de `profissionais` em vez de uma quinta consulta: `Profissional` já
  * carrega o dele (ver `paraProfissional` no adaptador Supabase), então pedir de novo seria
  * pagar duas vezes pela mesma linha.
  */
 const configuracaoDoAgente: ResolvedorDeConfiguracao = async (t) => {
-  const [dados, servicos, profissionais] = await Promise.all([
+  const [dados, servicos, profissionais, ajustes] = await Promise.all([
     negocio.negocio(t),
     negocio.servicos(t),
     negocio.profissionais(t),
+    assistente.ler(t),
   ]);
+
+  /* Linha ausente NÃO derruba a conversa. Aqui o `?? padrão` é a escolha certa, e é o
+   * oposto da que `criarLerAssistente` faz: a tela de ajustes precisa saber que a linha
+   * sumiu (404), o cliente que acabou de mandar "oi" no WhatsApp não. Responder com o tom
+   * padrão é degradar; estourar no meio do turno é sumir.
+   *
+   * O `warn` existe para isso não virar silêncio permanente: um inquilino provisionado
+   * pela RPC sempre tem a linha, então cair aqui é anomalia que merece investigação. */
+  if (!ajustes) {
+    console.warn(`[composicao] sem linha em 'assistente' para o inquilino ${t.tenantId} — usando o padrão`);
+  }
 
   return {
     negocio: dados,
     servicos,
     profissionais,
     expedientes: Object.fromEntries(profissionais.map((p) => [p.id, p.expediente])),
-    assistente: ASSISTENTE_PADRAO,
+    assistente: ajustes?.assistente ?? ASSISTENTE_PADRAO,
     faqs: FAQS,
-    cfg: CFG_PADRAO,
+    cfg: ajustes?.cfg ?? CFG_PADRAO,
   };
 };
 

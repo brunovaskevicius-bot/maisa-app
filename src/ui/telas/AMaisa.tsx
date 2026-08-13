@@ -12,7 +12,7 @@
  * Tudo aqui é controlado pelo store, então o preview reage enquanto você digita. */
 
 import React from "react";
-import { s, Icon, Toggle } from "@/ui/primitivos";
+import { s, Btn, Icon, Toggle } from "@/ui/primitivos";
 import { useIsMobile } from "@/ui/useIsMobile";
 import * as D from "@/adaptadores/saida/demo";
 import { useStore } from "@/ui/estado/store";
@@ -68,6 +68,123 @@ function FaixaAssistente() {
         </span>
       </span>
       <Toggle on={ativa} onChange={(v) => st.setAssistente({ ativa: v })} rotulo="Assistente ativa" />
+    </div>
+  );
+}
+
+/* ───────────────────────────── o canal de WhatsApp ─────────────────────────────
+ * PROVISÓRIA, e assumidamente. A tela oficial de conexão entra na segunda leva de
+ * onboarding; esta existe para que o canal deixe de ser operável só por `curl`.
+ *
+ * Mora AQUI, junto da faixa de "assistente ativa", porque as duas respondem à mesma
+ * pergunta do dono: "a MAISA está no ar?". Assistente pausada e WhatsApp desconectado
+ * produzem o mesmo silêncio do lado do cliente, e separá-las em telas diferentes faria
+ * procurar em dois lugares por um sintoma só.
+ *
+ * ⚠️ AS DUAS AÇÕES DESTRUTIVAS PEDEM CONFIRMAÇÃO EM DOIS TOQUES, e não é cerimônia:
+ * desconectar derruba o atendimento de um negócio que pode estar no meio de uma conversa,
+ * e trocar número perde o pareamento atual sem volta. Um `confirm()` do navegador seria
+ * mais fácil e é pior — ele é bloqueante, alguns navegadores o suprimem, e ninguém lê.
+ */
+
+function FaixaCanal() {
+  const st = useStore();
+  const [confirmando, setConfirmando] = React.useState<"trocar" | "desconectar" | null>(null);
+
+  const status = st.canal?.status ?? "desconectado";
+  const conectado = status === "conectado";
+  const pareando = status === "pareando" || !!st.qrcode;
+
+  const forte = conectado ? "var(--success)" : pareando ? "var(--warn)" : "var(--muted)";
+  const fundo = conectado ? "var(--success-soft)" : pareando ? "var(--warn-soft)" : "var(--surface-2)";
+
+  const titulo = conectado ? "WhatsApp conectado" : pareando ? "Aguardando leitura do QR" : "WhatsApp não conectado";
+  const sub = conectado
+    ? st.canal?.numero ? `+${st.canal.numero}` : "Número conectado"
+    : pareando
+      ? "Abra o WhatsApp do negócio → Aparelhos conectados → Conectar aparelho"
+      : "A MAISA não consegue responder enquanto isso";
+
+  /* Rótulo em vez de `disabled`: `Btn` não tem essa prop, e criar uma só para cá
+   * significaria mexer num primitivo usado por toda a aplicação por causa desta faixa. */
+  const ocupado = st.canalOcupado;
+
+  return (
+    <div style={s(`flex-shrink:0;display:flex;flex-direction:column;gap:12px;padding:13px 16px;border-radius:16px;background:${fundo};border:1px solid ${forte}`)}>
+      <div style={s("display:flex;align-items:center;gap:14px")}>
+        <span style={s(`width:9px;height:9px;flex-shrink:0;border-radius:50%;background:${forte}`)} />
+        <span style={s("flex:1;min-width:0")}>
+          <span style={s(`display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:${forte}`)}>{titulo}</span>
+          <span style={s("display:block;font-size:var(--t-label);color:var(--ink);margin-top:2px;line-height:var(--lh-ui)")}>{sub}</span>
+        </span>
+
+        <span style={s("display:flex;gap:8px;flex-shrink:0")}>
+          {!conectado && !pareando && (
+            <Btn variant="whats" size="sm" onClick={ocupado ? undefined : () => void st.conectarCanal()}>
+              {ocupado ? "Gerando…" : "Conectar WhatsApp"}
+            </Btn>
+          )}
+
+          {pareando && (
+            <Btn variant="secondary" size="sm" onClick={ocupado ? undefined : () => void st.desconectarCanal()}>
+              {ocupado ? "…" : "Cancelar"}
+            </Btn>
+          )}
+
+          {conectado && confirmando === null && (
+            <>
+              <Btn variant="secondary" size="sm" onClick={() => setConfirmando("trocar")}>Trocar número</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmando("desconectar")}>Desconectar</Btn>
+            </>
+          )}
+
+          {conectado && confirmando !== null && (
+            <>
+              <Btn
+                variant="danger"
+                size="sm"
+                onClick={ocupado ? undefined : () => {
+                  const acao = confirmando === "trocar" ? st.trocarNumero : st.desconectarCanal;
+                  setConfirmando(null);
+                  void acao();
+                }}
+              >
+                {ocupado ? "…" : confirmando === "trocar" ? "Sim, trocar" : "Sim, desconectar"}
+              </Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmando(null)}>Voltar</Btn>
+            </>
+          )}
+        </span>
+      </div>
+
+      {confirmando !== null && (
+        <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>
+          {confirmando === "trocar"
+            ? "O número atual será desconectado e você terá que parear o novo lendo um QR."
+            : "A MAISA para de responder no WhatsApp até você conectar de novo."}
+        </span>
+      )}
+
+      {/* O QR é EFÊMERO: a Evolution troca o código a cada poucos segundos, e o polling do
+          store o remove no instante em que conecta. Nunca guardamos isto em lugar nenhum. */}
+      {st.qrcode && (
+        <div style={s("display:flex;align-items:center;gap:16px;padding:12px;border-radius:12px;background:var(--surface)")}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={st.qrcode}
+            alt="QR code para conectar o WhatsApp"
+            style={s("width:148px;height:148px;flex-shrink:0;border-radius:8px;background:#fff;image-rendering:pixelated")}
+          />
+          <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.6")}>
+            Leia com o celular do <b>número do negócio</b>.<br />
+            A tela avisa sozinha quando conectar.
+          </span>
+        </div>
+      )}
+
+      {st.canalErro && (
+        <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>{st.canalErro}</span>
+      )}
     </div>
   );
 }
@@ -326,6 +443,7 @@ export default function AMaisa() {
         {/* No celular o preview vem logo depois da faixa e é curto: é a prova do que
             os ajustes abaixo fazem, então precisa estar visível sem rolar. */}
         <FaixaAssistente />
+        <FaixaCanal />
         <div style={s("height:340px;display:flex")}><Preview /></div>
         {secoes}
       </div>
@@ -338,6 +456,7 @@ export default function AMaisa() {
           enquanto o usuário mexe nas seções. */}
       <div style={s("min-height:0;display:flex;flex-direction:column;gap:14px")}>
         <FaixaAssistente />
+        <FaixaCanal />
         <div style={s("min-height:0;overflow-y:auto;padding:2px 2px 6px 0")}>
           {secoes}
         </div>
