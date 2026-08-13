@@ -305,6 +305,20 @@ const MOTIVO_CANAL: Record<string, string> = {
   desconectar: "Não foi possível desconectar.",
 };
 
+/**
+ * A frase do erro do canal, COM a lista do que falta quando o servidor a mandou.
+ *
+ * `respostas.ts:26` sempre devolve `faltando[]` junto de `nao_configurado`, e essa lista
+ * era descartada aqui: a tela dizia "falta configuração no servidor" e o nome da variável
+ * ficava só no código. Em 13/08/2026 isso custou um canal fora do ar e uma hora de
+ * caça — a informação existia na resposta e ninguém a mostrava.
+ */
+function motivoCanal(r: { status?: string; info?: string; faltando?: string[] }, padrao: string): string {
+  const base = MOTIVO_CANAL[r?.status ?? ""] ?? r?.info ?? padrao;
+  const faltam = r?.faltando ?? [];
+  return faltam.length ? `${base} Falta: ${faltam.join(", ")}.` : base;
+}
+
 /** Idem para as conversas. Mesmos nomes de `status` — eles são contrato com `respostas.ts`. */
 const MOTIVO_CONVERSAS: Record<string, string> = {
   nao_autenticado: "Faça login para ver as conversas do WhatsApp.",
@@ -616,6 +630,9 @@ export type StoreValue = {
   canalErro: string | null;
   /** Há uma chamada em voo — a tela desabilita os botões para não disparar duas. */
   canalOcupado: boolean;
+  /** O que falta NO SERVIDOR para conseguir conectar. Vazio = dá para conectar.
+   *  Com item, a tela mostra a lista e trava o que derrubaria o canal atual. */
+  canalFaltando: string[];
   /** QR do pareamento em curso, pronto para `<img src>`. `null` = nenhum. */
   qrcode: string | null;
   conectarCanal: () => Promise<void>;
@@ -1861,6 +1878,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [canal, setCanal] = useState<Canal | null>(null);
   const [canalErro, setCanalErro] = useState<string | null>(null);
   const [canalOcupado, setCanalOcupado] = useState(false);
+  /** O que falta no SERVIDOR para conseguir conectar. Vazio = dá para conectar.
+   *  Enquanto tiver item, a tela não deixa derrubar o canal que já está de pé. */
+  const [canalFaltando, setCanalFaltando] = useState<string[]>([]);
   /** O QR do pareamento em curso. `null` = não há pareamento na tela. */
   const [qrcode, setQrcode] = useState<string | null>(null);
   const pollCanal = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1872,8 +1892,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const buscarCanal = useCallback(async (): Promise<Canal | null> => {
     try {
       const r = await fetch("/api/canal").then((x) => x.json());
-      if (!r?.ok) { setCanalErro(MOTIVO_CANAL[r?.status] ?? r?.info ?? MOTIVO_CANAL.ler); return null; }
+      if (!r?.ok) { setCanalErro(motivoCanal(r, MOTIVO_CANAL.ler)); return null; }
       setCanal(r.canal);
+      setCanalFaltando(r.faltando ?? []);
       setCanalErro(null);
       return r.canal as Canal;
     } catch {
@@ -1921,7 +1942,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       const r = await fetch("/api/canal", { method: "POST" }).then((x) => x.json());
       if (!r?.ok) {
-        setCanalErro(MOTIVO_CANAL[r?.status] ?? r?.info ?? MOTIVO_CANAL.conectar);
+        setCanalErro(motivoCanal(r, MOTIVO_CANAL.conectar));
+        /* Reaproveita a lista do erro como estado da tela: se conectar falhou por
+         * configuração, os botões destrutivos têm que travar AGORA, não no próximo GET. */
+        if (r?.faltando?.length) setCanalFaltando(r.faltando);
         return;
       }
       setQrcode(r.pareamento?.qrcode ?? null);
@@ -1941,7 +1965,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setQrcode(null);
     try {
       const r = await fetch("/api/canal", { method: "DELETE" }).then((x) => x.json());
-      if (!r?.ok) { setCanalErro(MOTIVO_CANAL[r?.status] ?? r?.info ?? MOTIVO_CANAL.desconectar); return; }
+      if (!r?.ok) { setCanalErro(motivoCanal(r, MOTIVO_CANAL.desconectar)); return; }
       await buscarCanal();
       toast("WhatsApp desconectado");
     } catch {
@@ -1951,11 +1975,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [buscarCanal, pararPolling, toast]);
 
-  /** Desconecta e já pede o QR novo. Ver o cabeçalho para por que não é um botão só. */
+  /**
+   * Desconecta e já pede o QR novo. Ver o cabeçalho para por que não é um botão só.
+   *
+   * ⚠️ A GUARDA É O CORAÇÃO DESTA FUNÇÃO, não um detalhe defensivo.
+   *
+   * Em 13/08/2026 isto rodou com `MAISA_PUBLIC_URL` ausente na Vercel: o `desconectar`
+   * apagou a instância na Evolution, o `conectar` seguinte morreu montando a URL do
+   * webhook, e o WhatsApp do negócio ficou fora do ar — sem ninguém ter escolhido isso.
+   *
+   * Os dois passos não são atômicos e não dá para fazê-los atômicos: quem apaga a
+   * instância é outro servidor. O que dá é NÃO COMEÇAR quando já se sabe que o segundo
+   * passo não termina. É por isso que `GET /api/canal` devolve `faltando`.
+   */
   const trocarNumero = useCallback(async () => {
+    if (canalFaltando.length) {
+      setCanalErro(
+        `Não dá para trocar o número agora: o servidor não conseguiria reconectar. ` +
+          `Falta: ${canalFaltando.join(", ")}. O WhatsApp atual segue no ar.`,
+      );
+      return;
+    }
     await desconectarCanal();
     await conectarCanal();
-  }, [conectarCanal, desconectarCanal]);
+  }, [canalFaltando, conectarCanal, desconectarCanal]);
 
   const abrirSecao = useCallback((id: string) => {
     setSecAtiva((s) => (s === id ? null : id));
@@ -2470,7 +2513,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
     assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados,
-    canal, canalErro, canalOcupado, qrcode, conectarCanal, desconectarCanal, trocarNumero,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
     dias: db.dias, alternarDia, setHorario,
     cfg: ajustes.cfg, alternarCfg,
     salvo, salvar,
@@ -2498,7 +2541,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
     ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados,
-    canal, canalErro, canalOcupado, qrcode, conectarCanal, desconectarCanal, trocarNumero,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
     db.dias, alternarDia, setHorario,
     ajustes.cfg, alternarCfg,
     salvo, salvar,

@@ -109,6 +109,11 @@ function FaixaCanal() {
    * significaria mexer num primitivo usado por toda a aplicação por causa desta faixa. */
   const ocupado = st.canalOcupado;
 
+  /* O servidor não consegue conectar (falta variável de ambiente). A faixa some com os
+   * botões que derrubariam o canal atual — porque derrubar seria definitivo: o
+   * `conectar` de volta é justamente o que não funciona. Ver `trocarNumero` no store. */
+  const travado = st.canalFaltando.length > 0;
+
   return (
     <div style={s(`flex-shrink:0;display:flex;flex-direction:column;gap:12px;padding:13px 16px;border-radius:16px;background:${fundo};border:1px solid ${forte}`)}>
       <div style={s("display:flex;align-items:center;gap:14px")}>
@@ -119,7 +124,7 @@ function FaixaCanal() {
         </span>
 
         <span style={s("display:flex;gap:8px;flex-shrink:0")}>
-          {!conectado && !pareando && (
+          {!conectado && !pareando && !travado && (
             <Btn variant="whats" size="sm" onClick={ocupado ? undefined : () => void st.conectarCanal()}>
               {ocupado ? "Gerando…" : "Conectar WhatsApp"}
             </Btn>
@@ -131,7 +136,7 @@ function FaixaCanal() {
             </Btn>
           )}
 
-          {conectado && confirmando === null && (
+          {conectado && confirmando === null && !travado && (
             <>
               <Btn variant="secondary" size="sm" onClick={() => setConfirmando("trocar")}>Trocar número</Btn>
               <Btn variant="ghost" size="sm" onClick={() => setConfirmando("desconectar")}>Desconectar</Btn>
@@ -156,6 +161,16 @@ function FaixaCanal() {
           )}
         </span>
       </div>
+
+      {/* Diz a variável pelo nome. "Falta configuração no servidor" foi exatamente a frase
+          que, em 13/08/2026, não permitiu descobrir que faltava `MAISA_PUBLIC_URL`. */}
+      {travado && (
+        <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>
+          O servidor não está pronto para conectar o WhatsApp. Falta:{" "}
+          <b>{st.canalFaltando.join(", ")}</b>. Os botões estão travados de propósito — sem isso,
+          desconectar seria definitivo.
+        </span>
+      )}
 
       {confirmando !== null && (
         <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>

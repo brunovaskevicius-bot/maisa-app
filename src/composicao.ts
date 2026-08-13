@@ -262,6 +262,32 @@ export const app = {
   conectarCanal: criarConectarCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
   desconectarCanal: criarDesconectarCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
 
+  /**
+   * O QUE FALTA PARA CONECTAR — perguntado ANTES de oferecer o botão.
+   *
+   * Existe por causa de um incidente real (13/08/2026): `MAISA_PUBLIC_URL` não estava na
+   * Vercel, "trocar número" apagou a instância do cliente e o `conectar` seguinte morreu
+   * em `webhookDoAgente()`. O canal ficou fora do ar por uma variável de ambiente, e a
+   * tela só disse "falta configuração no servidor" — sem dizer QUAL.
+   *
+   * A lição não é "tratar melhor o erro": é que uma tela que oferece um botão destrutivo
+   * tem que saber, antes do clique, se consegue reconstruir o que vai derrubar. Por isso
+   * isto é uma pergunta de LEITURA (`GET`), e não um `catch` do `POST`.
+   *
+   * Devolve lista vazia quando dá para conectar. Nunca lança: é diagnóstico, e um
+   * diagnóstico que derruba a tela que ele deveria explicar não serve para nada.
+   */
+  canalFaltando(): string[] {
+    const faltam = [...provisionamento.faltando()];
+    try {
+      webhookDoAgente();
+    } catch (e) {
+      if (e instanceof NaoConfigurado) faltam.push(...e.faltando);
+      else faltam.push("webhook do agente (erro inesperado ao montar a URL)");
+    }
+    return faltam;
+  },
+
   lerAssistente: criarLerAssistente({ assistente }),
   ajustarAssistente: criarAjustarAssistente({ assistente }),
 

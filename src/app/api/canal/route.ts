@@ -46,7 +46,10 @@ export async function GET() {
 
   try {
     const canal = await app.lerCanal(porteiro.tenant);
-    return NextResponse.json({ ok: true, status: "ok", canal });
+    /* `faltando` vem no GET, e não só no erro do POST, porque a tela precisa saber se
+     * consegue RECONSTRUIR o canal antes de oferecer o botão que o derruba. Ver o
+     * comentário de `canalFaltando` em `composicao.ts` — nasceu de um incidente. */
+    return NextResponse.json({ ok: true, status: "ok", canal, faltando: app.canalFaltando() });
   } catch (e) {
     return falha("canal", e);
   }
