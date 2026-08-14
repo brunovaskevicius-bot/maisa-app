@@ -36,10 +36,17 @@ export type LembretePendente = {
 /**
  * Quanto antes do atendimento o lembrete sai.
  *
- * ⚠️ TRÊS LUGARES PROMETEM PRAZOS DIFERENTES hoje: a tela diz "3h antes", a LP de
- * barbeiros v3 diz "no dia anterior", e `completa/dados.ts:89` diz "3h antes". Este valor
- * é o que o produto FAZ, e a tela é a que concorda com ele. As LPs que divergem estão
- * erradas — está anotado no log de iteração, e a correção é de texto, não de código.
+ * ⚠️ ESTE É O NÚMERO, E ELE É PROMETIDO EM TEXTO EM OUTROS LUGARES. Mudá-lo aqui sem
+ * mudar a copy transforma a landing page numa promessa que o produto não cumpre — que é
+ * o defeito mais caro que uma LP pode ter, porque ninguém o vê até um cliente reclamar.
+ *
+ * Onde o prazo está escrito para o cliente, em 14/08/2026:
+ *   • `src/adaptadores/saida/demo/assistente.ts` → o toggle "Lembrete 3h antes";
+ *   • `lp/terapeutas/index.html` → "lembrete 3h antes" (dizia "no dia anterior" até hoje).
+ *
+ * A LP de barbeiros v3 NÃO cita prazo, de propósito — o cabeçalho de `v3/dados.ts`
+ * explica por quê. Não acrescente: uma terceira cópia do mesmo número é a terceira chance
+ * de ele ficar velho.
  */
 export const HORAS_ANTES = 3;
 

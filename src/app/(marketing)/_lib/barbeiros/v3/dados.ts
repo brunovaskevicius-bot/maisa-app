@@ -168,13 +168,21 @@ export const SUB_DOBRA =
  * não seria — e por isso não está escrito em lugar nenhum aqui. É a única parte da
  * disciplina antiga que sobreviveu à troca, e é a que mais importa.
  *
- * ⚠️ NENHUMA DAS TRÊS CONVERSAS FALA DE LEMBRETE, e isso é deliberado. Há uma
- * contradição de copy pendente no projeto: `RecursosBarbeiros.tsx:86` promete o
- * lembrete "no dia anterior" e `completa/dados.ts:89` promete "3h antes". Escrever
- * um horário de lembrete aqui criaria a TERCEIRA versão do mesmo prazo, num arquivo
- * que ninguém lembraria de conferir no dia em que as outras duas fossem alinhadas. A
- * palavra "confirmado" aparece, mas só como fecho da própria conversa — fechar um
- * agendamento na hora não promete cron nenhum. */
+ * ⚠️ NENHUMA DAS TRÊS CONVERSAS FALA DE PRAZO DE LEMBRETE, e isso segue deliberado.
+ *
+ * A contradição que este bloco registrava foi resolvida em 14/08/2026: o produto manda o
+ * lembrete 3h antes (`nucleo/dominio/lembretes.ts` → `HORAS_ANTES`), e a única cópia que
+ * dizia "no dia anterior" — `lp/terapeutas/index.html:302` — foi corrigida.
+ *
+ * ⚠️ ESTE COMENTÁRIO CITAVA `RecursosBarbeiros.tsx:86` E `completa/dados.ts:89`, QUE NÃO
+ * EXISTEM MAIS: sumiram na reescrita da v3. A referência sobreviveu ao arquivo e mandou
+ * procurar o defeito na LP errada. Fica o aviso de método — citação de arquivo em
+ * comentário envelhece sozinha, e a que aponta para o vazio é pior que nenhuma.
+ *
+ * O motivo de continuar sem prazo aqui não mudou: escrevê-lo criaria uma segunda fonte do
+ * mesmo número, num arquivo que ninguém lembraria de conferir quando `HORAS_ANTES`
+ * mudasse. A palavra "confirmado" aparece, mas só como fecho da própria conversa — fechar
+ * um agendamento na hora não promete cron nenhum. */
 
 export const TELAS_TITULO = "Foi assim que eles marcaram.";
 
@@ -536,8 +544,12 @@ export const PLANOS_LEAD =
  *
  * ESTÃO VAZIOS DE PROPÓSITO, E NÃO É PENDÊNCIA ESQUECIDA: em 07/08/2026 não existe
  * produto de barbearia no Stripe. O que existe é UM link, e é de TERAPEUTAS — está
- * digitado cru no `lp/terapeutas/index.html:429`, com um `client_reference_id`
- * daquele funil. Reaproveitá-lo aqui cobraria o plano errado de quem clicasse.
+ * digitado cru em `lp/terapeutas/index.html`, no CTA do plano. Reaproveitá-lo aqui
+ * cobraria o plano errado de quem clicasse.
+ *
+ * (Aquele link tinha um `client_reference_id` fixo, removido em 14/08/2026: valor fixo
+ * faz todo comprador chegar com a mesma referência. Se um dia colar links aqui, cole a
+ * URL limpa — o vínculo com a pessoa é o email da sessão do Stripe.)
  *
  * INVENTAR UMA URL DE PAGAMENTO É O PIOR BUG POSSÍVEL NUMA LP: ela não quebra o
  * build, não aparece em teste, e só falha no único momento que importa — com o
