@@ -24,9 +24,12 @@ describe("o funil é público", () => {
     "/lp/terapeutas",
     "/lp/terapeutas/",
     "/lp/terapeutas/index.html",
+    /* `/terapeutas` não tem mais página desde 14/08/2026 — só redirect para
+     * `/lp/terapeutas`. Continua tendo que ser pública: se o middleware barrar antes, o
+     * visitante que chegar por um link antigo cai no login em vez de na LP, e o redirect
+     * nunca chega a rodar. */
     "/terapeutas",
     "/terapeutas/comecar",
-    "/terapeutas/v2",
     /* As duas LPs de barbearia. `/barbeiro` (singular, a variante filmada) NÃO é coberta
      * pelo prefixo `/barbeiros` — a comparação é por segmento. Foi por isso que ela
      * precisou de entrada própria em `PUBLIC_PREFIXES`, e é por isso que está aqui. */

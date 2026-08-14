@@ -60,23 +60,28 @@ export const ICPS: Record<ICP, IcpConfig> = {
     rotulo: "para barbearias",
     publico: "barbearia",
     /* ⚠️ O MUNDO BARBEIROS TEM UMA PÁGINA SÓ, e por isso os três níveis apontam para
-       o mesmo lugar. Até 11/08/2026 aqui havia um funil de três rotas (`/barbeiros`,
-       `/barbeiros/como-funciona`, `/barbeiros/comecar`) mais duas variações completas;
-       todas foram apagadas — a v3 é a única LP de barbeiro aprovada, e a v4 é ela com
-       outra dobra. Uma one-pager não tem topo, meio e base: ela é os três numa rolagem.
-       Manter os campos apontando para páginas mortas seria deixar 404 escrito na
-       configuração, esperando que algum componente novo os renderizasse. */
-    home: "/barbeiros/v3",
+       o mesmo lugar. Até 11/08/2026 aqui havia um funil de três rotas mais duas
+       variações completas; todas foram apagadas — a v3 é a única LP de barbeiro
+       aprovada, e a v4 é ela com outra dobra. Uma one-pager não tem topo, meio e base:
+       ela é os três numa rolagem. Manter os campos apontando para páginas mortas seria
+       deixar 404 escrito na configuração, esperando que algum componente novo os
+       renderizasse.
+
+       Em 14/08/2026 a v3 foi PROMOVIDA a `/barbeiros` e a v4 a `/barbeiro`. Os caminhos
+       antigos redirecionam (ver `next.config.mjs`), mas configuração não deve apontar
+       para redirect: é um salto a mais em toda navegação e a primeira coisa a apodrecer
+       quando o redirect for removido. */
+    home: "/barbeiros",
     rotas: {
-      topo: "/barbeiros/v3",
-      meio: "/barbeiros/v3",
-      base: "/barbeiros/v3#planos",
+      topo: "/barbeiros",
+      meio: "/barbeiros",
+      base: "/barbeiros#planos",
     },
     /* A <MarketingNav> não é renderizada em nenhuma página de barbeiro — a v3 decidiu
        não ter nav ("uma one-pager não navega para nada", cabeçalho do page.tsx dela).
        A lista fica com a única âncora que existe, em vez de vazia, para que quem ligar
        a nav um dia não herde três links quebrados. */
-    nav: [{ label: "Planos", href: "/barbeiros/v3#planos", nivel: "base" }],
+    nav: [{ label: "Planos", href: "/barbeiros#planos", nivel: "base" }],
     ctaLabel: "Ativar minha agenda",
     ctaMensagem: barbeirosCta,
     ctaUrl: whatsappUrl(barbeirosCta),
@@ -87,17 +92,25 @@ export const ICPS: Record<ICP, IcpConfig> = {
     mundoClass: "mundo-terapeutas",
     rotulo: "para terapeutas",
     publico: "terapeuta",
-    home: "/terapeutas",
+    /* ⚠️ O MUNDO TERAPEUTAS TAMBÉM TEM UMA PÁGINA SÓ, desde 14/08/2026 — e ela NÃO É
+       ROTA DO NEXT. É o bundle estático de `public/lp/terapeutas`, a LP oficial, a única
+       do produto com link de pagamento. As quatro rotas Next que existiam aqui
+       (`/terapeutas`, `/comecar`, `/como-funciona`, `/v2`) foram apagadas.
+
+       Esta configuração continua viva mesmo sem página Next porque o RODAPÉ das páginas
+       de barbearia faz link cruzado para o outro ICP (`Footer.tsx` → `CROSS`). Apagar o
+       bloco quebraria o rodapé das duas LPs que ficaram. */
+    home: "/lp/terapeutas",
     rotas: {
-      topo: "/terapeutas",
-      meio: "/terapeutas/como-funciona",
-      base: "/terapeutas/comecar",
+      topo: "/lp/terapeutas",
+      meio: "/lp/terapeutas",
+      base: "/lp/terapeutas",
     },
-    nav: [
-      { label: "Como funciona", href: "/terapeutas/como-funciona", nivel: "meio" },
-      { label: "Recursos", href: "/terapeutas/como-funciona#recursos" },
-      { label: "Planos", href: "/terapeutas/comecar", nivel: "base" },
-    ],
+    /* Vazia porque não há para onde navegar: a LP é uma página só, servida fora do Next,
+       e a <MarketingNav> não é renderizada em nenhuma página que sobrou. Um link para
+       âncora de um HTML que este repositório não controla seria promessa que a próxima
+       edição do bundle quebra em silêncio. */
+    nav: [],
     ctaLabel: "Falar com a MAISA",
     ctaMensagem: terapeutasCta,
     ctaUrl: whatsappUrl(terapeutasCta),
@@ -112,9 +125,15 @@ export const ICPS: Record<ICP, IcpConfig> = {
  * hooks: funções puras que recebem o pathname (via usePathname no cliente).
  * -------------------------------------------------------------------------- */
 
-/** Primeiro segmento do path → ICP. Cai em "barbeiros" fora das rotas de marca. */
+/** Primeiro segmento do path → ICP. Cai em "barbeiros" fora das rotas de marca.
+ *
+ * ⚠️ Reconhece `/lp/terapeutas` além de `/terapeutas`: desde 14/08/2026 a LP de
+ * terapeutas é o bundle estático servido de `/lp`, e o caminho antigo só existe como
+ * redirect. Um componente cliente que rode no bundle continuaria caindo em "barbeiros"
+ * sem esta linha — e pintaria o mundo errado. */
 export function icpDoPath(pathname: string | null | undefined): ICP {
-  const seg = (pathname ?? "").split("/").filter(Boolean)[0];
+  const segs = (pathname ?? "").split("/").filter(Boolean);
+  const seg = segs[0] === "lp" ? segs[1] : segs[0];
   return seg === "terapeutas" ? "terapeutas" : "barbeiros";
 }
 

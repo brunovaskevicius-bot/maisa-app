@@ -26,6 +26,16 @@ const nextConfig = {
     return [
       { source: "/barbeiros/v3", destination: "/barbeiros", permanent: true },
       { source: "/barbeiros/v4", destination: "/barbeiro", permanent: true },
+
+      /* As quatro rotas Next de terapeutas foram apagadas em 14/08/2026 — sobrou a LP
+       * oficial, o bundle estático de `public/lp`. `/terapeutas` estava PÚBLICA e no ar,
+       * então é a que mais tem chance de ter link solto por aí; as outras três eram
+       * níveis de um funil que não se usa mais. Todas caem na LP que ficou.
+       *
+       * `:path*` cobre âncoras e qualquer nível que tenha existido, inclusive os que eu
+       * não conheça — vale mais que quatro linhas exatas que envelhecem uma a uma. */
+      { source: "/terapeutas", destination: "/lp/terapeutas", permanent: true },
+      { source: "/terapeutas/:path*", destination: "/lp/terapeutas", permanent: true },
     ];
   },
 };
