@@ -55,12 +55,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # 24 porque é o que a Vercel usa neste projeto (confirmado por
       # `vercel project inspect`). CI numa versão diferente da de produção testa um
       # programa que não é o que vai para o ar.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
