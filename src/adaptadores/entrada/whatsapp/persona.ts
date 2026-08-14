@@ -21,6 +21,8 @@ import type { Assistente, ChaveCfg } from "@/nucleo/dominio/assistente";
 import type { Profissional, Servico } from "@/nucleo/dominio/catalogo";
 import type { Negocio } from "@/nucleo/dominio/negocio";
 import type { Expediente } from "@/nucleo/dominio/expediente";
+import type { SemanaAnunciada } from "@/nucleo/dominio/horarios";
+import { semanaEmTexto } from "@/nucleo/dominio/horarios";
 import type { Faq } from "@/nucleo/dominio/conversas";
 import type { PerfilDeCliente } from "@/nucleo/portas/entrada/casos-de-uso";
 import { DOW_LONGO, hhmm, rotuloLongo } from "@/nucleo/dominio/tempo";
@@ -34,6 +36,18 @@ export type ConfiguracaoDoAgente = {
   servicos: Servico[];
   profissionais: Profissional[];
   expedientes: Record<string, Expediente>;
+  /**
+   * O horário ANUNCIADO do negócio — a resposta de "que horas vocês atendem?".
+   *
+   * ⚠️ Diferente de `expedientes`, e a diferença é o motivo de este campo existir. Até
+   * 13/08/2026 a MAISA respondia essa pergunta com o expediente do PROFISSIONAL, que é
+   * quando aquela pessoa atende. Um negócio que abre 8h–20h com um barbeiro que entra ao
+   * meio-dia era anunciado como "abrimos ao meio-dia" — e perdia a manhã.
+   *
+   * `null` quando o inquilino não tem a grade cadastrada. A persona diz que não sabe, em
+   * vez de inventar: anunciar horário errado traz cliente na porta fechada.
+   */
+  semana: SemanaAnunciada | null;
   faqs: Faq[];
   cfg: Record<ChaveCfg, boolean>;
 };
@@ -76,6 +90,12 @@ export function parteEstavel(c: ConfiguracaoDoAgente): string {
     .join("\n");
 
   const faq = c.faqs.map((f) => `P: ${f.pergunta}\nR: ${f.resposta}`).join("\n\n");
+
+  /* UMA LINHA, e não sete. `semanaEmTexto` agrupa dias iguais ("Seg–Sex 08:00–20:00 ·
+   * Sáb 09:00–13:00 · Dom fechado") porque isto entra no prompt de TODA mensagem: sete
+   * linhas soltas custam token para sempre e são mais difíceis de o modelo devolver em
+   * fala natural, que é justamente o que ele precisa fazer aqui. */
+  const anunciado = c.semana ? semanaEmTexto(c.semana) : "horário não cadastrado";
 
   /* Os toggles da tela "A MAISA" viram regra aqui. Cada linha só aparece quando o
    * dono ligou a opção — instrução condicional que aparece sempre ("se X estiver
@@ -126,6 +146,14 @@ ${TOM[c.assistente.tom]}
 ## Serviços
 
 ${catalogo}
+
+## Quando o negócio abre
+
+${anunciado}
+
+É este o horário que você informa quando perguntarem "que horas vocês atendem?", "abrem sábado?" ou "até que horas fica aberto?". É o horário do NEGÓCIO.
+
+Não confunda com o horário de cada profissional, logo abaixo: aquele é quando aquela pessoa atende, e serve para você saber a quem oferecer — não para anunciar. Se estiver escrito "horário não cadastrado", diga que vai confirmar e chame o responsável, em vez de deduzir a partir da agenda de alguém.
 
 ## Quem atende
 

@@ -12,7 +12,7 @@
  * Tudo aqui é controlado pelo store, então o preview reage enquanto você digita. */
 
 import React from "react";
-import { s, Icon, Toggle } from "@/ui/primitivos";
+import { s, Btn, Icon, Toggle } from "@/ui/primitivos";
 import { useIsMobile } from "@/ui/useIsMobile";
 import * as D from "@/adaptadores/saida/demo";
 import { useStore } from "@/ui/estado/store";
@@ -72,6 +72,138 @@ function FaixaAssistente() {
   );
 }
 
+/* ───────────────────────────── o canal de WhatsApp ─────────────────────────────
+ * PROVISÓRIA, e assumidamente. A tela oficial de conexão entra na segunda leva de
+ * onboarding; esta existe para que o canal deixe de ser operável só por `curl`.
+ *
+ * Mora AQUI, junto da faixa de "assistente ativa", porque as duas respondem à mesma
+ * pergunta do dono: "a MAISA está no ar?". Assistente pausada e WhatsApp desconectado
+ * produzem o mesmo silêncio do lado do cliente, e separá-las em telas diferentes faria
+ * procurar em dois lugares por um sintoma só.
+ *
+ * ⚠️ AS DUAS AÇÕES DESTRUTIVAS PEDEM CONFIRMAÇÃO EM DOIS TOQUES, e não é cerimônia:
+ * desconectar derruba o atendimento de um negócio que pode estar no meio de uma conversa,
+ * e trocar número perde o pareamento atual sem volta. Um `confirm()` do navegador seria
+ * mais fácil e é pior — ele é bloqueante, alguns navegadores o suprimem, e ninguém lê.
+ */
+
+function FaixaCanal() {
+  const st = useStore();
+  const [confirmando, setConfirmando] = React.useState<"trocar" | "desconectar" | null>(null);
+
+  const status = st.canal?.status ?? "desconectado";
+  const conectado = status === "conectado";
+  const pareando = status === "pareando" || !!st.qrcode;
+
+  const forte = conectado ? "var(--success)" : pareando ? "var(--warn)" : "var(--muted)";
+  const fundo = conectado ? "var(--success-soft)" : pareando ? "var(--warn-soft)" : "var(--surface-2)";
+
+  const titulo = conectado ? "WhatsApp conectado" : pareando ? "Aguardando leitura do QR" : "WhatsApp não conectado";
+  const sub = conectado
+    ? st.canal?.numero ? `+${st.canal.numero}` : "Número conectado"
+    : pareando
+      ? "Abra o WhatsApp do negócio → Aparelhos conectados → Conectar aparelho"
+      : "A MAISA não consegue responder enquanto isso";
+
+  /* Rótulo em vez de `disabled`: `Btn` não tem essa prop, e criar uma só para cá
+   * significaria mexer num primitivo usado por toda a aplicação por causa desta faixa. */
+  const ocupado = st.canalOcupado;
+
+  /* O servidor não consegue conectar (falta variável de ambiente). A faixa some com os
+   * botões que derrubariam o canal atual — porque derrubar seria definitivo: o
+   * `conectar` de volta é justamente o que não funciona. Ver `trocarNumero` no store. */
+  const travado = st.canalFaltando.length > 0;
+
+  return (
+    <div style={s(`flex-shrink:0;display:flex;flex-direction:column;gap:12px;padding:13px 16px;border-radius:16px;background:${fundo};border:1px solid ${forte}`)}>
+      <div style={s("display:flex;align-items:center;gap:14px")}>
+        <span style={s(`width:9px;height:9px;flex-shrink:0;border-radius:50%;background:${forte}`)} />
+        <span style={s("flex:1;min-width:0")}>
+          <span style={s(`display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:${forte}`)}>{titulo}</span>
+          <span style={s("display:block;font-size:var(--t-label);color:var(--ink);margin-top:2px;line-height:var(--lh-ui)")}>{sub}</span>
+        </span>
+
+        <span style={s("display:flex;gap:8px;flex-shrink:0")}>
+          {!conectado && !pareando && !travado && (
+            <Btn variant="whats" size="sm" onClick={ocupado ? undefined : () => void st.conectarCanal()}>
+              {ocupado ? "Gerando…" : "Conectar WhatsApp"}
+            </Btn>
+          )}
+
+          {pareando && (
+            <Btn variant="secondary" size="sm" onClick={ocupado ? undefined : () => void st.desconectarCanal()}>
+              {ocupado ? "…" : "Cancelar"}
+            </Btn>
+          )}
+
+          {conectado && confirmando === null && !travado && (
+            <>
+              <Btn variant="secondary" size="sm" onClick={() => setConfirmando("trocar")}>Trocar número</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmando("desconectar")}>Desconectar</Btn>
+            </>
+          )}
+
+          {conectado && confirmando !== null && (
+            <>
+              <Btn
+                variant="danger"
+                size="sm"
+                onClick={ocupado ? undefined : () => {
+                  const acao = confirmando === "trocar" ? st.trocarNumero : st.desconectarCanal;
+                  setConfirmando(null);
+                  void acao();
+                }}
+              >
+                {ocupado ? "…" : confirmando === "trocar" ? "Sim, trocar" : "Sim, desconectar"}
+              </Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmando(null)}>Voltar</Btn>
+            </>
+          )}
+        </span>
+      </div>
+
+      {/* Diz a variável pelo nome. "Falta configuração no servidor" foi exatamente a frase
+          que, em 13/08/2026, não permitiu descobrir que faltava `MAISA_PUBLIC_URL`. */}
+      {travado && (
+        <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>
+          O servidor não está pronto para conectar o WhatsApp. Falta:{" "}
+          <b>{st.canalFaltando.join(", ")}</b>. Os botões estão travados de propósito — sem isso,
+          desconectar seria definitivo.
+        </span>
+      )}
+
+      {confirmando !== null && (
+        <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>
+          {confirmando === "trocar"
+            ? "O número atual será desconectado e você terá que parear o novo lendo um QR."
+            : "A MAISA para de responder no WhatsApp até você conectar de novo."}
+        </span>
+      )}
+
+      {/* O QR é EFÊMERO: a Evolution troca o código a cada poucos segundos, e o polling do
+          store o remove no instante em que conecta. Nunca guardamos isto em lugar nenhum. */}
+      {st.qrcode && (
+        <div style={s("display:flex;align-items:center;gap:16px;padding:12px;border-radius:12px;background:var(--surface)")}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={st.qrcode}
+            alt="QR code para conectar o WhatsApp"
+            style={s("width:148px;height:148px;flex-shrink:0;border-radius:8px;background:#fff;image-rendering:pixelated")}
+          />
+          <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.6")}>
+            Leia com o celular do <b>número do negócio</b>.<br />
+            A tela avisa sozinha quando conectar.
+          </span>
+        </div>
+      )}
+
+      {st.canalErro && (
+        <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>{st.canalErro}</span>
+      )}
+    </div>
+  );
+}
+
 /* ───────────────────────────── conteúdo de cada seção ───────────────────────────── */
 
 function Personalidade() {
@@ -126,40 +258,61 @@ function Personalidade() {
 
 function Horarios() {
   const st = useStore();
+  const CAMPO_HORA = "width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border-field);background:var(--surface);font-variant-numeric:tabular-nums;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--ink);outline:none";
+
   return (
     <div style={s("display:flex;flex-direction:column")}>
-      {st.dias.map((d) => (
-        <div
-          key={d.nome}
-          style={s("display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)")}
-        >
-          <span style={s(`font-size:var(--t-sm);font-weight:var(--w-title);width:96px;flex-shrink:0;color:${d.aberto ? "var(--ink)" : "var(--muted)"}`)}>{d.nome}</span>
-          <Toggle on={d.aberto} onChange={() => st.alternarDia(d.nome)} rotulo={`${d.nome} — atende`} />
-          {d.aberto ? (
-            <div style={s("margin-left:auto;display:flex;align-items:center;gap:9px")}>
-              <input
-                type="time"
-                value={d.de}
-                onChange={(e) => st.setHorario(d.nome, "de", e.target.value)}
-                aria-label={`${d.nome} — abre às`}
-                className="m-focus"
-                style={s("width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border-field);background:var(--surface);font-variant-numeric:tabular-nums;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--ink);outline:none")}
-              />
-              <span style={s("font-size:var(--t-sm);color:var(--muted)")}>às</span>
-              <input
-                type="time"
-                value={d.ate}
-                onChange={(e) => st.setHorario(d.nome, "ate", e.target.value)}
-                aria-label={`${d.nome} — fecha às`}
-                className="m-focus"
-                style={s("width:104px;height:38px;text-align:center;border-radius:11px;border:1px solid var(--border-field);background:var(--surface);font-variant-numeric:tabular-nums;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--ink);outline:none")}
-              />
-            </div>
-          ) : (
-            <span style={s("margin-left:auto;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--muted)")}>Fechado</span>
-          )}
-        </div>
-      ))}
+      {/* Este é o horário do NEGÓCIO, e a frase existe porque a tela tem dois horários a
+          poucos cliques de distância: este e o expediente de cada profissional, na tela
+          de Equipe. Quem edita aqui achando que muda a agenda não muda — e vice-versa. */}
+      <p style={s("margin:0 0 12px;font-size:var(--t-label);color:var(--muted);line-height:1.55")}>
+        É o que a MAISA responde quando perguntam <b>&quot;que horas vocês atendem?&quot;</b>. Quem
+        decide se cabe marcar às 15h é o expediente de cada profissional, na tela de Equipe.
+      </p>
+
+      {st.semanaErro && (
+        <p style={s("margin:0 0 12px;font-size:var(--t-label);color:var(--danger);line-height:1.5")}>{st.semanaErro}</p>
+      )}
+
+      {st.semana.map((d) => {
+        const nome = D.DIAS_DA_SEMANA[d.dow];
+        return (
+          <div
+            key={d.dow}
+            style={s("display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)")}
+          >
+            <span style={s(`font-size:var(--t-sm);font-weight:var(--w-title);width:96px;flex-shrink:0;color:${d.aberto ? "var(--ink)" : "var(--muted)"}`)}>{nome}</span>
+            <Toggle on={d.aberto} onChange={() => st.alternarDia(d.dow)} rotulo={`${nome} — atende`} />
+            {d.aberto ? (
+              <div style={s("margin-left:auto;display:flex;align-items:center;gap:9px")}>
+                <input
+                  type="time"
+                  /* `?? ""` porque dia aberto SEM hora não deveria existir — o domínio
+                     zera as duas ao fechar e a tela repõe ao reabrir. Se acontecer, o
+                     input vazio é melhor que o React trocar de controlado para não
+                     controlado no meio da edição. */
+                  value={d.de ?? ""}
+                  onChange={(e) => st.setHorario(d.dow, "de", e.target.value)}
+                  aria-label={`${nome} — abre às`}
+                  className="m-focus"
+                  style={s(CAMPO_HORA)}
+                />
+                <span style={s("font-size:var(--t-sm);color:var(--muted)")}>às</span>
+                <input
+                  type="time"
+                  value={d.ate ?? ""}
+                  onChange={(e) => st.setHorario(d.dow, "ate", e.target.value)}
+                  aria-label={`${nome} — fecha às`}
+                  className="m-focus"
+                  style={s(CAMPO_HORA)}
+                />
+              </div>
+            ) : (
+              <span style={s("margin-left:auto;font-size:var(--t-sm);font-weight:var(--w-data);color:var(--muted)")}>Fechado</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -187,9 +340,11 @@ function Corpo({ id }: { id: string }) {
 function resumoDaSecao(id: string, st: ReturnType<typeof useStore>): string {
   if (id === "personalidade") return `${st.assistente.nome} · tom ${st.assistente.tom}${st.assistente.ativa ? "" : " · pausada"}`;
   if (id === "horarios") {
-    const abertos = st.dias.filter((d) => d.aberto);
-    if (!abertos.length) return "Nenhum dia aberto — a MAISA não agenda";
-    return `${abertos.length} dias abertos · ${abertos[0].nome.slice(0, 3)}–${abertos[abertos.length - 1].nome.slice(0, 3)}, ${abertos[0].de}–${abertos[0].ate}`;
+    /* A MESMA frase que vai no prompt do agente (`persona.ts` chama `semanaEmTexto`).
+     * Não é economia de código: é o que garante que o resumo na tela e o que a MAISA
+     * anuncia no WhatsApp nunca divirjam — duas formatações do mesmo dado divergem. */
+    if (!st.semana.some((d) => d.aberto)) return "Nenhum dia aberto — a MAISA não agenda";
+    return D.semanaEmTexto(st.semana);
   }
   if (id === "agendamentos") {
     const n = D.TOGGLES_AGENDAMENTO.filter((t) => st.cfg[t.chave]).length;
@@ -326,6 +481,7 @@ export default function AMaisa() {
         {/* No celular o preview vem logo depois da faixa e é curto: é a prova do que
             os ajustes abaixo fazem, então precisa estar visível sem rolar. */}
         <FaixaAssistente />
+        <FaixaCanal />
         <div style={s("height:340px;display:flex")}><Preview /></div>
         {secoes}
       </div>
@@ -338,6 +494,7 @@ export default function AMaisa() {
           enquanto o usuário mexe nas seções. */}
       <div style={s("min-height:0;display:flex;flex-direction:column;gap:14px")}>
         <FaixaAssistente />
+        <FaixaCanal />
         <div style={s("min-height:0;overflow-y:auto;padding:2px 2px 6px 0")}>
           {secoes}
         </div>

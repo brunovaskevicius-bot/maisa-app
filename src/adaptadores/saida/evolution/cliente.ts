@@ -55,7 +55,12 @@ function mensagemDeErro(data: any, status: number): string {
  */
 export async function chamar(
   caminho: string,
-  opts: { metodo?: "GET" | "POST" | "PUT" | "DELETE"; corpo?: unknown; timeoutMs?: number } = {},
+  opts: {
+    metodo?: "GET" | "POST" | "PUT" | "DELETE"; corpo?: unknown; timeoutMs?: number;
+    /** Qual credencial usar. Omitido = o token da INSTÂNCIA (o padrão: mandar mensagem).
+     *  As rotas de `/instance/*` passam o GLOBAL — ver o bloco de administração no fim. */
+    chave?: string;
+  } = {},
 ): Promise<RespostaCrua> {
   if (!isEvolutionConfigured) throw new NaoConfigurado(evolutionFaltando());
 
@@ -71,7 +76,7 @@ export async function chamar(
     const res = await fetch(`${EVOLUTION.baseUrl}${caminho}`, {
       method: metodo,
       headers: {
-        apikey: EVOLUTION.apiKey,
+        apikey: opts.chave || EVOLUTION.apiKey,
         ...(corpo ? { "Content-Type": "application/json" } : {}),
       },
       body: corpo ? JSON.stringify(corpo) : undefined,
@@ -155,7 +160,9 @@ export function ehTransitorio(status: number): boolean {
  */
 export async function exigir(
   caminho: string,
-  opts: { metodo?: "GET" | "POST" | "PUT" | "DELETE"; corpo?: unknown; timeoutMs?: number } = {},
+  opts: {
+    metodo?: "GET" | "POST" | "PUT" | "DELETE"; corpo?: unknown; timeoutMs?: number; chave?: string;
+  } = {},
 ): Promise<any> {
   const { status, data } = await chamar(caminho, opts);
   if (status >= 200 && status < 300) return data;
@@ -211,8 +218,12 @@ const inst = () => encodeURIComponent(EVOLUTION.instancia);
  * `delay` pausa o envio DENTRO da Evolution (ela segura a requisição). É o que dá ritmo
  * de conversa às bolhas; ver `canal-evolution.ts`.
  */
-export function enviarTexto(p: { numero: string; texto: string; delayMs?: number }): Promise<any> {
-  return exigir(`/message/sendText/${inst()}`, {
+export function enviarTexto(p: { numero: string; texto: string; delayMs?: number; instancia?: string }): Promise<any> {
+  /* `instancia` opcional e não obrigatória: `escalar` e as rotas de diagnóstico ainda
+   * mandam pela instância do ambiente, e forçar o argumento aqui obrigaria cada um deles
+   * a resolver um inquilino que eles não têm. Quem ENTREGA MENSAGEM DE CLIENTE sempre
+   * passa — ver `canal-evolution.ts`, onde a omissão é proibida por construção. */
+  return exigir(`/message/sendText/${p.instancia ? encodeURIComponent(p.instancia) : inst()}`, {
     corpo: {
       number: p.numero,
       text: p.texto,
@@ -272,6 +283,147 @@ export function configurarWebhook(p: { url: string; segredo: string }): Promise<
         byEvents: false,
         /* Não pedimos mídia em base64: a MAISA lê texto, e um áudio de 2 MB embutido no
          * JSON é payload que atravessa a rede para ser descartado. */
+        base64: false,
+        events: ["MESSAGES_UPSERT"],
+      },
+    },
+  });
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ADMINISTRAÇÃO DE INSTÂNCIA — criar, apagar, consultar POR NOME.
+ *
+ * Tudo acima nesta arquivo opera em `inst()`, o nome que vem de `EVOLUTION_INSTANCIA`.
+ * Isso é a v1 monoinquilino: uma env global significa um WhatsApp para todos os
+ * assinantes. As funções abaixo recebem o nome como ARGUMENTO, e é por elas que passa o
+ * provisionamento por inquilino.
+ *
+ * ⚠️ ESTAS EXIGEM O TOKEN GLOBAL da Evolution, não o da instância. Hoje as duas coisas
+ * são a mesma variável (`EVOLUTION_API_KEY`) porque a chave configurada é global — dá
+ * para conferir chamando `/instance/fetchInstances`: só o token global lista o servidor
+ * inteiro. Funciona, e é uma dívida registrada: enquanto for uma variável só, um
+ * vazamento do que manda mensagem também apaga instância alheia. Separar é criar
+ * `EVOLUTION_API_KEY_GLOBAL` e usar essa só aqui.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+const enc = (instancia: string) => encodeURIComponent(instancia);
+
+/**
+ * Estado E dono da instância, na mesma chamada.
+ *
+ * `/instance/connectionState` (acima) devolve só o estado — por isso a coluna `numero`
+ * ficava `null` para sempre. `/instance/fetchInstances` devolve `ownerJid`, que é o
+ * único lugar onde o número pareado existe: o dono aponta a câmera para um QR e nunca
+ * digita o telefone.
+ *
+ * ⚠️ ACHA PELO NOME, NUNCA PEGA `[0]`.
+ *
+ * O parâmetro `?instanceName=` é um filtro do servidor, e servidor filtra quando quer:
+ * versões diferentes da Evolution o ignoram e devolvem TODAS as instâncias. Num servidor
+ * compartilhado — que é o caso aqui — confiar no primeiro item devolveria o número de
+ * OUTRO negócio para dentro do nosso `integracoes_whatsapp`. Seria vazamento entre
+ * inquilinos por um índice de array, e apareceria na tela como um telefone errado que
+ * ninguém sabe explicar.
+ *
+ * `chamar` e não `exigir`: instância inexistente devolve 404, e aqui isso NÃO é erro — é
+ * a resposta "essa instância não existe", que é exatamente o que se quer saber antes de
+ * criar. `exigir` viraria `PrecisaReconectar`, e o fluxo de um cliente novo começaria
+ * pedindo para reconectar algo que nunca existiu.
+ */
+export async function instanciaPorNome(
+  instancia: string,
+): Promise<{ estado: string; ownerJid: string | null }> {
+  const { status, data } = await chamar(`/instance/fetchInstances?instanceName=${enc(instancia)}`, {
+    metodo: "GET",
+    chave: EVOLUTION.apiKeyGlobal,
+  });
+  if (status === 404) return { estado: "close", ownerJid: null };
+  if (status < 200 || status >= 300) return { estado: "desconhecido", ownerJid: null };
+
+  /* A Evolution já devolveu as três formas em versões diferentes: array na raiz, `{
+   * instances: [...] }`, e objeto único. Ler as três é mais barato que amarrar o produto
+   * a uma versão do servidor — mesma decisão de `criarInstancia` com o QR. */
+  const bruto: unknown = Array.isArray(data) ? data : (data?.instances ?? data);
+  const lista: Record<string, unknown>[] = Array.isArray(bruto)
+    ? (bruto as Record<string, unknown>[])
+    : bruto && typeof bruto === "object"
+      ? [bruto as Record<string, unknown>]
+      : [];
+
+  const achada = lista
+    .map((i) => (i.instance && typeof i.instance === "object" ? (i.instance as Record<string, unknown>) : i))
+    .find((i) => String(i.name ?? i.instanceName ?? "") === instancia);
+
+  /* Não achou o nome: trata como inexistente, e NÃO como "desconhecido com o dado de
+   * alguém". Falha fechada — o pior resultado aqui é o certo. */
+  if (!achada) return { estado: "close", ownerJid: null };
+
+  return {
+    estado: String(achada.connectionStatus ?? achada.state ?? "desconhecido"),
+    ownerJid: (achada.ownerJid as string | undefined) ?? (achada.owner as string | undefined) ?? null,
+  };
+}
+
+/**
+ * Cria a instância e devolve o QR em base64.
+ *
+ * `qrcode: true` faz a Evolution já devolver o código no corpo da criação, em vez de
+ * exigir um segundo GET em `/instance/connect`. Um passo a menos é uma janela a menos
+ * entre "instância criada" e "QR na tela" — e é nessa janela que o código expira.
+ */
+export async function criarInstancia(p: { instancia: string; urlWebhook: string; segredo: string }): Promise<string | null> {
+  const data = await exigir(`/instance/create`, {
+    chave: EVOLUTION.apiKeyGlobal,
+    corpo: {
+      instanceName: p.instancia,
+      qrcode: true,
+      integration: "WHATSAPP-BAILEYS",
+      /* O webhook vai JUNTO da criação, e não numa chamada seguinte. Separar produz a
+       * falha mais cara do produto: o cliente pareia, vê "conectado", manda "oi" e
+       * ninguém responde — porque as mensagens estão indo para lugar nenhum. */
+      webhook: {
+        url: p.urlWebhook,
+        byEvents: false,
+        base64: false,
+        headers: { apikey: p.segredo, "Content-Type": "application/json" },
+        events: ["MESSAGES_UPSERT"],
+      },
+    },
+  });
+
+  /* A Evolution mudou o formato entre versões: umas devolvem `qrcode.base64`, outras
+   * `qrcode.code`, outras `base64` na raiz. Ler as três é mais barato que amarrar o
+   * produto a uma versão do servidor. */
+  const bruto = data?.qrcode?.base64 ?? data?.base64 ?? data?.qrcode?.code ?? null;
+  if (!bruto || typeof bruto !== "string") return null;
+  /* Normaliza para data-URL: algumas versões devolvem com o prefixo, outras sem, e a
+   * tela não pode ter um `if` para isso. */
+  return bruto.startsWith("data:") ? bruto : `data:image/png;base64,${bruto}`;
+}
+
+/** Apaga a instância. Silencioso se ela já não existe — apagar o que não há é sucesso. */
+export async function apagarInstancia(instancia: string): Promise<void> {
+  const { status } = await chamar(`/instance/delete/${enc(instancia)}`, { metodo: "DELETE", chave: EVOLUTION.apiKeyGlobal });
+  if (status === 404) return;
+  if (status >= 200 && status < 300) return;
+  /* Logout antes de delete é exigido por algumas versões quando a instância está `open`.
+   * Tenta uma vez e reavalia; se ainda falhar, deixa `exigir` traduzir o erro. */
+  await chamar(`/instance/logout/${enc(instancia)}`, { metodo: "DELETE", chave: EVOLUTION.apiKeyGlobal });
+  const segunda = await chamar(`/instance/delete/${enc(instancia)}`, { metodo: "DELETE", chave: EVOLUTION.apiKeyGlobal });
+  if (segunda.status === 404 || (segunda.status >= 200 && segunda.status < 300)) return;
+  await exigir(`/instance/delete/${enc(instancia)}`, { metodo: "DELETE", chave: EVOLUTION.apiKeyGlobal });
+}
+
+/** Aponta o webhook de UMA instância nomeada. Igual a `configurarWebhook`, sem a env global. */
+export function configurarWebhookDe(p: { instancia: string; url: string; segredo: string }): Promise<any> {
+  return exigir(`/webhook/set/${enc(p.instancia)}`, {
+    chave: EVOLUTION.apiKeyGlobal,
+    corpo: {
+      webhook: {
+        enabled: true,
+        url: p.url,
+        headers: { apikey: p.segredo, "Content-Type": "application/json" },
+        byEvents: false,
         base64: false,
         events: ["MESSAGES_UPSERT"],
       },

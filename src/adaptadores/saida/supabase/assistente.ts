@@ -1,0 +1,146 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ADAPTADOR DE SAÍDA — os ajustes da assistente, na tabela `assistente`.
+ *
+ * A tabela é 1:1 com o domínio, com uma torção: o Postgres é `snake_case` e o domínio é
+ * `camelCase`, então `precoCatalogo` ↔ `preco_catalogo`. Esse de-para vive AQUI e em
+ * lugar nenhum mais — é a fronteira, e é a única linha do sistema que sabe os dois nomes.
+ *
+ * ⚠️ `.eq("tenant_id", …)` em TODA consulta, inclusive no update.
+ *
+ * Não é redundância com a RLS. Quando quem chama é o agente de WhatsApp
+ * (`ator.tipo === "agente"`), `clienteDoContexto` devolve o cliente de service role e a
+ * RLS fica DESLIGADA — o `.eq` passa a ser a única fronteira entre inquilinos, como diz
+ * o cabeçalho de `contexto-cliente.ts`. E o agente lê esta tabela a cada mensagem.
+ *
+ * `tenant_id` é a PRIMARY KEY aqui (não há coluna `id` separada), então o `.eq` também é
+ * o que torna o update determinístico: no máximo uma linha, sempre a certa.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+import type { ContextoTenant } from "@/nucleo/dominio/tenant";
+import type { Assistente, ChaveCfg, Tom } from "@/nucleo/dominio/assistente";
+import type {
+  AjustesDaAssistente, AjustesParciais, RepositorioAssistente,
+} from "@/nucleo/portas/saida/repositorio-assistente";
+import { FalhaDoProvedor, NaoEncontrado } from "@/nucleo/dominio/erros";
+import { clienteDoContexto } from "./contexto-cliente";
+
+/** As colunas, na ordem da DDL. Explícitas para o `select` não trazer o que não se usa. */
+const COLS =
+  "nome, tom, saudacao, ativa, confirmar, lembrete, remarcar, encaixe, encaminhar, preco_catalogo, pix";
+
+type Linha = {
+  nome: string;
+  tom: string;
+  saudacao: string | null;
+  ativa: boolean;
+  confirmar: boolean;
+  lembrete: boolean;
+  remarcar: boolean;
+  encaixe: boolean;
+  encaminhar: boolean;
+  preco_catalogo: boolean;
+  pix: boolean;
+};
+
+/**
+ * O de-para de nome de coluna. Só as chaves que DIVERGEM entram aqui.
+ *
+ * Um `Record<ChaveCfg, string>` completo obrigaria a listar as sete e a manter as seis
+ * iguais sincronizadas à toa. Assim, acrescentar um toggle cujo nome bate nos dois lados
+ * não exige tocar neste arquivo — e um que não bata exige, que é o comportamento certo.
+ */
+const COLUNA_DE: Partial<Record<ChaveCfg, string>> = { precoCatalogo: "preco_catalogo" };
+
+const coluna = (c: ChaveCfg): string => COLUNA_DE[c] ?? c;
+
+function paraAjustes(l: Linha): AjustesDaAssistente {
+  const assistente: Assistente = {
+    nome: l.nome,
+    /* O `check` da coluna garante que só os três tons entram. O cast é a leitura desse
+     * contrato, não uma aposta: se alguém afrouxar o check, é aqui que quebra — e é o
+     * lugar certo para quebrar, porque `persona.ts` monta prompt em cima disto. */
+    tom: l.tom as Tom,
+    /* A coluna é nullable e o domínio não é. `null` vira `""`, que a tela e o prompt já
+     * tratam como "sem saudação" — o contrário (domínio nullable) espalharia `?? ""` por
+     * toda a UI. */
+    saudacao: l.saudacao ?? "",
+    ativa: l.ativa,
+  };
+
+  const cfg: Record<ChaveCfg, boolean> = {
+    confirmar: l.confirmar,
+    lembrete: l.lembrete,
+    remarcar: l.remarcar,
+    encaminhar: l.encaminhar,
+    precoCatalogo: l.preco_catalogo,
+    pix: l.pix,
+    encaixe: l.encaixe,
+  };
+
+  return { assistente, cfg };
+}
+
+export const assistenteSupabase: RepositorioAssistente = {
+  async ler(t: ContextoTenant): Promise<AjustesDaAssistente | null> {
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("assistente")
+      .select(COLS)
+      .eq("tenant_id", t.tenantId)
+      .maybeSingle<Linha>();
+
+    if (error) {
+      throw new FalhaDoProvedor(`Não foi possível ler os ajustes da assistente: ${error.message}`);
+    }
+    return data ? paraAjustes(data) : null;
+  },
+
+  async salvar(t: ContextoTenant, p: AjustesParciais): Promise<AjustesDaAssistente> {
+    const patch: Record<string, unknown> = {};
+
+    if (p.assistente) {
+      const { nome, tom, saudacao, ativa } = p.assistente;
+      if (nome !== undefined) patch.nome = nome;
+      if (tom !== undefined) patch.tom = tom;
+      /* Saudação vazia grava `null`, não `""`: a coluna é nullable justamente para
+       * significar "não tem", e duas representações do mesmo nada é o tipo de coisa que
+       * depois vira `if (x === "" || x === null)` espalhado. */
+      if (saudacao !== undefined) patch.saudacao = saudacao === "" ? null : saudacao;
+      if (ativa !== undefined) patch.ativa = ativa;
+    }
+
+    if (p.cfg) {
+      for (const [chave, valor] of Object.entries(p.cfg)) {
+        patch[coluna(chave as ChaveCfg)] = valor;
+      }
+    }
+
+    /* Sem campo nenhum, um `update({})` no PostgREST é 400. O caso de uso já recusa o
+     * patch vazio; esta guarda existe porque o adaptador é chamável por outro caminho
+     * (um teste, um script) e falhar com o nome certo vale mais que um 400 opaco. */
+    if (!Object.keys(patch).length) {
+      throw new FalhaDoProvedor("Nada para gravar nos ajustes da assistente.");
+    }
+
+    patch.atualizado_em = new Date().toISOString();
+
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("assistente")
+      .update(patch)
+      .eq("tenant_id", t.tenantId)
+      .select(COLS)
+      .maybeSingle<Linha>();
+
+    if (error) {
+      throw new FalhaDoProvedor(`Não foi possível salvar os ajustes da assistente: ${error.message}`);
+    }
+    /* Zero linhas com `error: null` tem DOIS significados e os dois merecem 404: ou a
+     * linha não existe (inquilino nascido fora da RPC), ou a RLS filtrou — o que só
+     * acontece se o `tenantId` não for de um negócio de quem está pedindo. Nos dois
+     * casos, "não achei" é a resposta honesta, e nenhum dos dois pode virar sucesso. */
+    if (!data) throw new NaoEncontrado("Ajustes da assistente");
+
+    return paraAjustes(data);
+  },
+};

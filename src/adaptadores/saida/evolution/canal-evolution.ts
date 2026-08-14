@@ -12,6 +12,7 @@
 import type { CanalDeMensagens } from "@/nucleo/portas/saida/canal-mensagens";
 import { FalhaDoProvedor, LimiteDoProvedor } from "@/nucleo/dominio/erros";
 import { soDigitos } from "@/nucleo/dominio/clientes";
+import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 
 import { EVOLUTION } from "./config";
 import { enviarTexto } from "./cliente";
@@ -89,13 +90,28 @@ async function comSegundaChance<T>(acao: () => Promise<T>): Promise<T> {
 }
 
 /* ───────────────────────────── o canal ─────────────────────────────
- * ⚠️ O `ContextoTenant` chega e não é usado (`_t`), igual ao `canalDemo`. Não é descuido:
- * hoje existe UMA instância, vinda de env. Quando `integracoes_whatsapp` estiver povoada
- * (já versionada em `supabase/002_multitenant.sql`), é dele que sairá qual instância
- * atende cada negócio — e a assinatura já pede o contexto para que essa mudança não
- * chegue até aqui como quebra. */
+ * O `ContextoTenant` PASSOU A SER USADO em 13/08/2026. O comentário que estava aqui
+ * prometia isto: "quando `integracoes_whatsapp` estiver povoada, é dele que sairá qual
+ * instância atende cada negócio — e a assinatura já pede o contexto para que essa
+ * mudança não chegue até aqui como quebra". Chegou, e não quebrou: a porta não mudou.
+ *
+ * ── POR QUE VIROU FÁBRICA ──
+ *
+ * Resolver "qual instância é deste inquilino" é ler `integracoes_whatsapp`, e isso é
+ * trabalho de OUTRO adaptador. Importá-lo daqui seria adaptador conhecendo adaptador —
+ * a única costura que este repositório não faz, porque é por ela que um hexágono vira
+ * bola de barro. Então o resolvedor entra por argumento, e quem casa os dois é
+ * `composicao.ts`, como sempre.
+ *
+ * ⚠️ FALHA FECHADA. Inquilino sem instância própria NÃO cai na env global. Cair seria o
+ * pior defeito imaginável neste produto: a mensagem do cliente de um negócio sairia pelo
+ * WhatsApp de outro — com o número, o nome e o histórico errados, para um terceiro que
+ * não tem nada a ver. Melhor não entregar e gritar. */
 
-export const canalEvolution: CanalDeMensagens = {
+export type ResolvedorDeInstancia = (t: ContextoTenant) => Promise<string>;
+
+export function criarCanalEvolution(deps: { instanciaDe: ResolvedorDeInstancia }): CanalDeMensagens {
+  return {
   /**
    * Envia na ordem, uma bolha por chamada.
    *
@@ -107,8 +123,13 @@ export const canalEvolution: CanalDeMensagens = {
    * lançamos e deixamos o que já foi entregue entregue. Não há transação em cima de
    * mensagem lida por um humano, e simulá-la seria pior que assumir isso.
    */
-  async enviar(_t, para, textos) {
+  async enviar(t, para, textos) {
     if (textos.length === 0) return;
+
+    /* Resolve ANTES de validar o telefone e antes do laço: se o inquilino não tem canal,
+     * nada deve ser enviado — nem a primeira bolha. Resolver dentro do laço mandaria a
+     * primeira e falharia na segunda, deixando o cliente com meia resposta. */
+    const instancia = await deps.instanciaDe(t);
 
     const numero = paraNumeroWhats(para);
     if (!numero) {
@@ -126,7 +147,7 @@ export const canalEvolution: CanalDeMensagens = {
        *
        * Se o "digitando…" não aparecer na sua versão da Evolution, a peça que liga é
        * `sinalizarDigitando()` no cliente; o ritmo das bolhas já funciona sem ela. */
-      await comSegundaChance(() => enviarTexto({ numero, texto, delayMs: pausaDaBolha(texto, i) }));
+      await comSegundaChance(() => enviarTexto({ instancia, numero, texto, delayMs: pausaDaBolha(texto, i) }));
     }
   },
 
@@ -138,7 +159,7 @@ export const canalEvolution: CanalDeMensagens = {
    * original por um erro de notificação, e o log mostraria a falha errada — enquanto o
    * cliente, do outro lado, continua sem ninguém.
    */
-  async escalar(_t, p) {
+  async escalar(t, p) {
     const cliente = paraNumeroWhats(p.telefone);
     const aviso =
       `🔔 *MAISA precisa de você*\n\n` +
@@ -159,9 +180,14 @@ export const canalEvolution: CanalDeMensagens = {
     }
 
     try {
-      await enviarTexto({ numero: numeroDono, texto: aviso });
+      /* Também pela instância do inquilino: o dono precisa receber o aviso NO MESMO
+       * número em que a conversa está acontecendo, senão ele abre o WhatsApp errado para
+       * assumir. Se resolver falhar, o `catch` já garante que escalar nunca lança. */
+      const instancia = await deps.instanciaDe(t);
+      await enviarTexto({ instancia, numero: numeroDono, texto: aviso });
     } catch (e) {
       console.error(`[evolution/escalar ${p.telefone}] não conseguiu avisar o dono: ${p.motivo}`, e);
     }
   },
-};
+  };
+}

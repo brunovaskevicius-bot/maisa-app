@@ -15,14 +15,17 @@
  * (status HTTP, frase para o cliente).
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { ContextoTenant } from "../../dominio/tenant";
+import type { ContextoTenant, TenantId } from "../../dominio/tenant";
 import type { EventoDeAgenda } from "../../dominio/agenda";
 import type { Janela } from "../../dominio/tempo";
-import type { Negocio } from "../../dominio/negocio";
+import type { Negocio, Vertical } from "../../dominio/negocio";
 import type { Profissional, Servico } from "../../dominio/catalogo";
 import type { Cliente } from "../../dominio/clientes";
 import type { Conversa, Msg } from "../../dominio/conversas";
 import type { Conexao } from "../saida/agenda-externa";
+import type { AjustesDaAssistente, AjustesParciais } from "../saida/repositorio-assistente";
+import type { Canal, Pareamento } from "../../dominio/canal";
+import type { SemanaAnunciada } from "../../dominio/horarios";
 import type { ResultadoDeNota, Tomador } from "../../dominio/fiscal";
 import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
 import type { VagasDoDia } from "../../dominio/vagas";
@@ -174,6 +177,95 @@ export type CadastroDoNegocio = {
 };
 
 export type LerCadastro = (t: ContextoTenant) => Promise<CadastroDoNegocio>;
+
+/* ───────────────────────────── criar o negócio ─────────────────────────────
+ * O primeiro pedido que uma conta nova faz. Antes deste caso de uso existir, a resposta
+ * do app para o primeiro login de todo mundo era `"Rode criar_negocio() no Supabase"` —
+ * uma instrução de desenvolvedor entregue ao cliente final.
+ *
+ * ⚠️ É o ÚNICO caso de uso que não recebe `ContextoTenant`, porque é o que o produz.
+ * Recebe a identidade da sessão, que o adaptador de entrada tirou do cookie. A regra de
+ * `dominio/tenant.ts` continua intacta: nada aqui aceita `tenantId` vindo do corpo — o
+ * corpo só traz nome e vertical, e o dono é sempre `auth.uid()`.
+ */
+export type PedidoDeNegocio = {
+  nome: string;
+  vertical: Vertical;
+  profissional?: string;
+};
+
+export type NegocioProvisionado = {
+  tenantId: TenantId;
+  /** Onde a tela deve ir depois. O painel só funciona com um negócio resolvido. */
+  proximoPasso: "abrir_painel";
+};
+
+export type ProvisionarNegocio = (
+  sessao: { usuarioId: string },
+  p: PedidoDeNegocio,
+) => Promise<NegocioProvisionado>;
+
+/* ───────────────────────────── ajustar a assistente ─────────────────────────────
+ * A tela "A MAISA", com efeito. Antes disto ela editava `localStorage`: o dono escolhia
+ * o tom, e o WhatsApp respondia com a fixture global — a mesma para todo inquilino.
+ *
+ * `AjustarAssistente` é PARCIAL: a tela é uma lista de toggles, e virar um switch manda
+ * um campo só. Devolve o estado inteiro resultante, para a tela reconciliar sem segunda
+ * ida ao servidor.
+ */
+/* ───────────────────────────── o canal de WhatsApp ─────────────────────────────
+ * O passo que faltava para o produto se vender sozinho: conectar o WhatsApp do cliente
+ * sem ninguém criar instância na mão. `ConectarCanal` devolve um QR efêmero — a tela
+ * pinta e recomeça o polling de `LerCanal` até virar "conectado".
+ */
+export type LerCanal = (t: ContextoTenant) => Promise<Canal>;
+export type ConectarCanal = (t: ContextoTenant) => Promise<Pareamento>;
+export type DesconectarCanal = (t: ContextoTenant) => Promise<void>;
+
+export type LerAssistente = (t: ContextoTenant) => Promise<AjustesDaAssistente>;
+
+export type AjustarAssistente = (
+  t: ContextoTenant,
+  p: AjustesParciais,
+) => Promise<AjustesDaAssistente>;
+
+/* ───────────────────────────── horário anunciado ─────────────────────────────
+ * O horário EXTERNO — a frase que a MAISA responde a "que horas vocês atendem?".
+ *
+ * ⚠️ Não confundir com o `Expediente` do profissional, que é o que decide se cabe marcar
+ * às 15h de terça. Os dois divergem na vida real e é legítimo: o negócio anuncia 8h–20h e
+ * o profissional das terças entra ao meio-dia. Ver `dominio/horarios.ts`.
+ *
+ * `AjustarHorarios` recebe a semana INTEIRA, e não um dia — é grade, não campo. O porquê
+ * está em `aplicacao/horarios.ts`. */
+
+/* ───────────────────────────── a rotina de lembretes ─────────────────────────────
+ * ⚠️ O ÚNICO CASO DE USO QUE NÃO RECEBE `ContextoTenant`, junto de `ProvisionarNegocio`
+ * — e pelo motivo oposto ao dele. Aquele não recebe porque PRODUZ o inquilino; este não
+ * recebe porque a pergunta é sobre TODOS eles: "quem tem lembrete para mandar agora?".
+ *
+ * Uma rotina agendada não tem sessão nem dono. Um `tenantId` de entrada aqui seria um
+ * parâmetro por onde disparar a rotina — e o WhatsApp — de outra pessoa.
+ *
+ * O isolamento é refeito imediatamente depois: cada linha da fila traz o inquilino dela,
+ * e o envio acontece com um `ContextoTenant` de ator `sistema`. Ver `aplicacao/lembretes.ts`.
+ *
+ * `agora` entra por argumento em vez de `new Date()` lá dentro porque é o que torna a
+ * rotina testável sem esperar três horas. */
+
+export type ResultadoDaRotina = {
+  enviados: number;
+  falhas: { atendimentoId: string; tenantId: string; motivo: string }[];
+};
+
+export type EnviarLembretes = (agora: Date) => Promise<ResultadoDaRotina>;
+
+export type LerHorarios = (t: ContextoTenant) => Promise<SemanaAnunciada>;
+
+export type AjustarHorarios = (
+  t: ContextoTenant,
+  p: SemanaAnunciada,
+) => Promise<SemanaAnunciada>;
 
 /* ───────────────────────────── conversas de WhatsApp ─────────────────────────────
  * O painel, do lado da conversa. O AGENTE não passa por aqui: para ele a conversa é o
