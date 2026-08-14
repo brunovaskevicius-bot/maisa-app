@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { World } from "../../_lib";
-import { Dobra } from "../../_lib/barbeiros/v3/Dobra";
-import { Telas } from "../../_lib/barbeiros/v3/Telas";
-import { Duelo } from "../../_lib/barbeiros/v3/Duelo";
-import { Planos } from "../../_lib/barbeiros/v3/Planos";
-import { OFERTA } from "../../_lib/barbeiros/v3/dados";
-import "../../_lib/barbeiros/v3/v3.css";
+import { World } from "../_lib";
+import { Dobra } from "../_lib/barbeiros/v3/Dobra";
+import { Telas } from "../_lib/barbeiros/v3/Telas";
+import { Duelo } from "../_lib/barbeiros/v3/Duelo";
+import { Planos } from "../_lib/barbeiros/v3/Planos";
+import { OFERTA } from "../_lib/barbeiros/v3/dados";
+import "../_lib/barbeiros/v3/v3.css";
 
 /* ----------------------------------------------------------------------------
  * /barbeiros/v3 — recomeço da LP de barbeiros.
@@ -132,11 +132,11 @@ export const metadata: Metadata = {
      a marca nem o negócio — colado no WhatsApp, ninguém sabia do que se tratava. */
   title: "Todos esses foram marcados com a maisa · MAISA para barbearias",
   description: `A maisa responde, agenda e confirma sozinha, no WhatsApp que a barbearia já usa. A partir de ${OFERTA.precoDe}${OFERTA.precoPor}, ${OFERTA.fidelidade}.`,
-  alternates: { canonical: "/barbeiros/v3" },
+  alternates: { canonical: "/barbeiros" },
   openGraph: {
     title: "Todos esses foram marcados com a maisa.",
     description: "A maisa responde, agenda e confirma sozinha, no WhatsApp que a barbearia já usa.",
-    url: "/barbeiros/v3",
+    url: "/barbeiros",
     type: "website",
   },
 };

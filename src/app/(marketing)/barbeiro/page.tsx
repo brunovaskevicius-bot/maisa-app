@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { World } from "../../_lib";
-import { Dobra } from "../../_lib/barbeiros/v4/Dobra";
-import { Telas } from "../../_lib/barbeiros/v3/Telas";
-import { Duelo } from "../../_lib/barbeiros/v3/Duelo";
-import { Planos } from "../../_lib/barbeiros/v3/Planos";
-import { OFERTA } from "../../_lib/barbeiros/v3/dados";
-import "../../_lib/barbeiros/v3/v3.css";
-import "../../_lib/barbeiros/v4/v4.css";
+import { World } from "../_lib";
+import { Dobra } from "../_lib/barbeiros/v4/Dobra";
+import { Telas } from "../_lib/barbeiros/v3/Telas";
+import { Duelo } from "../_lib/barbeiros/v3/Duelo";
+import { Planos } from "../_lib/barbeiros/v3/Planos";
+import { OFERTA } from "../_lib/barbeiros/v3/dados";
+import "../_lib/barbeiros/v3/v3.css";
+import "../_lib/barbeiros/v4/v4.css";
 
 /* ----------------------------------------------------------------------------
  * /barbeiros/v4 — a v3 com a dobra filmada.
@@ -48,7 +48,16 @@ import "../../_lib/barbeiros/v4/v4.css";
 export const metadata: Metadata = {
   title: "Todos esses foram marcados com a maisa · MAISA para barbearias",
   description: `A maisa responde, agenda e confirma sozinha, no WhatsApp que a barbearia já usa. A partir de ${OFERTA.precoDe}${OFERTA.precoPor}, ${OFERTA.fidelidade}.`,
-  alternates: { canonical: "/barbeiros/v4" },
+  /* ⚠️ CANÔNICA APONTANDO PARA `/barbeiros`, E NÃO PARA SI MESMA.
+   *
+   * As duas páginas têm o MESMO texto — muda só a dobra (parada contra filmada). Duas
+   * URLs com conteúdo idêntico fazem o buscador escolher sozinho qual mostrar, e ele não
+   * escolhe necessariamente a que está sendo anunciada. A canônica resolve isso sem
+   * esconder nada: `/barbeiro` continua abrindo, continua compartilhável e continua
+   * servindo para tráfego pago; só deixa de disputar a mesma busca com a irmã.
+   *
+   * Se um dia os textos divergirem de verdade, esta linha volta a ser `/barbeiro`. */
+  alternates: { canonical: "/barbeiros" },
   /* ⚠️ ENQUANTO AS DUAS ROTAS ESTIVEREM NO AR COM O MESMO TEXTO, elas são conteúdo
      duplicado. Para um teste interno tudo bem, mas se a v4 for para tráfego pago vale
      `robots: { index: false }` numa delas — senão o buscador escolhe sozinho qual das
@@ -56,7 +65,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Todos esses foram marcados com a maisa.",
     description: "A maisa responde, agenda e confirma sozinha, no WhatsApp que a barbearia já usa.",
-    url: "/barbeiros/v4",
+    url: "/barbeiro",
     type: "website",
   },
 };

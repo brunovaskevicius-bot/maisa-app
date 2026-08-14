@@ -10,6 +10,24 @@ const nextConfig = {
       { source: "/lp/terapeutas", destination: "/lp/terapeutas/index.html" },
     ];
   },
+
+  /* As LPs de barbearia deixaram de ser "versões" em 14/08/2026: a v3 virou `/barbeiros`
+   * e a v4 (a variante com a dobra filmada) virou `/barbeiro`.
+   *
+   * Os caminhos antigos redirecionam em vez de sumir. Uma LP existe para ser
+   * COMPARTILHADA — o link já foi para conversa de WhatsApp, anúncio e mensagem de
+   * prospecção, e nada disso pode ser editado depois de enviado. Um 404 aqui não é um
+   * caminho quebrado, é um cliente que clicou e desistiu.
+   *
+   * `permanent: true` (301) porque a mudança é definitiva e é o que faz o buscador
+   * transferir o histórico da URL antiga para a nova, em vez de tratá-la como desvio
+   * temporário e continuar mostrando a que morreu. */
+  async redirects() {
+    return [
+      { source: "/barbeiros/v3", destination: "/barbeiros", permanent: true },
+      { source: "/barbeiros/v4", destination: "/barbeiro", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

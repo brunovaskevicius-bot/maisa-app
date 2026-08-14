@@ -27,8 +27,11 @@ describe("o funil é público", () => {
     "/terapeutas",
     "/terapeutas/comecar",
     "/terapeutas/v2",
-    "/barbeiros/comecar",
-    "/barbeiros/v3",
+    /* As duas LPs de barbearia. `/barbeiro` (singular, a variante filmada) NÃO é coberta
+     * pelo prefixo `/barbeiros` — a comparação é por segmento. Foi por isso que ela
+     * precisou de entrada própria em `PUBLIC_PREFIXES`, e é por isso que está aqui. */
+    "/barbeiros",
+    "/barbeiro",
   ])("%s abre sem login", (rota) => {
     expect(isPublic(rota)).toBe(true);
   });

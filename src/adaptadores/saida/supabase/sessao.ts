@@ -16,7 +16,14 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured } from "./config"
 //
 // Não quebrou nada visível para quem desenvolve — logado, a página abre. O sintoma era
 // zero venda, que é o sintoma que ninguém consegue atribuir a uma linha de código.
-const PUBLIC_PREFIXES = ["/login", "/auth", "/api", "/lp", "/barbeiros", "/terapeutas"];
+// ⚠️ `/barbeiro` É UMA ENTRADA PRÓPRIA, e não um caso do `/barbeiros` abaixo. A
+// comparação é por SEGMENTO (`p` ou `p + "/"`), de propósito — sem isso, uma rota futura
+// chamada `/barbeiros-admin` entraria de graça. O efeito colateral é que o singular não
+// herda nada do plural: as duas LPs de barbearia moram em `/barbeiros` (v3) e `/barbeiro`
+// (v4, a variante filmada), e esquecer esta linha põe a segunda atrás do login.
+const PUBLIC_PREFIXES = [
+  "/login", "/auth", "/api", "/lp", "/barbeiro", "/barbeiros", "/terapeutas",
+];
 
 /* Exportada para o teste. É a única função deste arquivo que decide quem entra, e o
  * defeito que ela teve não aparecia em nenhuma tela — só no faturamento. */
