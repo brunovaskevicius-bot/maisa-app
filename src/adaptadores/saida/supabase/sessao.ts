@@ -5,9 +5,22 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured } from "./config"
 // Rotas que NÃO exigem login: a própria tela de login, o callback de OAuth, as APIs
 // (as rotas /api fazem a própria checagem de sessão e devolvem 401 em JSON) e as
 // landing pages de marketing (públicas por natureza — topo/meio/base de funil).
-const PUBLIC_PREFIXES = ["/login", "/auth", "/api", "/barbeiros", "/terapeutas"];
+//
+// ⚠️ `/lp` ENTROU EM 14/08/2026, E A FALTA DELE ERA O BUG MAIS CARO DO PRODUTO.
+//
+// As LPs em `/terapeutas` e `/barbeiros` são rotas do Next; a LP OFICIAL de terapeutas é
+// um bundle estático servido de `public/lp/` — e `/lp` nunca esteve nesta lista. Como ela
+// é a única página do produto com link de pagamento, o funil inteiro terminava num
+// redirect para `/login`: o visitante que clicasse em comprar era mandado para uma tela
+// de login de um produto que ele ainda não assinou.
+//
+// Não quebrou nada visível para quem desenvolve — logado, a página abre. O sintoma era
+// zero venda, que é o sintoma que ninguém consegue atribuir a uma linha de código.
+const PUBLIC_PREFIXES = ["/login", "/auth", "/api", "/lp", "/barbeiros", "/terapeutas"];
 
-const isPublic = (path: string) =>
+/* Exportada para o teste. É a única função deste arquivo que decide quem entra, e o
+ * defeito que ela teve não aparecia em nenhuma tela — só no faturamento. */
+export const isPublic = (path: string) =>
   PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
 
 export async function updateSession(request: NextRequest) {
