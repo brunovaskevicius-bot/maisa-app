@@ -1,84 +1,109 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # O QUE RODA SOZINHO.
 #
-# Até 14/08/2026 este repositório tinha 142 testes que ninguém executava. Passavam
-# na máquina de quem acabou de escrevê-los e mais em lugar nenhum — inclusive um
-# (`src/arquitetura.test.ts`) cujo trabalho é justamente impedir que a arquitetura
-# apodreça sem ninguém ver. Suíte que não roda sozinha não protege nada: ela vira
-# documentação que envelhece, e o primeiro teste que quebrar vai ser apagado por
-# quem achar que ele é que está errado.
+# Até 14/08/2026 este repositório tinha 142 testes que ninguém executava. Passavam na
+# máquina de quem acabou de escrevê-los e mais em lugar nenhum — inclusive o
+# `arquitetura.test.ts`, cujo trabalho é impedir que o núcleo passe a importar adaptador
+# sem ninguém ver. Regra só vale se alguém a cobrar, e não havia quem.
 #
-# ── POR QUE ESTES TRÊS PASSOS, NESTA ORDEM.
-# Não é uma lista de boas práticas. Cada um destes já deixou passar um defeito real,
-# e estão ordenados do mais rápido para o mais lento — assim o erro mais bobo custa
-# 20 segundos e não 2 minutos.
+# É também o que transforma as regras invioláveis do `CLAUDE.md` em algo que segura de
+# verdade: enquanto forem só prosa, uma sessão de agente as atravessa sem perceber — a
+# aderência a instrução decai DENTRO da sessão, e nenhum formato de arquivo resolve isso.
+# Verificação mecânica resolve.
 #
-#   1. typecheck  Um `TS2802` (spread de Set sem `downlevelIteration`) quebrou um
-#                 deploy da Vercel em 13/08. O erro não aparecia em nada local, só
-#                 no build de produção, e `tsc --noEmit` o pega em segundos.
-#   2. testes     As 142 asserções — incluindo as regras executáveis do
-#                 `ARQUITETURA.md` e a lista de rotas públicas, que é o que faz a
-#                 LP que cobra continuar aberta ao visitante.
-#   3. build      Pega o que o `tsc` não pega: metadata inválida, rota que não
-#                 exporta o que o Next espera, módulo que estoura na geração
-#                 estática. É o que a Vercel faz, feito antes dela.
+# ── POR QUE ESTES QUATRO PASSOS, NESTA ORDEM.
+# Não é uma lista de boas práticas. Cada um já deixou passar um defeito real, e estão
+# ordenados do mais rápido para o mais lento: o erro mais bobo custa segundos, não
+# minutos, e reprova com o nome certo em vez de sair no meio de um log de build.
 #
-# ── POR QUE NÃO HÁ NENHUM SEGREDO AQUI.
-# Verificado em 14/08/2026: `npm run build` completa com o ambiente VAZIO, e gera as
-# três LPs. O código foi escrito para degradar sem chave (`isSupabaseConfigured`,
-# `NaoConfigurado`) em vez de estourar na importação, e isso é o que permite esta CI
-# não ter acesso a nada. Se um dia o build passar a exigir uma variável, o certo é
-# consertar o módulo que quebrou o degradê — não adicionar um `secret` aqui.
+#   1. guardas    As regras executáveis de arquitetura e documentação. ~2s. Rodam
+#                 primeiro para que a falha apareça com esse nome no painel — "guardas
+#                 vermelho" diz o que aconteceu; "testes vermelho" não diz.
+#   2. typecheck  Um `TS2802` (spread de Set sem `downlevelIteration`) quebrou o deploy
+#                 de 13/08 sem dar um sinal sequer no ambiente local. `tsc --noEmit` o
+#                 pega em segundos.
+#   3. testes     A suíte inteira. Inclui a lista de rotas públicas, que é o que mantém a
+#                 única LP com link de pagamento aberta ao visitante — a falta de `/lp`
+#                 nessa lista foi o defeito mais caro do produto, e o sintoma era zero
+#                 venda, que é o sintoma que ninguém atribui a uma linha de código.
+#   4. build      Pega o que o `tsc` não pega: metadata inválida, rota que não exporta o
+#                 que o Next espera, módulo que estoura na geração estática. É o que a
+#                 Vercel faz, feito antes dela.
 #
-# ⚠️ Corolário: um `secrets.` neste arquivo é sinal de que alguém tomou o caminho
-# errado. A CI roda em fork, em PR de estranho, em log público. O que ela não tem,
-# ela não vaza.
+# ── POR QUE NÃO HÁ NENHUM SEGREDO, NEM SEQUER FALSO.
+# Medido em 14/08/2026, não suposto: `npm run build` completa com o ambiente literalmente
+# VAZIO (`env -i`) e gera as três LPs. O código foi escrito para degradar sem chave
+# (`isSupabaseConfigured`, `NaoConfigurado`) em vez de estourar na importação — e é isso
+# que permite a esta CI não ter acesso a nada. Valor falso de URL também não entra: um
+# `https://exemplo.supabase.co` faz `isSupabaseConfigured` virar verdadeiro e a geração
+# estática tentar falar com um host que não existe, trocando um build honesto por um
+# build sujeito a rede.
+#
+# ⚠️ Corolário: um `secrets.` neste arquivo é sinal de que alguém tomou o caminho errado.
+# O repositório é PÚBLICO — log de execução também é. Se um dia o build passar a exigir
+# uma variável, o certo é consertar o módulo que perdeu o degradê, não abrir exceção aqui.
+#
+# ── SEM PASSO DE LINT, E É DECISÃO.
+# `npm run lint` é `next lint`, e o ESLint nunca foi configurado neste projeto: rodá-lo
+# abre um prompt interativo ("How would you like to configure ESLint?") que num runner
+# trava até o timeout. Configurar agora, num app em produção, despejaria centenas de
+# avisos de uma vez e o hábito de ignorar o CI se formaria na primeira semana. Vale como
+# fatia própria: escolher o preset, zerar o passivo, e só então ligar aqui.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI
 
 on:
+  # Em TODA branch, e não só na `main`. Aqui o merge é feito na máquina e empurrado
+  # direto: esperar a `main` para descobrir que quebrou é descobrir depois que o commit
+  # já está em produção — todo push na `main` publica. Feedback na branch é feedback a
+  # tempo de consertar de graça.
   push:
   pull_request:
 
-# Push seguido de push na mesma branch cancela o anterior: o resultado do commit
-# do meio não interessa a ninguém, e a fila livre faz o do topo responder antes.
+# Push seguido de push na mesma branch cancela o anterior: o resultado do commit do meio
+# não interessa a ninguém, e a fila livre faz o do topo responder antes.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   verificar:
-    name: typecheck · testes · build
+    name: guardas · typecheck · testes · build
     runs-on: ubuntu-latest
-    # Um build travado não pode consumir a cota do mês inteiro. O normal é ~2 min.
-    timeout-minutes: 10
+    # Um build travado não pode consumir a cota do mês inteiro. O normal é ~1 min.
+    timeout-minutes: 15
 
     steps:
+      # v5 e não v4: a v4 ainda declara Node 20, e o runner emite aviso de depreciação em
+      # toda execução. Aviso que aparece sempre é aviso que todo mundo aprende a ignorar.
       - uses: actions/checkout@v5
 
-      # 24 porque é o que a Vercel usa neste projeto (confirmado por
-      # `vercel project inspect`). CI numa versão diferente da de produção testa um
-      # programa que não é o que vai para o ar.
+      # 24 porque é o que a Vercel usa neste projeto (confirmado em `vercel project
+      # inspect`, 14/08/2026). CI numa versão diferente da de produção testa um programa
+      # que não é o que vai para o ar.
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
 
-      # `ci` e não `install`: instala exatamente o que está no lockfile e falha se
-      # ele divergir do package.json, em vez de resolver a diferença em silêncio.
-      - run: npm ci
+      # `ci` e não `install`: instala exatamente o que está no lockfile e falha se ele
+      # divergir do package.json, em vez de resolver a diferença em silêncio.
+      - name: instalar
+        run: npm ci
 
-      - name: Typecheck
+      - name: guardas de arquitetura e documentação
+        run: npm run guardas
+
+      - name: typecheck
         run: npm run typecheck
 
-      - name: Testes
+      - name: testes
         run: npm test
 
-      # `prebuild` dispara o `espelha-lp`, então este passo também prova que o
-      # espelhamento `lp/` → `public/lp/` funciona — e é dele que sai a única LP do
-      # produto com link de pagamento.
-      - name: Build
+      # `prebuild` dispara o `espelha-lp`, então este passo também prova o espelhamento
+      # `lp/` → `public/lp/` — e é de lá que sai a única LP do produto que cobra.
+      - name: build
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"

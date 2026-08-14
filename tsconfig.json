@@ -1,5 +1,17 @@
 {
   "compilerOptions": {
+    /* ⚠️ SEM ESTA LINHA, `tsc --noEmit` REPROVA CÓDIGO QUE O `next build` COMPILA.
+     *
+     * Ausente o `target`, o tsc assume ES5 e passa a exigir `--downlevelIteration` para
+     * qualquer `for...of` sobre Set, Map ou `matchAll` — o famoso TS2802. O `next build`
+     * NÃO usa esse padrão (usa o próprio, moderno), então o erro só aparecia em quem
+     * rodasse o tsc direto: o build ficava verde e o typecheck vermelho, no mesmo commit.
+     *
+     * ES2017 é o valor que o próprio Next recomenda. Medido em 14/08/2026 antes de
+     * entrar: com e sem esta linha o build gera bundles IDÊNTICOS, mesmos hashes de
+     * chunk — aqui `noEmit` é `true` e quem transpila é o SWC, guiado por browserslist e
+     * não por este campo. Ou seja, alinha a checagem sem tocar no que vai para o ar. */
+    "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,

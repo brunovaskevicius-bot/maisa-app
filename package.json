@@ -12,9 +12,10 @@
     "build": "next build",
     "start": "next start -p 3100",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental false",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "guardas": "vitest run src/arquitetura.test.ts src/documentacao.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

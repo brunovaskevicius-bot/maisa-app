@@ -67,6 +67,38 @@ describe("o núcleo não conhece o mundo", () => {
     expect(violacoes).toEqual([]);
   });
 
+  /* As duas regras acima cobrem as camadas de DENTRO do projeto, e deixavam passar o
+   * caso mais direto de todos: `import Anthropic from "@anthropic-ai/sdk"` num caso de
+   * uso. Nenhum `@/adaptadores` aparece, os dois testes passam, e o núcleo acabou de
+   * ficar impossível de testar sem credencial — que é justamente o dano que a regra 1
+   * existe para impedir.
+   *
+   * A checagem é por LISTA BRANCA e não por lista negra de SDKs conhecidos: o modo de
+   * falha é sempre a dependência que ninguém previu. O núcleo importa `@/nucleo/**`,
+   * caminho relativo, e nada mais.
+   *
+   * `vitest` é a única exceção, e só aparece em arquivo de teste — o corredor que PROVA
+   * o núcleo não é uma dependência dele em produção. */
+  it("nenhum arquivo de src/nucleo importa pacote externo", () => {
+    const PERMITIDOS = new Set(["vitest"]);
+
+    const violacoes = arquivos(join(SRC, "nucleo")).flatMap((f) =>
+      readFileSync(f, "utf8")
+        .split("\n")
+        .map((linha, i) => {
+          if (!/^\s*(import|export)\b/.test(linha)) return null;
+          const alvo = linha.match(/from\s+["']([^"']+)["']/)?.[1];
+          if (!alvo) return null;
+          if (alvo.startsWith(".") || alvo.startsWith("@/nucleo/") || alvo.startsWith("node:")) return null;
+          if (PERMITIDOS.has(alvo.split("/")[0])) return null;
+          return `${marcar(f, i)} → ${alvo}`;
+        })
+        .filter((x): x is string => x !== null),
+    );
+
+    expect(violacoes).toEqual([]);
+  });
+
   /* A UI fala com o servidor por `fetch`, não por adaptador. As duas exceções são de
    * natureza diferente do resto e por isso são nominais:
    *   • `demo` — as FIXTURES que a tela usa para se desenhar sem banco;

@@ -1,0 +1,83 @@
+# MAISA — secretária de IA por WhatsApp
+
+Next.js 14 · TypeScript · arquitetura hexagonal. O cliente conversa no WhatsApp, a MAISA
+oferece horário, marca na agenda do dono e emite nota. O dono acompanha por um painel.
+
+**O mapa do repositório é o [`ARQUITETURA.md`](ARQUITETURA.md)** — não está repetido aqui de
+propósito. Quando dois arquivos dizem a mesma coisa, um envelhece e ninguém sabe qual.
+
+## Comandos
+
+| Comando | O quê |
+|---|---|
+| `npm run dev` | sobe em :3100. Teste a conversa em [/laboratorio](http://localhost:3100/laboratorio) — sem número de WhatsApp |
+| `npm test` | vitest: a suíte inteira, incluindo as guardas abaixo |
+| `npm run guardas` | só as guardas de arquitetura e documentação |
+| `npm run typecheck` | `tsc --noEmit`, sem cache incremental de propósito — com cache ele já reprovou código que compila |
+| `npm run lint` · `npm run build` | eslint · next build |
+
+Os quatro primeiros rodam no CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)),
+em toda branch. `lint` não roda: o ESLint nunca foi configurado aqui, e o motivo de não
+ligá-lo às pressas está escrito no próprio workflow.
+
+⚠️ **Nunca `npm run build` com o `next dev` no ar.** O build clobbera o `.next` do dev e a
+tela perde todo o CSS — parece bug do código, e não é.
+
+## Regras invioláveis
+
+**NUNCA**
+
+- Importar SDK externo, `@/adaptadores`, `@/ui` ou `@/app` dentro de `src/nucleo/`. O núcleo só conhece `@/nucleo/**` e caminho relativo. Precisa do mundo? Declare uma porta em `nucleo/portas/saida/`.
+- Ler `tenantId` do corpo do request, da query string ou de argumento do agente de IA. Ele nasce da sessão autenticada, sempre — foi esse descuido que abriu o pior furo da integração de origem.
+- Importar um adaptador de dentro de outro adaptador. Eles se encontram em `src/composicao.ts`, e as quatro exceções vivas estão listadas em `src/arquitetura.test.ts`.
+- Decidir regra de negócio dentro de um `route.ts`. Rota é tradutora: autentica, converte JSON, chama caso de uso.
+- Devolver erro de domínio como status HTTP a partir do núcleo. O núcleo lança `DadoInvalido`; quem vira 400 é `entrada/http/respostas.ts`.
+- Renomear um campo `status` de resposta sem procurar o nome em `src/ui/estado/store.tsx`. Esses nomes são contrato com a tela.
+- Importar `saida/google`, `saida/focus` ou `composicao.ts` de um componente `"use client"`. Segredo de servidor não cruza para o bundle.
+- Pôr guardrail em prompt quando ele cabe em código. Prompt é a camada mais fraca e não vale como garantia.
+- Deixar o modelo escolher `tenantId`, `maisaAg`, `comMeet` ou `convidarCliente`. Ficaram fora do schema das ferramentas por decisão, não por esquecimento.
+
+**PERGUNTE ANTES**
+
+- De mexer em `src/nucleo/portas/`. Mudar uma porta muda todos os adaptadores dela de uma vez.
+- De trocar o modelo de linguagem em `composicao.ts`. Isso invalida o cache de prompt e muda o custo por mensagem.
+- De criar um segundo lugar que guarde atendimento. A agenda externa é a fonte da verdade; quando havia duas listas, nenhuma tela sabia qual era a real.
+
+**SEMPRE**
+
+- Escrever em pt-BR: código, comentário e documentação. Termo técnico sem tradução consagrada fica em inglês.
+- Atualizar o `LEIA-ME.md` da pasta na mesma mudança que altera o comportamento dela. Documentação vencida é pior que ausente — com ponteiro errado o acerto medido cai de 78,5% para 68,1%.
+- Chamar o caso de uso direto, nunca `fetch` para a própria API. O agente roda no mesmo processo que as rotas.
+
+## As guardas
+
+`src/arquitetura.test.ts` e `src/documentacao.test.ts` transformam as regras acima em teste.
+Elas rodam no `npm test` e no CI, e **reprovam o build**. As listas de exceção nesses arquivos
+são o conteúdo, não burocracia: cada entrada tem motivo e data. Adicionar um nome para "o teste
+passar" é a hora de parar e perguntar por quê.
+
+## Onde olhar primeiro
+
+| Você vai mexer em | Leia antes |
+|---|---|
+| qualquer rota | [`docs/rotas.md`](docs/rotas.md) |
+| o agente de WhatsApp | [`.../entrada/whatsapp/LEIA-ME.md`](src/adaptadores/entrada/whatsapp/LEIA-ME.md) — guardrails, envelopes e dívida |
+| agenda, horários, nota fiscal | [`docs/fluxos/`](docs/fluxos/) |
+| adaptador de saída novo | [`src/nucleo/portas/LEIA-ME.md`](src/nucleo/portas/LEIA-ME.md) e o `saida/demo/` ao lado |
+| entender o negócio, sem código | [`docs/dominio.md`](docs/dominio.md) |
+| onde mexo para fazer X | [`ARQUITETURA.md`](ARQUITETURA.md) §5 |
+
+**Toda pasta tem `LEIA-ME.md`** com o que ela é, o que pode e o que não pode importar. Leia o
+da pasta antes de escrever nela — é onde mora o "por quê" que não cabe no código.
+
+## O teste que a arquitetura tem que passar
+
+Adicionar um provedor novo (outra agenda, outro canal, outro modelo) é: escrever o adaptador,
+trocar uma linha em `composicao.ts`. **Se você precisou tocar em `src/nucleo/`, algo está
+errado** — ou a porta está mal desenhada, ou aquilo não era um adaptador. Pare e diga.
+
+## Padrão da casa
+
+Este repositório segue o padrão do
+[Product-House](https://github.com/contasinovacao-dev/Product-House). Decisão arquitetural vira
+ADR de lá — não comentário no código, nem parágrafo neste arquivo.
