@@ -286,8 +286,12 @@ cliente respondia de volta, e a MAISA falava por cima dele.
   borda — é decisão de produto pendente, com três saídas: responder uma frase pedindo
   texto, escalar para o dono, ou transcrever. A plumbing está pronta (`Envelope.midia`);
   falta escolher.
-- **Um inquilino só.** `contexto.ts` lê instância e número de env em vez de
-  `integracoes_whatsapp`.
+- ~~**Um inquilino só.**~~ **Fechada em 14/08/2026.** `tenantPorDestino` resolve o inquilino
+  em `integracoes_whatsapp` pela instância. O env (`MAISA_TENANT_ID`) sobrou para um caso e
+  só um: ambiente **sem** Supabase, onde a MAISA roda em demonstração e se conversa com ela
+  por `curl`. Com Supabase configurado o banco ganha sempre — um env esquecido apontando para
+  o inquilino errado escreveria na agenda de outro negócio. E falha de banco **não** cai para
+  o env: descartar a mensagem é reversível, marcar horário no negócio errado não é.
 - **Sem deduplicação de reentrega.** O webhook reentrega quando não recebe 200 a tempo; o
   índice único em `provedor_id` já está na DDL, mas a porta `RepositorioHistorico.anexar` fala
   `Msg`, e `Msg` não carrega id de provedor — então nem o adaptador do Supabase o usa. Hoje uma
@@ -297,10 +301,9 @@ cliente respondia de volta, e a MAISA falava por cima dele.
   um detalhe do canal.
 - **A thread do painel não é realtime.** A tela relê de 15 em 15 segundos com ela aberta (ver
   `RELER_CONVERSAS_MS` no store). O Supabase tem realtime; é uma fatia própria.
-- **Nenhum teste automatizado no repo.** As 69 asserções que provaram vagas, inferência
-  de memória, bolhas, normalização de webhook e a allowlist de horários rodaram fora do
-  projeto — e outras 36, sobre os envelopes da Evolution (`fromMe`, grupo, `@lid`,
-  `ephemeralMessage`, resolução por instância, formatação de número), também. O código
-  está pronto para elas (casos de uso recebem portas por parâmetro), falta escolher o
-  runner. **Toda vez que essas asserções rodam fora do repo, elas não protegem ninguém
-  amanhã.**
+- ~~**Nenhum teste automatizado no repo.**~~ **Fechada em 13/08/2026.** O vitest entrou e o
+  repositório tem suíte de verdade (`npm test`). ⚠️ As que faltam ainda são as **deste
+  adaptador**: os envelopes da Evolution (`fromMe`, grupo, `@lid`, `ephemeralMessage`,
+  resolução por instância, formatação de número) continuam provados só à mão. Cada linha da
+  tabela "o que a normalização descarta" acima é um caso de teste esperando para existir, e
+  cada um deles já foi um bug real.

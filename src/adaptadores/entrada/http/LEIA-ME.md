@@ -33,8 +33,13 @@ if (barrou(porteiro)) return porteiro.barrado;
 > o id da vítima para autorizar com a própria conta Google e passar a escrever na agenda
 > dela.
 
-Hoje `tenantId === usuarioId` (um login, um negócio). Quando existir a tabela de
-negócios, é aqui — e só aqui — que entra o `select tenant_id from membros`.
+**Atualizado em 14/08/2026:** a tabela de negócios existe, e o `select` prometido aqui é o
+`tenantDoUsuario()` deste arquivo — ele lê `membros` e nada mais no app faz isso. Quando a
+pessoa pertence a mais de um negócio, `membros.padrao` decide; o índice único parcial
+`ux_membros_padrao` garante **no banco** que existe no máximo um padrão por pessoa, em vez de
+confiar que a aplicação nunca grave dois.
+
+Ou seja: `tenantId` já **não** é mais o id do usuário.
 
 ## `respostas.ts` — a tabela de tradução
 

@@ -142,19 +142,25 @@ achou razoável" são, para ele, o mesmo pedido válido.
 
 ## 6. Regras que valem sempre
 
-1. **Núcleo não importa adaptador.** Nem para um tipo. Nem "só desta vez".
-2. **`tenantId` nasce da sessão**, nunca da query string nem do corpo do request. O
-   único lugar que o cria é `adaptadores/entrada/http/contexto.ts`.
-3. **Rota é tradutora, não decisora.** Se um `if` de regra apareceu num `route.ts`,
-   ele está no lugar errado.
-4. **Erro de domínio não é status HTTP.** O núcleo lança `DadoInvalido`; quem vira 400
-   é `entrada/http/respostas.ts`. O agente de WhatsApp vai virar uma frase.
-5. **Os nomes de `status` nas respostas são contrato** com o store. Mudar um deles é
-   mudar o comportamento da tela — procure o nome no `store.tsx` antes.
-6. **Segredo não cruza a fronteira.** Nada em `saida/google`, `saida/focus` ou
-   `composicao.ts` pode ser importado de um componente `"use client"`.
-7. **Nunca `npm run build` com o `next dev` no ar** — o build clobbera o `.next` do
-   dev e a tela perde todo o CSS. Parece bug do código, e não é.
+**A lista canônica mora no [`CLAUDE.md`](CLAUDE.md), seção "Regras invioláveis".** Ela está
+lá, e não aqui, por dois motivos: é o arquivo que um agente lê em toda sessão, e é a lista
+que o mecanismo de reafirmação reinjeta durante a sessão. Duplicá-la aqui garantiria que uma
+das duas cópias ficasse velha.
+
+O que este documento acrescenta é o **porquê** de cada uma, que está espalhado pelas seções
+acima e pelos `LEIA-ME.md` de cada pasta.
+
+Três delas são executáveis e reprovam o build — ver `src/arquitetura.test.ts`:
+
+| Regra | Onde é verificada |
+|---|---|
+| núcleo não importa adaptador, UI, rota nem pacote externo | `arquitetura.test.ts`, regra 1 |
+| adaptador não importa adaptador (4 exceções nominais) | `arquitetura.test.ts`, regra 2 |
+| `tenantId` nunca vem do request | `arquitetura.test.ts`, regra 3 |
+| segredo nenhum escrito em `src/` | `arquitetura.test.ts`, regra 4 |
+
+E as de documentação — rota documentada, pasta com `LEIA-ME.md`, índice da §8 completo, porta
+com `demo`, teto do `CLAUDE.md` — em `src/documentacao.test.ts`.
 
 ---
 
@@ -269,6 +275,8 @@ Honestidade sobre o estado real, para ninguém achar que está mais pronto do qu
 | `src/adaptadores/saida/google/` | [.../saida/google/LEIA-ME.md](src/adaptadores/saida/google/LEIA-ME.md) |
 | `src/adaptadores/saida/focus/` | [.../saida/focus/LEIA-ME.md](src/adaptadores/saida/focus/LEIA-ME.md) |
 | `src/adaptadores/saida/evolution/` | [.../saida/evolution/LEIA-ME.md](src/adaptadores/saida/evolution/LEIA-ME.md) |
+| `src/adaptadores/saida/gemini/` | [.../saida/gemini/LEIA-ME.md](src/adaptadores/saida/gemini/LEIA-ME.md) |
+| `src/adaptadores/saida/anthropic/` | [.../saida/anthropic/LEIA-ME.md](src/adaptadores/saida/anthropic/LEIA-ME.md) |
 | `src/adaptadores/saida/supabase/` | [.../saida/supabase/LEIA-ME.md](src/adaptadores/saida/supabase/LEIA-ME.md) |
 | `src/adaptadores/saida/demo/` | [.../saida/demo/LEIA-ME.md](src/adaptadores/saida/demo/LEIA-ME.md) |
 | `src/app/` | [src/app/LEIA-ME.md](src/app/LEIA-ME.md) |

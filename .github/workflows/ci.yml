@@ -1,0 +1,65 @@
+# CI da MAISA.
+#
+# Roda em toda PR e em todo push para main. É o que transforma as regras invioláveis do
+# CLAUDE.md em algo que segura de verdade: enquanto elas forem só prosa, uma sessão de
+# agente as atravessa sem perceber — a aderência a instrução decai DENTRO da sessão, e
+# nenhum formato de arquivo de instrução resolve isso. Verificação mecânica resolve.
+#
+# As guardas rodam ANTES do build, de propósito: elas levam ~2s e reprovam pelo motivo
+# certo, com arquivo e linha. Um build de dois minutos que falha depois esconde a causa.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # `labeled`/`unlabeled` estão aqui porque sem eles adicionar uma label DEPOIS de abrir
+    # a PR não re-executa o workflow — e um gate que depende de label fica falsamente
+    # verde. Foi um bug real no CI anterior desta casa.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+# Uma PR que recebe três pushes seguidos não precisa de três execuções. Cancela as antigas.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: guardas · testes · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: instalar
+        run: npm ci
+
+      # ── as guardas primeiro: rápidas, e a mensagem de falha é a útil ──
+      - name: guardas de arquitetura e documentação
+        run: npm run guardas
+
+      - name: testes
+        run: npm test
+
+      # ⚠️ SEM PASSO DE LINT, e é decisão, não esquecimento. `npm run lint` é `next lint`,
+      # e o ESLint nunca foi configurado neste projeto: rodá-lo abre um prompt interativo
+      # ("How would you like to configure ESLint?") que num runner trava até o timeout.
+      # Configurar agora, num app em produção, despejaria centenas de avisos de uma vez e
+      # o time aprenderia a ignorar o CI na primeira semana. Vale como fatia própria:
+      # escolher o preset, zerar o passivo, e só então ligar aqui.
+
+      # O build precisa de env para os módulos que leem configuração no import. Valores
+      # falsos de propósito: o CI não fala com Google, Supabase nem Evolution, e uma chave
+      # de verdade aqui seria segredo num log público.
+      - name: build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://exemplo.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: chave-de-ci-sem-valor
