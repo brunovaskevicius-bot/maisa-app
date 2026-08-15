@@ -23,6 +23,11 @@ import type { Profissional, Servico } from "../../dominio/catalogo";
 import type { Cliente } from "../../dominio/clientes";
 import type { Conversa, Msg } from "../../dominio/conversas";
 import type { Conexao } from "../saida/agenda-externa";
+/* Os rascunhos são reexportados da porta de SAÍDA, não redefinidos: o que a tela manda e
+ * o que o repositório grava têm que ser a mesma forma, e duas declarações de "o que é um
+ * serviço para gravar" divergem no primeiro campo novo. Mesmo arranjo do `AjustesParciais`
+ * logo abaixo, que também vem da porta de saída. */
+import type { RascunhoDeProfissional, RascunhoDeServico } from "../saida/repositorio-negocio";
 import type { AjustesDaAssistente, AjustesParciais } from "../saida/repositorio-assistente";
 import type { Canal, Pareamento } from "../../dominio/canal";
 import type { SemanaAnunciada } from "../../dominio/horarios";
@@ -195,6 +200,35 @@ export type AjustarNegocio = (
   t: ContextoTenant,
   p: { nome: string },
 ) => Promise<Negocio>;
+
+/* ───────────────────────────── o catálogo, agora com escrita ─────────────────────────────
+ * Os outros dois pares de escrita do `LerCadastro`, e a mesma história do `AjustarNegocio`
+ * acima repetida em escala maior: a tela de Serviços tinha "adicionar" e "editar" desde
+ * sempre, e os dois mexiam em `svcNovos`/`svcEdit` — estado do NAVEGADOR. O dono ajustava
+ * o preço, via a lista mudar, dava F5, e o preço voltava. Não havia rota nem porta.
+ *
+ * ⚠️ ISTO BLOQUEIA O ONBOARDING, e é por isso que veio antes do wizard. A etapa "confirme
+ * o que você faz" existe justamente para o dono ajustar o catálogo que `criar_negocio()`
+ * semeou — cinco serviços com preço de chute. Um wizard que não grava é pior que wizard
+ * nenhum: ele ensina, no primeiro minuto de uso, que o app perde o que você digita.
+ *
+ * Os dois devolvem a entidade INTEIRA depois de gravada, e não um `ok`. A tela pinta o
+ * que está no banco — inclusive os campos derivados (`profissionalIds`, `atendimentosMes`)
+ * que ela não mandou e não sabe calcular.
+ */
+export type AjustarServico = (t: ContextoTenant, p: RascunhoDeServico) => Promise<Servico>;
+export type AjustarProfissional = (
+  t: ContextoTenant,
+  p: RascunhoDeProfissional,
+) => Promise<Profissional>;
+
+/**
+ * Apagar serviço existe; apagar profissional não — e a assimetria vem do ESQUEMA:
+ * `atendimentos.servico_id` é snapshot sem FK, mas `atendimentos.profissional_id` tem
+ * `on delete cascade`. Apagar a pessoa levaria o histórico dela junto. O porquê inteiro
+ * está no cabeçalho de `RepositorioNegocio`.
+ */
+export type RemoverServico = (t: ContextoTenant, id: string) => Promise<void>;
 
 /* ───────────────────────────── as respostas prontas ─────────────────────────────
  * As FAQs do negócio. Quatro casos de uso: três são a tela de gestão, e o quarto é o que

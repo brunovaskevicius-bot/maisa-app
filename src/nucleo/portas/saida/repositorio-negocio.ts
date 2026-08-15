@@ -15,9 +15,43 @@
 
 import type { ContextoTenant } from "../../dominio/tenant";
 import type { Negocio } from "../../dominio/negocio";
-import type { Profissional, Servico } from "../../dominio/catalogo";
+import type { CategoriaServico, Profissional, Servico } from "../../dominio/catalogo";
 import type { Cliente } from "../../dominio/clientes";
 import type { Expediente } from "../../dominio/expediente";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * OS RASCUNHOS — o que se manda gravar, que não é o mesmo que se lê.
+ *
+ * `Servico` e `Profissional` (o que se LÊ) carregam campos derivados que o banco calcula:
+ * `profissionalIds`, `atendimentosMes`, `expediente`. Aceitá-los na escrita seria
+ * convidar quem chama a mandar um `atendimentosMes` inventado — e o adaptador teria que
+ * ignorá-lo em silêncio, que é como um campo vira mentira.
+ *
+ * O padrão é o do `RascunhoDeFaq` (`repositorio-faqs.ts`): tipo próprio, `id` opcional, e
+ * a ausência dele significando "criar".
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+export type RascunhoDeServico = {
+  /** Ausente = criar. Presente = editar aquela linha, se ela for deste inquilino. */
+  id?: string;
+  nome: string;
+  categoria: CategoriaServico;
+  /** Reais. */
+  preco: number;
+  /** Minutos. */
+  duracao: number;
+  /** Ausente na criação = nasce ativo, que é o que o dono espera de algo que acabou de
+   *  cadastrar. Na edição, ausente = não mexe. */
+  ativo?: boolean;
+};
+
+export type RascunhoDeProfissional = {
+  id?: string;
+  nome: string;
+  /** Ausente = mantém o que está lá (ou o default do banco, na criação). */
+  papel?: string;
+  ativo?: boolean;
+};
 
 export interface RepositorioNegocio {
   negocio(t: ContextoTenant): Promise<Negocio>;
@@ -85,6 +119,79 @@ export interface RepositorioNegocio {
    * volta sem erro e sem linha: o silêncio é o modo de falha, não a exceção.
    */
   renomear(t: ContextoTenant, nome: string): Promise<Negocio>;
+
+  /* ─────────────────────── ESCREVER O CATÁLOGO ───────────────────────
+   * Entraram em 15/08/2026, e a razão é do mesmo tipo do `renomear` acima: existia tela,
+   * existia tabela, e não existia caminho entre as duas.
+   *
+   * `store.tsx` tinha `criarServico`, `editarServico` e `excluirServico` desde sempre —
+   * e os três mexiam em `svcNovos`/`svcEdit`, que são estado do NAVEGADOR. O dono
+   * ajustava o preço do Corte, via a lista mudar, dava F5, e o preço voltava. Sem rota,
+   * sem porta, sem erro: a escrita não existia e a tela não sabia.
+   *
+   * Isso vira bloqueio de produto no onboarding — a etapa "confirme o que você faz" pede
+   * exatamente para editar o catálogo semeado por `criar_negocio()`, e um wizard que não
+   * grava é pior que wizard nenhum.
+   *
+   * ── SERVIÇO SE APAGA; PROFISSIONAL NÃO. A ASSIMETRIA É DO ESQUEMA ──
+   *
+   * Não é gosto, é o que as FKs de `002_multitenant.sql` fazem:
+   *
+   *   `atendimentos.servico_id`      — SEM FK. É snapshot, ao lado de `servico_nome` e
+   *                                    `servico_valor`, e o comentário da coluna diz o
+   *                                    porquê: "o domínio JÁ assume que esse id pode não
+   *                                    resolver". Apagar o serviço não toca o passado.
+   *   `atendimentos.profissional_id` — FK com **`on delete cascade`**. Apagar a pessoa
+   *                                    APAGA OS ATENDIMENTOS DELA. Faturamento fechado,
+   *                                    nota emitida, tudo.
+   *
+   * Por isso `removerServico` existe e `removerProfissional` não. Quem sai da equipe vira
+   * `ativo: false` — some da lista e da boca da MAISA, e o histórico fica de pé. */
+
+  /**
+   * Cria ou atualiza um serviço, e devolve a linha como ficou.
+   *
+   * ⚠️ Devolve o estado GRAVADO, nunca o que foi mandado — a normalização acontece do
+   * outro lado da porta e a tela precisa pintar o banco. Mesma disciplina do `renomear`.
+   *
+   * ⚠️ O adaptador tem que DISTINGUIR "não era deste inquilino" de "gravou". Um `update`
+   * com id de outro tenant não dá erro: dá sucesso com zero linhas. Sem pedir as linhas
+   * de volta, a tela diz "salvo" e reverte no reload.
+   *
+   * Serviço NOVO nasce ligado a quem atende (`servicos_profissionais`), como
+   * `provisionar_negocio` faz. Serviço sem ninguém que o faça já deu tela branca na
+   * gaveta uma vez — está escrito no `005_provisionar.sql`.
+   */
+  salvarServico(t: ContextoTenant, rascunho: RascunhoDeServico): Promise<Servico>;
+
+  /**
+   * Apaga o serviço de vez.
+   *
+   * Seguro por construção do esquema, não por sorte: `atendimentos` guarda `servico_nome`
+   * e `servico_valor` e o `servico_id` dele NÃO tem FK, então o faturamento fechado
+   * continua fechado. `clientes.servico_id` cai para nulo (`on delete set null`) e
+   * `servicos_profissionais` some junto (`cascade`).
+   *
+   * ⚠️ Existe porque sem ele o "+ Serviço" é uma via de mão única: um clique errado deixa
+   * um "Novo serviço" morto na lista para sempre. `ativo: false` continua sendo o certo
+   * para "não faço mais isso" — apagar é para o que nunca deveria ter sido criado.
+   */
+  removerServico(t: ContextoTenant, id: string): Promise<void>;
+
+  /**
+   * Cria ou atualiza um profissional, e devolve a linha como ficou.
+   *
+   * O primeiro é criado por `criar_negocio()`, que ADIVINHA o nome a partir do cadastro
+   * do usuário — `raw_user_meta_data.full_name`, ou o que vem antes do @ do e-mail. Foi
+   * assim que um negócio de verdade passou a ter um profissional chamado
+   * `bruno.vaskevicius`. Corrigir isso exigia SQL na mão até esta porta existir.
+   *
+   * ⚠️ Não mexe em expediente. `expediente_folga`/`de`/`ate` mandam na grade inteira e
+   * merecem caso de uso próprio, com a mesma seriedade que `AjustarHorarios` já tem para
+   * o horário anunciado. Deixá-los aqui num campo opcional convidaria a tela de cadastro
+   * a fechar a agenda de alguém sem querer.
+   */
+  salvarProfissional(t: ContextoTenant, rascunho: RascunhoDeProfissional): Promise<Profissional>;
 
   /**
    * Acha o cliente por telefone ou cria.

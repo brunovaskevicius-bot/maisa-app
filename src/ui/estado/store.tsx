@@ -112,12 +112,22 @@ type Persistido = {
    *  estranho na tela, não como incompatibilidade. */
   __v: number;
   etapas: Record<string, D.Etapa>;
-  profAtivo: Record<string, boolean>;
-  svcAtivo: Record<string, boolean>;
-  /** Edições de serviço por id (nome/preço/duração/categoria). D.SERVICOS é catálogo de partida. */
-  svcEdit: Record<string, Partial<D.Servico>>;
-  /** Serviços criados pelo usuário — não existem em D.SERVICOS. */
-  svcNovos: D.Servico[];
+  /* ⚠️ AQUI MORAVAM `profAtivo`, `svcAtivo`, `svcEdit` E `svcNovos`, e a saída deles em
+   * 15/08/2026 é o conserto de um defeito, não uma limpeza.
+   *
+   * Os quatro guardavam CATÁLOGO no `localStorage`: quem estava ligado, o que tinha sido
+   * editado, o que tinha sido criado. Como não existia `/api/servicos` nem `/api/equipe`,
+   * eles eram o único lugar onde essas decisões viviam — e um F5 as apagava. A tela dizia
+   * "persiste na hora"; persistia no navegador de quem editou, até o cache sumir.
+   *
+   * Agora o catálogo vem de `GET /api/cadastro` e volta por PUT. Nada dele fica aqui: um
+   * mapa local sobrevivente reapareceria por cima do banco depois de o dono editar noutro
+   * aparelho, e ninguém entenderia por que o preço "voltou sozinho".
+   *
+   * O `__v` NÃO subiu de propósito. Campo desconhecido no JSON salvo é ignorado na
+   * leitura, então um `localStorage` antigo com os quatro mapas simplesmente perde o que
+   * sobrava — que é o resultado desejado. Subir a versão descartaria junto `etapas`,
+   * `notas` e `resolvidos`, que continuam válidos e são do dia a dia. */
   /* Aqui moravam `novosAgendamentos` (os atendimentos) e `googleEventos` (o vínculo com
    * o Google). Os dois saíram na fatia 4, e a razão é a mesma: o atendimento AGORA É o
    * evento do Google. Guardar uma cópia local seria manter uma segunda verdade que
@@ -413,10 +423,6 @@ function uuid(): string {
 const INICIAL: Persistido = {
   __v: 3,
   etapas: {},
-  profAtivo: {},
-  svcAtivo: {},
-  svcEdit: {},
-  svcNovos: [],
   cliAtivo: {},
   resolvidos: {},
   notas: {},
@@ -599,7 +605,6 @@ export type StoreValue = {
   clienteDe: (id: string) => D.Cliente | null;
   /** Serviço como o CADASTRO o conhece, sem as edições locais — é o que responde
    *  "veio do catálogo ou o usuário criou?". Para o vivo, use `servicoDe`. */
-  servicoDoCadastro: (id: string) => D.Servico | null;
   nomeDoProfissional: (id: string) => string;
   nomeDoCliente: (id: string) => string;
 
@@ -1211,13 +1216,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [cadastro.clientes],
   );
 
-  /** O serviço como o CADASTRO o conhece — sem as edições locais. É o que responde
-   *  "este serviço veio do catálogo ou o usuário criou?" (ver `servicoDe` para o vivo). */
-  const servicoDoCadastro = useCallback(
-    (id: string) => cadastro.servicos.find((s) => s.id === id) ?? null,
-    [cadastro.servicos],
-  );
-
   const nomeDoProfissional = useCallback(
     (id: string) => profissionalDe(id)?.nome ?? "—",
     [profissionalDe],
@@ -1272,13 +1270,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * como enxergá-lo e lia `D.servico` direto: renomear "Corte" trocava o nome na tela Serviços e
    * NÃO trocava no cartão do atendimento. E o nome era o menor dos problemas — a duração antiga
    * continuava ditando `fim`, ou seja, a ALTURA do cartão na grade da Agenda. */
-  const servicos = useMemo<D.Servico[]>(
-    () => [
-      ...cadastro.servicos.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
-      ...db.svcNovos.map((sv) => ({ ...sv, ...(db.svcEdit[sv.id] ?? {}) })),
-    ],
-    [cadastro.servicos, db.svcEdit, db.svcNovos],
-  );
+  /* ⚠️ EM 15/08/2026 ESTA LISTA DEIXOU DE TER CAMADA-SOMBRA, E ISSO É O CONSERTO DA FATIA.
+   *
+   * Ela era `cadastro.servicos` + `db.svcNovos`, com `db.svcEdit` por cima — três origens
+   * fundidas num memo, e as três moravam no NAVEGADOR. Nenhuma escrita saía daqui: não
+   * existia `/api/servicos`, não existia porta, não existia erro. O dono ajustava o preço
+   * do Corte, via a lista mudar, dava F5, e o preço voltava.
+   *
+   * Agora `cadastro.servicos` é a única origem, e ela é o que o servidor devolveu. As
+   * edições continuam otimistas (a tela muda na hora), mas vão para o banco — e voltam
+   * atrás se ele recusar. É a mesma disciplina do `setNomeDoNegocio`. */
+  const servicos = cadastro.servicos;
   const servicoDe = useCallback(
     (id: string) => servicos.find((sv) => sv.id === id),
     [servicos],
@@ -1350,9 +1352,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Comparar duas datas ISO com `<` JÁ é comparação cronológica — campos de largura
       // fixa, do mais significativo para o menos. É a razão de o formato ter sido escolhido.
     }).sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : x.inicio - y.inicio));
-    // `servicoDe` nas deps cobre svcNovos E svcEdit de uma vez: é ele que muda de identidade
-    // quando o catálogo muda. Listar `db.svcNovos` à mão era meia dependência — pegava o
-    // serviço criado e perdia o serviço editado.
+    // `servicoDe` nas deps é o que basta: ele muda de identidade sempre que o catálogo
+    // muda, e desde 15/08/2026 o catálogo tem uma origem só (`cadastro.servicos`). Antes
+    // eram três fundidas num memo, e listar `db.svcNovos` à mão era meia dependência —
+    // pegava o serviço criado e perdia o serviço editado.
   }, [atendimentos, db.etapas, servicoDe, profissionalDe, clienteDe]);
 
   /** Índice por data. A grade de mês pergunta 42 vezes por render (uma por célula, e o hover
@@ -1513,54 +1516,139 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setAlvoSolta((a) => (a === alvo ? a : alvo));
   }, []);
 
-  /* ── toggles ── */
-  const profAtivo = useCallback(
-    (id: string) => db.profAtivo[id] ?? profissionalDe(id)?.ativo ?? false,
-    [db.profAtivo, profissionalDe],
-  );
-  const alternarProf = useCallback((id: string) => {
-    setDb((d) => {
-      const atual = d.profAtivo[id] ?? profissionalDe(id)?.ativo ?? false;
-      return { ...d, profAtivo: { ...d.profAtivo, [id]: !atual } };
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * O CATÁLOGO — leitura E ESCRITA, desde 15/08/2026.
+   *
+   * ⚠️ TUDO ABAIXO ERA MENTIRA ATÉ ESTA DATA, e vale escrever o que era porque foi o
+   * defeito mais caro de encontrar do app: `profAtivo`, `svcAtivo`, `editarServico`,
+   * `criarServico` e `excluirServico` mexiam em `db.profAtivo`, `db.svcAtivo`,
+   * `db.svcEdit` e `db.svcNovos` — quatro mapas no `localStorage`. Não existia
+   * `/api/servicos`, não existia `/api/equipe`, não existia porta de escrita. O dono
+   * ajustava o preço do Corte, via a lista mudar, o comentário aqui dizia "persiste na
+   * hora — o app não tem botão Salvar de mentira", e um F5 apagava tudo.
+   *
+   * Pior: era invisível. Nenhum erro, nenhum log, nenhum teste vermelho. Só a lista
+   * voltando ao que era, um dia depois, quando ninguém lembrava de ter editado.
+   *
+   * ── A MECÂNICA, QUE É A MESMA DO `setNomeDoNegocio` ──
+   * Otimista com volta atrás: a tela muda na hora, o PUT sai depois de `JANELA_AJUSTES`,
+   * e se o servidor recusar a linha volta ao que era MAIS a frase do servidor. A foto
+   * para a volta é tirada UMA vez por rajada, dentro do updater, onde o estado é
+   * garantidamente o corrente.
+   *
+   * O debounce é POR SERVIÇO (mapas de id → timer) e não global: editar o preço do Corte
+   * e a duração da Barba são dois recursos, e um timer só faria a segunda tecla cancelar
+   * o envio da primeira.
+   * ────────────────────────────────────────────────────────────────────────────── */
+
+  /** Snapshot para desfazer, por id. Presente = há rajada em curso. */
+  const svcAntes = useRef<Map<string, D.Servico>>(new Map());
+  /** O estado mais recente que ainda não foi enviado, por id. */
+  const svcPendente = useRef<Map<string, D.Servico>>(new Map());
+  const svcTimer = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const trocarServicoNaTela = useCallback((id: string, novo: D.Servico) => {
+    setCadastro((c) => ({ ...c, servicos: c.servicos.map((s) => (s.id === id ? novo : s)) }));
+  }, []);
+
+  const enviarServico = useCallback(async (id: string) => {
+    svcTimer.current.delete(id);
+    const alvo = svcPendente.current.get(id);
+    const antes = svcAntes.current.get(id);
+    svcPendente.current.delete(id);
+    svcAntes.current.delete(id);
+    if (!alvo) return;
+
+    const voltar = () => { if (antes) trocarServicoNaTela(id, antes); };
+
+    try {
+      const r = await fetch("/api/servicos", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        /* Só o que se pode escrever. `profissionalIds` é derivado da tabela-ponte e
+         * mandá-lo daria a impressão de que a tela decide quem faz o quê — ela não
+         * decide, e o campo seria ignorado em silêncio. */
+        body: JSON.stringify({
+          id: alvo.id, nome: alvo.nome, categoria: alvo.categoria,
+          preco: alvo.preco, duracao: alvo.duracao, ativo: alvo.ativo,
+        }),
+      }).then((x) => x.json());
+
+      if (!r?.ok) {
+        /* A frase do SERVIDOR: "a duração precisa ficar entre 5 minutos e 8 horas" é o
+         * que diz ao dono o que corrigir. Um genérico mandaria ele adivinhar. */
+        voltar();
+        toast(r?.info ?? "Não foi possível salvar o serviço.");
+        return;
+      }
+      /* Pinta o que o BANCO gravou — a normalização acontece lá. */
+      if (r.servico) trocarServicoNaTela(id, r.servico);
+    } catch {
+      voltar();
+      toast("Sem conexão com o servidor — o serviço não foi salvo.");
+    }
+  }, [trocarServicoNaTela]);
+
+  const mexerNoServico = useCallback((id: string, p: Partial<D.Servico>) => {
+    setCadastro((c) => {
+      const i = c.servicos.findIndex((s) => s.id === id);
+      if (i < 0) return c;
+      if (!svcAntes.current.has(id)) svcAntes.current.set(id, c.servicos[i]);
+      const novo = { ...c.servicos[i], ...p };
+      svcPendente.current.set(id, novo);
+      const copia = [...c.servicos];
+      copia[i] = novo;
+      return { ...c, servicos: copia };
     });
-  }, [profissionalDe]);
 
-  /* `servicos`, `servicoDe` e `nomeServico` — o catálogo vivo — moraram aqui. Subiram para
-   * antes do memo dos atendimentos, que precisa deles para resolver o serviço de cada cartão. */
+    const t = svcTimer.current.get(id);
+    if (t) clearTimeout(t);
+    svcTimer.current.set(id, setTimeout(() => { void enviarServico(id); }, JANELA_AJUSTES));
+  }, [enviarServico]);
 
-  const svcAtivo = useCallback(
-    (id: string) => db.svcAtivo[id] ?? servicoDe(id)?.ativo ?? false,
-    [db.svcAtivo, servicoDe],
-  );
+  const svcAtivo = useCallback((id: string) => servicoDe(id)?.ativo ?? false, [servicoDe]);
+
   const alternarSvc = useCallback((id: string) => {
-    setDb((d) => {
-      // Mesma conta de `svcAtivo`, inclusive o svcEdit — se as duas divergissem, o primeiro
-      // clique no toggle podia "virar" para o valor que a tela já mostrava, sem efeito visível.
-      const doCatalogo = servicoDoCadastro(id) ?? d.svcNovos.find((s) => s.id === id);
-      const base = d.svcEdit[id]?.ativo ?? doCatalogo?.ativo ?? false;
-      const atual = d.svcAtivo[id] ?? base;
-      return { ...d, svcAtivo: { ...d.svcAtivo, [id]: !atual } };
-    });
-  }, [servicoDoCadastro]);
+    mexerNoServico(id, { ativo: !(servicoDe(id)?.ativo ?? false) });
+  }, [mexerNoServico, servicoDe]);
 
-  /** Grava uma edição de serviço. Persiste na hora — o app não tem botão "Salvar" de mentira. */
   const editarServico = useCallback((id: string, p: Partial<D.Servico>) => {
-    patch((d) => ({ svcEdit: { ...d.svcEdit, [id]: { ...(d.svcEdit[id] ?? {}), ...p } } }));
-  }, [patch]);
+    mexerNoServico(id, p);
+  }, [mexerNoServico]);
 
-  /** Cria um serviço em branco, já fora do catálogo, e abre a gaveta para preencher. */
-  const criarServico = useCallback(() => {
-    const id = `sv-novo-${Date.now().toString(36)}`;
-    const novo: D.Servico = {
-      id, nome: "Novo serviço", categoria: "Extra",
-      preco: 0, duracao: 30, profissionalIds: [],
-      // nasce FORA do catálogo: um serviço sem preço não deveria poder ser agendado.
-      ativo: false,
-    };
-    patch((d) => ({ svcNovos: [...d.svcNovos, novo] }));
-    setSel(id);
-    toast("Serviço criado — preencha preço e duração");
-  }, [patch]);
+  /**
+   * Cria um serviço e abre a gaveta para preencher.
+   *
+   * ⚠️ ESPERA O SERVIDOR antes de abrir a gaveta, ao contrário de todo o resto deste
+   * bloco. O otimismo aqui não serve: o id vem do BANCO, e uma linha desenhada com id
+   * inventado só descobriria o id real depois — então toda edição feita nesse intervalo
+   * iria para um serviço que não existe. Era exatamente esse o arranjo antigo
+   * (`sv-novo-<timestamp>`), e ele funcionava só porque nada era enviado a lugar nenhum.
+   *
+   * Nasce `ativo: false` de propósito: um serviço sem preço não deveria poder ser
+   * agendado, e a MAISA não o oferece enquanto o dono não o publicar.
+   */
+  const criarServico = useCallback(async () => {
+    try {
+      const r = await fetch("/api/servicos", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome: "Novo serviço", categoria: "Extra", preco: 0, duracao: 30, ativo: false,
+        }),
+      }).then((x) => x.json());
+
+      if (!r?.ok || !r.servico) {
+        toast(r?.info ?? "Não foi possível criar o serviço.");
+        return;
+      }
+      setCadastro((c) => ({ ...c, servicos: [...c.servicos, r.servico] }));
+      setSel(r.servico.id);
+      toast("Serviço criado — preencha preço e duração");
+    } catch {
+      toast("Sem conexão com o servidor — o serviço não foi criado.");
+    }
+  }, []);
 
   const verDia = useCallback((data: string) => {
     setDiaSel(data);
@@ -1574,13 +1662,84 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * depois. Deixá-lo aqui exigiria um ref só para furar a ordem dos hooks — e o lugar
    * honesto de uma função que faz POST no Google é junto das outras que fazem. */
 
-  const excluirServico = useCallback((id: string) => {
-    // Só apaga o que o usuário criou. Serviço do catálogo de partida se despublica pelo toggle,
-    // porque pode haver agendamento histórico apontando para ele.
-    patch((d) => ({ svcNovos: d.svcNovos.filter((s) => s.id !== id) }));
+  /**
+   * Apaga o serviço de vez.
+   *
+   * ⚠️ APAGAR SERVIÇO É SEGURO, e isso foi conferido no esquema, não suposto:
+   * `atendimentos.servico_id` NÃO tem FK — é snapshot ao lado de `servico_nome` e
+   * `servico_valor` (`002_multitenant.sql`). Faturamento fechado continua fechado.
+   *
+   * Tira da tela primeiro e devolve se o servidor recusar: apagar é a ação em que a
+   * espera mais incomoda, e o custo de errar é baixo — a linha volta.
+   */
+  const excluirServico = useCallback(async (id: string) => {
+    /* A foto vem da closure e NÃO de dentro do updater: o updater não roda antes da
+     * próxima linha, então `antes` chegaria vazio ao `catch` e o "desfazer" apagaria o
+     * catálogo em vez de restaurá-lo. Mesmo arranjo do `removerFaq`. */
+    const antes = cadastro.servicos;
+    setCadastro((c) => ({ ...c, servicos: c.servicos.filter((s) => s.id !== id) }));
     setSel(null);
-    toast("Serviço excluído");
-  }, [patch]);
+
+    try {
+      const r = await fetch(`/api/servicos?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+        .then((x) => x.json());
+      if (!r?.ok) {
+        setCadastro((c) => ({ ...c, servicos: antes }));
+        toast(r?.info ?? "Não foi possível apagar o serviço.");
+        return;
+      }
+      toast("Serviço excluído");
+    } catch {
+      setCadastro((c) => ({ ...c, servicos: antes }));
+      toast("Sem conexão com o servidor — nada mudou.");
+    }
+  }, [cadastro.servicos]);
+
+  /* ── quem atende ──
+   * Só o liga/desliga, porque só ele existe na tela hoje. `PUT /api/equipe` também aceita
+   * nome e papel — é o que o wizard de onboarding usa para corrigir o profissional que
+   * `criar_negocio()` batizou adivinhando pelo e-mail. */
+
+  const profAtivo = useCallback(
+    (id: string) => profissionalDe(id)?.ativo ?? false,
+    [profissionalDe],
+  );
+
+  const alternarProf = useCallback((id: string) => {
+    const atual = profissionalDe(id);
+    if (!atual) return;
+    const novo = { ...atual, ativo: !atual.ativo };
+
+    setCadastro((c) => ({
+      ...c,
+      profissionais: c.profissionais.map((p) => (p.id === id ? novo : p)),
+    }));
+
+    void (async () => {
+      const voltar = () => setCadastro((c) => ({
+        ...c,
+        profissionais: c.profissionais.map((p) => (p.id === id ? atual : p)),
+      }));
+      try {
+        const r = await fetch("/api/equipe", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, nome: atual.nome, ativo: novo.ativo }),
+        }).then((x) => x.json());
+
+        if (!r?.ok) { voltar(); toast(r?.info ?? "Não foi possível salvar."); return; }
+        if (r.profissional) {
+          setCadastro((c) => ({
+            ...c,
+            profissionais: c.profissionais.map((p) => (p.id === id ? r.profissional : p)),
+          }));
+        }
+      } catch {
+        voltar();
+        toast("Sem conexão com o servidor — nada mudou.");
+      }
+    })();
+  }, [profissionalDe]);
 
   const cliAtivo = useCallback(
     (id: string) => db.cliAtivo[id] ?? clienteDe(id)?.ativo ?? false,
@@ -2809,7 +2968,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     convSel, selecionarConversa, abaConv, setAbaConv, threadDe, threadCarregando,
     enviar, enviando, assumir, devolver,
     cadastro, cadastroErro, cadastroCarregado,
-    profissionalDe, clienteDe, servicoDoCadastro, nomeDoProfissional, nomeDoCliente,
+    profissionalDe, clienteDe, nomeDoProfissional, nomeDoCliente,
     pidAgenda, atendeNoDia, podeComecarEm,
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
@@ -2838,7 +2997,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     convSel, selecionarConversa, abaConv, threadDe, threadCarregando,
     enviar, enviando, assumir, devolver,
     cadastro, cadastroErro, cadastroCarregado,
-    profissionalDe, clienteDe, servicoDoCadastro, nomeDoProfissional, nomeDoCliente,
+    profissionalDe, clienteDe, nomeDoProfissional, nomeDoCliente,
     pidAgenda, atendeNoDia, podeComecarEm,
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,

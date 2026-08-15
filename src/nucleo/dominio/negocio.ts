@@ -20,6 +20,8 @@
  * escrita aqui, não um `if` que alguém escreveu com pressa.
  * ────────────────────────────────────────────────────────────────────────────── */
 
+import { colapsarEspaco } from "./texto";
+
 /**
  * As verticais que o provisionamento sabe semear.
  *
@@ -65,9 +67,12 @@ export const ehVertical = (v: unknown): v is Vertical =>
 export const NOME_NEGOCIO_MIN = 2;
 export const NOME_NEGOCIO_MAX = 60;
 
-/** Colapsa espaço e apara as pontas — o mesmo `btrim` que a RPC faz, feito antes. */
-export const normalizarNomeDoNegocio = (bruto: string): string =>
-  String(bruto ?? "").replace(/\s+/g, " ").trim();
+/** Colapsa espaço e apara as pontas — o mesmo `btrim` que a RPC faz, feito antes.
+ *
+ *  Delega para `dominio/texto.ts` desde 15/08/2026: esta função tinha cópia idêntica em
+ *  `aplicacao/provisionar.ts` e o catálogo ia criar a terceira. O nome específico fica,
+ *  porque é o que os chamadores importam e ele diz DE QUE campo se trata. */
+export const normalizarNomeDoNegocio = (bruto: string): string => colapsarEspaco(bruto);
 
 export type Negocio = {
   nome: string;

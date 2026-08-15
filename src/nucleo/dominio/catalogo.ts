@@ -57,4 +57,55 @@ export type Servico = {
 
 export const CATEGORIAS: CategoriaServico[] = ["Recorrente", "Pacote", "Extra"];
 
+export const ehCategoria = (v: unknown): v is CategoriaServico =>
+  typeof v === "string" && (CATEGORIAS as string[]).includes(v);
+
 export const primeiroNome = (nome: string) => nome.split(" ")[0];
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * AS REGRAS DE ESCRITA — e por que elas moram aqui e não na rota.
+ *
+ * Até 15/08/2026 o catálogo era SÓ LEITURA no servidor. A tela de Serviços tinha
+ * "adicionar" e "editar" que mexiam em `svcNovos`/`svcEdit` no `store.tsx` — estado do
+ * navegador, e nada mais. O dono ajustava o preço do Corte, via a lista mudar, dava F5 e
+ * o preço voltava. Não havia rota, não havia porta, não havia erro: a escrita
+ * simplesmente não existia, e a tela não sabia disso.
+ *
+ * ── OS NÚMEROS SÃO OS DO BANCO, DE PROPÓSITO ──
+ *
+ * `002_multitenant.sql` já recusa nome fora de 1–120, duração fora de 5–480 e preço
+ * negativo. Repetir os limites aqui NÃO é desconfiança do banco — é a diferença entre
+ * "Diga quanto dura o atendimento" e um 500 com `check_violation` na tela. Quem escreve
+ * os dois lados tem que mantê-los iguais; quem escreve só um lado entrega o erro cru.
+ *
+ * ⚠️ Se mudar um limite aqui, mude o `check` da coluna. O banco é quem manda — ele é a
+ * última linha, e é a que vale quando alguém escrever por outro caminho.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+/** `servicos.nome`: `length(btrim(nome)) between 1 and 120`. */
+export const NOME_SERVICO_MAX = 120;
+
+/** `servicos.duracao`: `integer check (duracao between 5 and 480)`. São minutos.
+ *  Menos de 5 min ou mais de 8 h é dado corrompido, não caso de uso — a mesma faixa de
+ *  `duracaoValida` em `dominio/agenda.ts`. */
+export const DURACAO_MIN = 5;
+export const DURACAO_MAX = 480;
+
+/**
+ * Teto de preço, em reais.
+ *
+ * A coluna é `numeric(10,2)`, então o banco só recusa acima de 99.999.999,99 — um número
+ * que nenhum serviço de barbearia ou terapia alcança, e que portanto não protege de nada.
+ * O limite útil é o de TECLADO: quem digita 20000 querendo R$ 200,00 (centavos colados)
+ * precisa ouvir isso na hora, não descobrir quando a MAISA anunciar o preço ao cliente.
+ */
+export const PRECO_MAX = 99_999.99;
+
+/** `profissionais.nome`: `length(btrim(nome)) between 2 and 120`. */
+export const NOME_PROFISSIONAL_MIN = 2;
+export const NOME_PROFISSIONAL_MAX = 120;
+
+/** `profissionais.papel` não tem `check` no banco — é texto livre com default
+ *  'Atendimento geral'. O teto existe porque o campo aparece na tela de Equipe e num
+ *  cartão, não porque o Postgres reclame. */
+export const PAPEL_MAX = 60;

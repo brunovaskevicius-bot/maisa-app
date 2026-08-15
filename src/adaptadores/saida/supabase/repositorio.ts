@@ -353,6 +353,175 @@ export const repositorioSupabase: RepositorioNegocio = {
     return this.negocio(t);
   },
 
+  /* ── ESCREVER O CATÁLOGO ────────────────────────────────────────────────────
+   * Os dois métodos abaixo repetem a disciplina do `renomear`, e a repetição é o ponto:
+   * TODA escrita deste arquivo termina em `.select("id")` e trata zero linhas como
+   * `NaoEncontrado`.
+   *
+   * A RLS de `servicos` e `profissionais` é a uniforme do `003_rls.sql` — qualquer membro
+   * escreve, mas só nas linhas do próprio inquilino (`using tenant_id in
+   * negocios_do_usuario()`). Um `update` com id de OUTRO negócio não dá erro: dá sucesso
+   * com zero linhas. É o mesmo silêncio de sempre, com outra causa.
+   *
+   * ⚠️ O `.eq("tenant_id")` no update NÃO é redundante com a RLS. No caminho do agente o
+   * cliente é service role e a RLS está DESLIGADA (ver `contexto-cliente.ts`) — ali o
+   * filtro no código é a única barreira. Escrever a consulta como se a RLS não existisse
+   * é o que faz ela continuar correta quando ela realmente não existe. */
+
+  async salvarServico(t, r): Promise<Servico> {
+    const supabase = clienteDoContexto(t);
+
+    const campos = {
+      nome: r.nome,
+      categoria: r.categoria,
+      preco: r.preco,
+      duracao: r.duracao,
+      ...(r.ativo === undefined ? {} : { ativo: r.ativo }),
+    };
+
+    if (r.id) {
+      if (!PARECE_UUID.test(r.id)) {
+        /* Id que não é uuid nunca existiu no banco. Deixar seguir daria
+         * `22P02 invalid input syntax`, um 502 e uma frase sobre sintaxe de tipo para
+         * quem só queria salvar um preço. Ver o bloco do `PARECE_UUID` acima. */
+        throw new NaoEncontrado("Serviço");
+      }
+      const { data, error } = await supabase
+        .from("servicos")
+        .update(campos)
+        .eq("id", r.id)
+        .eq("tenant_id", t.tenantId)
+        .select("id");
+
+      exigirSemErro("o serviço", error);
+      if (!data || data.length === 0) throw new NaoEncontrado("Serviço deste negócio");
+
+      const salvo = await repositorioSupabase.servico(t, r.id);
+      if (!salvo) throw new NaoEncontrado("Serviço");
+      return salvo;
+    }
+
+    const { data, error } = await supabase
+      .from("servicos")
+      .insert({ tenant_id: t.tenantId, ...campos, ativo: r.ativo ?? true })
+      .select("id");
+
+    exigirSemErro("o serviço", error);
+    const novoId = (data as { id: string }[] | null)?.[0]?.id;
+    /* Insert barrado pelo `with check` da RLS também volta sem linha. Aqui isso não é
+     * "não achei" — é "não pude criar no negócio que você disse ser seu". */
+    if (!novoId) throw new NaoEncontrado("Serviço recém-criado (o negócio é seu?)");
+
+    /* ⚠️ SERVIÇO NOVO PRECISA DE QUEM O FAÇA. `provisionar_negocio` liga cada serviço
+     * semeado ao profissional criado junto, e o comentário de lá explica por quê: serviço
+     * sem ninguém na tabela-ponte abre a gaveta em branco, porque a tela monta "Quem faz"
+     * a partir do primeiro id. Ligar a TODOS os ativos é o palpite certo — num negócio de
+     * uma pessoa é o único, e num de várias é o que o dono corrige depois. */
+    const { data: ativos, error: erroAtivos } = await supabase
+      .from("profissionais")
+      .select("id")
+      .eq("tenant_id", t.tenantId)
+      .eq("ativo", true);
+
+    exigirSemErro("a equipe do serviço", erroAtivos);
+
+    const vinculos = (ativos ?? []).map((p) => ({
+      tenant_id: t.tenantId,
+      servico_id: novoId,
+      profissional_id: (p as { id: string }).id,
+    }));
+
+    if (vinculos.length > 0) {
+      const { error: erroVinculo } = await supabase.from("servicos_profissionais").insert(vinculos);
+      /* Não lança: o serviço JÁ existe e aparece na lista. Falhar aqui e propagar deixaria
+       * a tela com um erro depois de a linha ter sido criada — o dono tentaria de novo e
+       * teria dois serviços. O log é alto porque isto é RLS ou corrida, não caso de borda. */
+      if (erroVinculo) {
+        console.error(
+          `[supabase/repositorio] serviço ${novoId} criado sem vínculo de profissional no inquilino ${t.tenantId}: ${erroVinculo.message}`,
+        );
+      }
+    }
+
+    const salvo = await repositorioSupabase.servico(t, novoId);
+    if (!salvo) throw new NaoEncontrado("Serviço recém-criado");
+    return salvo;
+  },
+
+  async removerServico(t, id): Promise<void> {
+    /* Id que não é uuid nunca existiu no banco — some sem barulho, porque o efeito
+     * pretendido ("essa linha não existe mais") já vale. É a mesma leniência das leituras
+     * com `PARECE_UUID`, e aqui ela é ainda mais defensável. */
+    if (!PARECE_UUID.test(id)) return;
+
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("servicos")
+      .delete()
+      .eq("id", id)
+      .eq("tenant_id", t.tenantId)
+      .select("id");
+
+    exigirSemErro("apagar o serviço", error);
+    /* Zero linhas aqui é "não era seu" ou "já não existia". Nenhum dos dois merece
+     * exceção: o dono pediu que sumisse, e sumiu (ou nunca esteve). Diferente do
+     * `salvarServico`, onde zero linhas significa que a EDIÇÃO se perdeu em silêncio —
+     * ali o silêncio engana, aqui ele coincide com o resultado desejado. */
+    if (!data || data.length === 0) {
+      console.warn(`[supabase/repositorio] delete de serviço ${id} não afetou linha no inquilino ${t.tenantId}`);
+    }
+  },
+
+  async salvarProfissional(t, r): Promise<Profissional> {
+    const supabase = clienteDoContexto(t);
+
+    const campos = {
+      nome: r.nome,
+      ...(r.papel === undefined ? {} : { papel: r.papel }),
+      ...(r.ativo === undefined ? {} : { ativo: r.ativo }),
+    };
+
+    if (r.id) {
+      if (!PARECE_UUID.test(r.id)) throw new NaoEncontrado("Profissional");
+      const { data, error } = await supabase
+        .from("profissionais")
+        .update(campos)
+        .eq("id", r.id)
+        .eq("tenant_id", t.tenantId)
+        .select("id");
+
+      exigirSemErro("o profissional", error);
+      if (!data || data.length === 0) throw new NaoEncontrado("Profissional deste negócio");
+
+      const salvo = await repositorioSupabase.profissional(t, r.id);
+      if (!salvo) throw new NaoEncontrado("Profissional");
+      return salvo;
+    }
+
+    /* ⚠️ O EXPEDIENTE NÃO VEM DO RASCUNHO, E ISSO É DELIBERADO. As colunas têm default no
+     * banco (`expediente_folga = {6}`, `de = 9`, `ate = 19`) e é ele que vale para quem
+     * nasce aqui. Um profissional novo com expediente vazio faria a grade recusar TODO
+     * horário dele — a agenda pareceria quebrada, e o motivo estaria numa coluna que a
+     * tela de cadastro nem mostra. Mudar expediente é caso de uso próprio; ver a porta. */
+    const { data, error } = await supabase
+      .from("profissionais")
+      .insert({
+        tenant_id: t.tenantId,
+        ...campos,
+        ativo: r.ativo ?? true,
+        desde: new Date().toISOString().slice(0, 10),
+      })
+      .select("id");
+
+    exigirSemErro("o profissional", error);
+    const novoId = (data as { id: string }[] | null)?.[0]?.id;
+    if (!novoId) throw new NaoEncontrado("Profissional recém-criado (o negócio é seu?)");
+
+    const salvo = await repositorioSupabase.profissional(t, novoId);
+    if (!salvo) throw new NaoEncontrado("Profissional recém-criado");
+    return salvo;
+  },
+
   async profissional(t, id) {
     if (!PARECE_UUID.test(id)) return null;
     const supabase = clienteDoContexto(t);

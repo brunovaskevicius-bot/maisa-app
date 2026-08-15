@@ -26,7 +26,13 @@ import {
   criarCancelarAtendimento, criarDesconectarAgenda, criarLerAgenda, criarListarConexoes,
 } from "@/nucleo/aplicacao/agenda";
 import { criarOferecerHorarios } from "@/nucleo/aplicacao/oferecer-horarios";
-import { criarAjustarNegocio, criarLerCadastro } from "@/nucleo/aplicacao/cadastro";
+import {
+  criarAjustarNegocio,
+  criarAjustarProfissional,
+  criarAjustarServico,
+  criarLerCadastro,
+  criarRemoverServico,
+} from "@/nucleo/aplicacao/cadastro";
 import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
 import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
 import { criarAjustarHorarios, criarLerHorarios } from "@/nucleo/aplicacao/horarios";
@@ -276,6 +282,17 @@ export const app = {
    * Supabase conforme a configuração, e essa decisão foi tomada uma vez lá em cima.
    */
   ajustarNegocio: criarAjustarNegocio({ negocio }),
+
+  /**
+   * ESCREVER O CATÁLOGO — os outros dois pares de escrita do `lerCadastro`.
+   *
+   * Até 15/08/2026 o catálogo era só leitura NO SERVIDOR: a tela de Serviços tinha
+   * "adicionar" e "editar", e os dois mexiam em `svcNovos`/`svcEdit` no `store.tsx` —
+   * estado do navegador. F5 apagava. Estes dois casos de uso são o caminho que faltava.
+   */
+  ajustarServico: criarAjustarServico({ negocio }),
+  removerServico: criarRemoverServico({ negocio }),
+  ajustarProfissional: criarAjustarProfissional({ negocio }),
 
   /* ── as respostas prontas ──
    * `lerFaqs`/`ajustarFaq`/`removerFaq` são a tela de gestão; `responderDuvida` é o que o

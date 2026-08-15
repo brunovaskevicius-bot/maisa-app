@@ -27,24 +27,17 @@
 import type { NegocioProvisionado, ProvisionarNegocio } from "../portas/entrada/casos-de-uso";
 import type { ProvisionadorDeNegocio } from "../portas/saida/provisionador-negocio";
 import { ehVertical } from "../dominio/negocio";
+import { colapsarEspaco, SEM_CONTEUDO } from "../dominio/texto";
 import { DadoInvalido } from "../dominio/erros";
 
 /** Nome de negócio cabe numa tela e vira slug. Fora disso é engano ou abuso. */
 const NOME_MIN = 2;
 const NOME_MAX = 80;
 
-/** Colapsa espaço repetido e apara as pontas. `"  Studio   Aurora "` → `"Studio Aurora"`. */
-const normalizar = (s: string) => s.replace(/\s+/g, " ").trim();
-
-/**
- * Só espaço e pontuação ASCII — `"---"`, `"..."`, `"( )"`.
- *
- * Escrito com faixas de código, e não com `\p{L}`, porque o `target` do projeto é
- * anterior a ES6 e as classes de propriedade Unicode exigem a flag `u`. A consequência é
- * boa para nós: tudo fora do ASCII (á, ç, ã, ñ, 日) cai FORA da faixa e conta como
- * conteúdo — que é exatamente o que um nome de negócio brasileiro precisa.
- */
-const SEM_CONTEUDO = /^[\s!-/:-@[-`{-~]*$/;
+/* `colapsarEspaco` e `SEM_CONTEUDO` vinham daqui até 15/08/2026, em cópia idêntica à de
+ * `dominio/negocio.ts`. Foram para `dominio/texto.ts` quando o catálogo ia criar a
+ * terceira — o comportamento é o mesmo, e o porquê de cada um está lá. */
+const normalizar = colapsarEspaco;
 
 export function criarProvisionarNegocio(deps: {
   provisionador: ProvisionadorDeNegocio;

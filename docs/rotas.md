@@ -28,6 +28,14 @@ Definidos em [`src/adaptadores/entrada/http/contexto.ts`](../src/adaptadores/ent
 |---|---|---|---|
 | `/api/cadastro` | GET | `exigirSessao` | `LerCadastro` — negócio, profissionais, serviços, clientes |
 | `/api/negocio` | POST · PATCH | `exigirUsuario` (POST) · `exigirSessao` (PATCH) | `ProvisionarNegocio` — cria `negocios` + `membros` no primeiro acesso · `AjustarNegocio` — troca o nome |
+| `/api/servicos` | PUT · DELETE | `sessaoOuDemo` | `AjustarServico` — cria ou edita pelo `id` · `RemoverServico` |
+| `/api/equipe` | PUT | `sessaoOuDemo` | `AjustarProfissional` — cria ou edita quem atende. **Não mexe em expediente**: aquilo manda na grade inteira e pede caso de uso próprio |
+
+⚠️ **Serviço tem DELETE e profissional não**, e a assimetria vem do esquema, não de gosto:
+`atendimentos.servico_id` é snapshot **sem FK** (ao lado de `servico_nome` e `servico_valor`),
+então apagar um serviço não toca faturamento fechado — enquanto `atendimentos.profissional_id`
+tem **`on delete cascade`**, e apagar a pessoa levaria os atendimentos dela junto. Quem sai da
+equipe vira `ativo: false`.
 | `/api/assistente` | GET · PATCH | `sessaoOuDemo` | `LerAssistente` · `AjustarAssistente` — nome, tom, o que não falar |
 | `/api/horarios` | GET · PUT | `sessaoOuDemo` | `LerHorarios` · `AjustarHorarios` — o expediente que a MAISA anuncia |
 | `/api/faqs` | GET · PUT · DELETE | `sessaoOuDemo` | `LerFaqs` · `AjustarFaq` · `RemoverFaq` — as respostas prontas. Não há rota de BUSCA: quem busca é o agente, pelo caso de uso `ResponderDuvida`, no mesmo processo |

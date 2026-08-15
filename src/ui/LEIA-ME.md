@@ -50,11 +50,11 @@ os tipos são domínio puro, e importá-los é legítimo (só está no caminho e
 | `D.NEGOCIO` | `st.cadastro.negocio` |
 | `D.EQUIPE` | `st.cadastro.profissionais` |
 | `D.CLIENTES` | `st.cadastro.clientes` |
-| `D.SERVICOS` | `st.cadastro.servicos` (catálogo de partida) ou `st.servicos` (vivo) |
+| `D.SERVICOS` | `st.servicos` — desde 15/08/2026 é o MESMO array de `st.cadastro.servicos`, sem camada-sombra por cima |
 | `D.COLUNAS_AGENDA` | `st.cadastro.agendas` |
 | `D.profissional(id)` | `st.profissionalDe(id)` |
 | `D.cliente(id)` | `st.clienteDe(id)` |
-| `D.servico(id)` | `st.servicoDoCadastro(id)` |
+| `D.servico(id)` | `st.servicoDe(id)` |
 | `D.nomeProfissional(id)` | `st.nomeDoProfissional(id)` |
 | `D.nomeCliente(id)` | `st.nomeDoCliente(id)` |
 | `D.atende(pid, data)` | `st.atendeNoDia(pid, data)` |

@@ -458,10 +458,6 @@ export function useDetalhe(id: string | null): Detalhe | null {
   const sv = st.servicoDe(id);
   if (sv) {
     const on = st.svcAtivo(sv.id);
-    // `D.servico` DE PROPÓSITO, e é o único lugar da tela que ainda pergunta ao catálogo de
-    // partida: a pergunta aqui não é "quanto custa hoje", é "este serviço nasceu com o app?".
-    // Trocar por `st.servicoDe` responderia sempre que sim e sumiria com o botão de excluir.
-    const novo = !st.servicoDoCadastro(sv.id); // criado pelo usuário → pode ser excluído
     return {
       titulo: sv.nome, sub: `${sv.categoria} · ${fmt(sv.preco)} · ${sv.duracao} min`,
       blocos: [
@@ -517,11 +513,25 @@ export function useDetalhe(id: string | null): Detalhe | null {
           }),
         },
       ],
-      // Excluir SÓ o que o usuário criou: serviço do catálogo de partida pode ter agendamento
-      // histórico apontando para ele, e ali o certo é despublicar pelo toggle.
-      acoes: novo
-        ? [{ label: "Excluir serviço", tone: "danger", onClick: () => st.excluirServico(sv.id) }, fecharAcao]
-        : [fecharAcao],
+      /* ⚠️ EXCLUIR VALE PARA QUALQUER SERVIÇO DESDE 15/08/2026, e a mudança é de FATO, não
+       * de política. Até aqui só aparecia para o que o usuário tinha criado, com a
+       * justificativa de que "serviço do catálogo de partida pode ter agendamento
+       * histórico apontando para ele".
+       *
+       * Conferido no esquema, e a justificativa estava errada: `atendimentos.servico_id`
+       * NÃO tem FK — é snapshot, ao lado de `servico_nome` e `servico_valor`
+       * (`002_multitenant.sql`). Apagar um serviço não toca faturamento fechado.
+       *
+       * E manter a condição antiga viraria um botão morto: com o catálogo persistido,
+       * TODO serviço passou a existir no cadastro, então `novo` seria sempre falso e o
+       * "Excluir" nunca apareceria — inclusive para o "Novo serviço" criado por engano,
+       * que é justamente quem mais precisa dele.
+       *
+       * `ativo: false` (o toggle acima) continua sendo o certo para "não faço mais isso". */
+      acoes: [
+        { label: "Excluir serviço", tone: "danger", onClick: () => void st.excluirServico(sv.id) },
+        fecharAcao,
+      ],
     };
   }
 

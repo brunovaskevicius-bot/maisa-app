@@ -17,6 +17,7 @@
 import type { RepositorioNegocio } from "@/nucleo/portas/saida/repositorio-negocio";
 import type { Cliente } from "@/nucleo/dominio/clientes";
 import { soDigitos } from "@/nucleo/dominio/clientes";
+import { NaoEncontrado } from "@/nucleo/dominio/erros";
 import { NEGOCIO } from "./negocio";
 import { COLUNAS_AGENDA, EQUIPE, EXPEDIENTE } from "./equipe";
 import { SERVICOS } from "./catalogo";
@@ -30,6 +31,15 @@ import { CLIENTES } from "./clientes";
  * sozinha. Guardar o nome AQUI mantém a mutação dentro deste adaptador, que é o único
  * que tem estado. Reinicia no processo, como todo o resto do demo. */
 let nomeDemo = NEGOCIO.nome;
+
+/* Contador de ids do que se cria no modo demonstração.
+ *
+ * Prefixo `sv-demo-`/`pr-demo-` e não uuid de propósito: o `PARECE_UUID` do adaptador
+ * Supabase recusa esses ids, então uma linha criada no demo NUNCA vai ser confundida com
+ * uma do banco se alguém alternar de modo com o `localStorage` cheio. É a mesma lição do
+ * `lead:<telefone>`, que era o contrário — um id inventado que o banco silenciosamente
+ * nunca resolvia. */
+let sequencia = 0;
 
 export const repositorioDemo: RepositorioNegocio = {
   async negocio() {
@@ -72,6 +82,98 @@ export const repositorioDemo: RepositorioNegocio = {
 
   async servicos() {
     return [...SERVICOS];
+  },
+
+  /* ── ESCREVER O CATÁLOGO ────────────────────────────────────────────────────
+   * MUTA OS FIXTURES, pela mesma razão do `garantirCliente` lá embaixo: aqui o fixture É
+   * o banco. Contradiz a nota das listas acima ("cópias rasas, para quem consome não
+   * mutar") de propósito — lá o `[...]` protege de uma tela que faz `.sort()`; aqui
+   * escrever é o comportamento certo.
+   *
+   * Sem isto, o wizard de onboarding não teria como ser exercitado sem Supabase — e o
+   * modo demonstração existe justamente para afinar fluxo antes de haver banco.
+   *
+   * ⚠️ Nenhuma checagem de permissão nem de inquilino, como no `renomear` acima: no demo
+   * existe um negócio e todo mundo é dono. Quem prova o isolamento é a RLS, que vive no
+   * Postgres — imitá-la aqui daria uma segunda cópia da autorização. */
+
+  async salvarServico(_t, r) {
+    const i = r.id ? SERVICOS.findIndex((s) => s.id === r.id) : -1;
+
+    if (r.id && i < 0) throw new NaoEncontrado("Serviço");
+
+    if (i >= 0) {
+      const atual = SERVICOS[i];
+      const novo = {
+        ...atual,
+        nome: r.nome,
+        categoria: r.categoria,
+        preco: r.preco,
+        duracao: r.duracao,
+        ...(r.ativo === undefined ? {} : { ativo: r.ativo }),
+      };
+      SERVICOS[i] = novo;
+      return novo;
+    }
+
+    const novo = {
+      id: `sv-demo-${++sequencia}`,
+      nome: r.nome,
+      categoria: r.categoria,
+      preco: r.preco,
+      duracao: r.duracao,
+      /* Ligado a todos os ativos, igual ao adaptador real — e pelo mesmo motivo escrito
+       * lá: serviço sem ninguém que o faça abre a gaveta em branco. */
+      profissionalIds: EQUIPE.filter((p) => p.ativo).map((p) => p.id),
+      ativo: r.ativo ?? true,
+    };
+    SERVICOS.push(novo);
+    return novo;
+  },
+
+  async removerServico(_t, id) {
+    const i = SERVICOS.findIndex((s) => s.id === id);
+    /* Silencioso quando não acha, igual ao adaptador real: o efeito pretendido já vale. */
+    if (i >= 0) SERVICOS.splice(i, 1);
+  },
+
+  async salvarProfissional(_t, r) {
+    const i = r.id ? EQUIPE.findIndex((p) => p.id === r.id) : -1;
+
+    if (r.id && i < 0) throw new NaoEncontrado("Profissional");
+
+    if (i >= 0) {
+      const atual = EQUIPE[i];
+      const novo = {
+        ...atual,
+        nome: r.nome,
+        ...(r.papel === undefined ? {} : { papel: r.papel }),
+        ...(r.ativo === undefined ? {} : { ativo: r.ativo }),
+      };
+      EQUIPE[i] = novo;
+      return novo;
+    }
+
+    const id = `pr-demo-${++sequencia}`;
+    const novo = {
+      id,
+      nome: r.nome,
+      papel: r.papel ?? "Atendimento geral",
+      atendimentosMes: 0,
+      avaliacao: 0,
+      comissao: 0,
+      desde: MES_ATUAL,
+      servicoIds: [],
+      ativo: r.ativo ?? true,
+      /* Os mesmos defaults das colunas de `profissionais` — `expediente_folga = {6}`,
+       * `de = 9`, `ate = 19`. Expediente vazio faria a grade recusar todo horário dele. */
+      horario: "Seg–Sáb 09–19",
+      folga: "domingo",
+      expediente: { folga: [6], de: 9, ate: 19 },
+    };
+    EQUIPE.push(novo);
+    EXPEDIENTE[id] = novo.expediente;
+    return novo;
   },
 
   async clientes() {
