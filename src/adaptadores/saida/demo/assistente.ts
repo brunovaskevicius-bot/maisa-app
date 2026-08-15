@@ -26,6 +26,7 @@ export const SECOES_AJUSTE: SecaoAjuste[] = [
   { id: "personalidade", titulo: "Personalidade", sub: "Como a MAISA fala e se apresenta" },
   { id: "horarios", titulo: "Horário de atendimento", sub: "Quando ela pode marcar" },
   { id: "agendamentos", titulo: "Agendamentos", sub: "O que ela faz com os horários" },
+  { id: "duvidas", titulo: "Dúvidas frequentes", sub: "O que ela responde além de agenda" },
   { id: "comportamento", titulo: "Comportamento", sub: "Até onde ela vai sozinha" },
 ];
 

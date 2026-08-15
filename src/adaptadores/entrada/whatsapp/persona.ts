@@ -23,7 +23,6 @@ import type { Negocio } from "@/nucleo/dominio/negocio";
 import type { Expediente } from "@/nucleo/dominio/expediente";
 import type { SemanaAnunciada } from "@/nucleo/dominio/horarios";
 import { semanaEmTexto } from "@/nucleo/dominio/horarios";
-import type { Faq } from "@/nucleo/dominio/conversas";
 import type { PerfilDeCliente } from "@/nucleo/portas/entrada/casos-de-uso";
 import { DOW_LONGO, hhmm, rotuloLongo } from "@/nucleo/dominio/tempo";
 import { conheceAlguem } from "@/nucleo/dominio/memoria";
@@ -48,7 +47,18 @@ export type ConfiguracaoDoAgente = {
    * vez de inventar: anunciar horário errado traz cliente na porta fechada.
    */
   semana: SemanaAnunciada | null;
-  faqs: Faq[];
+  /* ⚠️ `faqs` SAIU DAQUI EM 15/08/2026, e a ausência é a mudança.
+   *
+   * As perguntas frequentes eram coladas no prompt inteiras, a cada mensagem — e vinham
+   * de uma FIXTURE de demonstração, igual para todo inquilino, enquanto a tabela `faqs`
+   * de cada negócio dormia com o que o dono cadastrou. Uma das respostas inventadas
+   * ("Seg a sex, das 8h às 20h") contradizia o horário anunciado configurado pela tela.
+   *
+   * Agora a consulta é a ferramenta `responder_duvidas`, com busca por sentido. Dois
+   * ganhos além de finalmente ler o que o dono escreveu: o prompt para de crescer com o
+   * tamanho da base (dez FAQs eram dez blocos pagos em TODA mensagem, mesmo quando
+   * ninguém perguntou nada), e "quem pergunta com outras palavras" passa a ser
+   * encontrado — colar texto só casa com quem repete a pergunta cadastrada. */
   cfg: Record<ChaveCfg, boolean>;
 };
 
@@ -88,8 +98,6 @@ export function parteEstavel(c: ConfiguracaoDoAgente): string {
     .filter((p) => p.ativo)
     .map((p) => `- ${p.nome} (id: ${p.id}) · ${p.papel} · ${expedienteEmTexto(c.expedientes[p.id])}`)
     .join("\n");
-
-  const faq = c.faqs.map((f) => `P: ${f.pergunta}\nR: ${f.resposta}`).join("\n\n");
 
   /* UMA LINHA, e não sete. `semanaEmTexto` agrupa dias iguais ("Seg–Sex 08:00–20:00 ·
    * Sáb 09:00–13:00 · Dom fechado") porque isto entra no prompt de TODA mensagem: sete
@@ -159,9 +167,12 @@ Não confunda com o horário de cada profissional, logo abaixo: aquele é quando
 
 ${equipe}
 
-## Perguntas frequentes
+## Dúvidas sobre o negócio
 
-${faq}
+O dono cadastrou respostas prontas — endereço, formas de pagamento, política de atraso, o
+que estiver escrito lá. Elas NÃO estão neste prompt: consulte com \`responder_duvidas\`
+sempre que a pergunta não for sobre agenda. Se voltar vazio, é porque ele não cadastrou
+aquilo — diga que vai confirmar, não deduza.
 
 ## O que você nunca faz
 

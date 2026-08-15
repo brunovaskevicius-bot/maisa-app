@@ -25,7 +25,7 @@ import { createHash } from "crypto";
 import type { DefinicaoDeFerramenta } from "@/nucleo/portas/saida/modelo-conversa";
 import type {
   AgendarAtendimento, AnotarFato, CancelarAtendimento, LerAgenda, OferecerHorarios,
-  PerfilDeCliente,
+  PerfilDeCliente, ResponderDuvida,
 } from "@/nucleo/portas/entrada/casos-de-uso";
 import type { CanalDeMensagens } from "@/nucleo/portas/saida/canal-mensagens";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
@@ -237,6 +237,18 @@ export const FERRAMENTAS: DefinicaoDeFerramenta[] = [
     },
   },
   {
+    nome: "responder_duvidas",
+    descricao:
+      "Procura, nas respostas que o dono do negócio cadastrou, o que responde a pergunta do cliente. Chame SEMPRE que a pergunta não for sobre agenda — endereço, estacionamento, formas de pagamento, política de atraso, se atende criança, o que levar. A busca é por sentido, então mande a pergunta do cliente COM AS PALAVRAS DELE, sem reescrever. Se voltar vazio, o dono não cadastrou aquilo: diga que vai confirmar e chame o responsável — nunca invente a resposta nem deduza a partir do resto do prompt.",
+    parametros: {
+      type: "object",
+      properties: {
+        pergunta: { type: "string", description: "A dúvida do cliente, como ele escreveu." },
+      },
+      required: ["pergunta"],
+    },
+  },
+  {
     nome: "chamar_humano",
     descricao:
       "Passa a conversa para o responsável e para de responder. Chame quando: não souber a resposta e não houver ferramenta que resolva; pedirem desconto, exceção ou algo fora do seu alcance; a pessoa estiver irritada ou reclamando de atendimento; o assunto for saúde, orientação técnica ou qualquer coisa que exija julgamento profissional; ou algo der errado duas vezes. Chamar o responsável não é falha — é o comportamento certo. Depois de chamar, não escreva mais nada.",
@@ -257,6 +269,9 @@ export type Dependencias = {
   lerAgenda: LerAgenda;
   anotarFato: AnotarFato;
   canal: CanalDeMensagens;
+  /* A busca nas respostas que o dono cadastrou. Substituiu, em 15/08/2026, o bloco de FAQ
+   * que a `persona.ts` colava no prompt a partir de uma fixture de demonstração. */
+  responderDuvida: ResponderDuvida;
 };
 
 /**
@@ -546,6 +561,50 @@ export function criarExecutor(deps: Dependencias) {
            * que repita o nome é a camada 3 (prompt), a mais fraca. Isto é código. */
           if (m.nome) perfil.nome = m.nome;
           return ok(m.nome ? `Anotado: ${m.nome}.` : "Não veio nome. Siga sem insistir.");
+        }
+
+        /* ── o que o dono cadastrou ── */
+        case "responder_duvidas": {
+          const achadas = await deps.responderDuvida(t, String(entrada.pergunta ?? ""));
+
+          /* ⚠️ VAZIO NÃO É ERRO — devolve `ok`, não `nao`.
+           *
+           * "O dono não cadastrou isso" é uma resposta correta do sistema, e marcar como
+           * erro faria o modelo tratar como falha técnica: ele tentaria de novo com outras
+           * palavras, gastando um turno, e só então desistiria. A instrução de contorno vem
+           * junto para ele não precisar inventar o que fazer. */
+          if (!achadas.length) {
+            return ok(
+              "Nada cadastrado sobre isso. Diga ao cliente que você vai confirmar e chame o responsável — não responda de cabeça.",
+            );
+          }
+
+          /* ⚠️ ISTO SÃO CANDIDATAS, NÃO RESPOSTAS — e a instrução abaixo insiste nisso
+           * porque foi MEDIDO que o corte de similaridade não consegue decidir sozinho.
+           *
+           * Em 15/08/2026, contra as FAQs reais: "vocês atendem cachorro?" pontuou 0.725
+           * contra "Quais serviços vocês oferecem?", enquanto "aceita pix?" pontuou 0.705
+           * contra a FAQ que REALMENTE a responde. O ruído acima do acerto. Embedding mede
+           * assunto, não resposta — e "esse negócio faz X?" é o mesmo assunto de "quais
+           * serviços vocês oferecem", com ou sem cachorro.
+           *
+           * Então o julgamento é do modelo, que tem o texto das duas na frente e sabe o
+           * que uma pergunta pede. A similaridade viaja junto como SINAL (0.70 e 0.93 são
+           * situações diferentes), nunca como veredito. O detalhe da medição está em
+           * `dominio/faq.ts`. */
+          const texto = achadas
+            .map((f) => `P: ${f.pergunta}\nR: ${f.resposta}\n(proximidade ${f.similaridade.toFixed(2)})`)
+            .join("\n\n");
+
+          return ok(
+            `${texto}\n\n` +
+              "Estas são as respostas MAIS PARECIDAS que existem cadastradas — parecidas no assunto, " +
+              "o que não quer dizer que respondam. Leia cada uma e decida: se alguma responde de fato " +
+              "a pergunta do cliente, use o CONTEÚDO dela com as suas palavras e no seu tom (não cole o " +
+              "texto nem cite que existe uma lista). Se nenhuma responder — é o caso comum quando a " +
+              "proximidade está perto de 0.70 — diga que vai confirmar e chame o responsável. " +
+              "Responder o que não foi perguntado é pior que dizer que vai verificar.",
+          );
         }
 
         /* ── desistir ── */

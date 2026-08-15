@@ -29,6 +29,7 @@ import type { SemanaAnunciada } from "../../dominio/horarios";
 import type { ResultadoDeNota, Tomador } from "../../dominio/fiscal";
 import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
 import type { VagasDoDia } from "../../dominio/vagas";
+import type { Faq, FaqEncontrada } from "../../dominio/faq";
 
 /* ───────────────────────────── agenda ───────────────────────────── */
 
@@ -194,6 +195,33 @@ export type AjustarNegocio = (
   t: ContextoTenant,
   p: { nome: string },
 ) => Promise<Negocio>;
+
+/* ───────────────────────────── as respostas prontas ─────────────────────────────
+ * As FAQs do negócio. Quatro casos de uso: três são a tela de gestão, e o quarto é o que
+ * o AGENTE chama no meio de uma conversa.
+ *
+ * `ResponderDuvida` é o que fecha a família "configura e ignora": até 15/08/2026 o agente
+ * respondia dúvida com uma fixture de demonstração, igual para todo inquilino, enquanto a
+ * tabela `faqs` de cada um dormia com o que o dono cadastrou.
+ *
+ * ⚠️ Ele devolve LISTA, e pode devolver vazia. Vazio significa "o dono não cadastrou isto"
+ * e é uma resposta legítima — o agente sabe dizer que vai verificar. Devolver sempre a FAQ
+ * menos distante faria a MAISA responder qualquer coisa com aparência de fonte, que é pior
+ * que não responder porque parece verificado.
+ */
+export type LerFaqs = (t: ContextoTenant) => Promise<Faq[]>;
+
+export type RascunhoDeFaqPedido = {
+  /** Ausente = criar. Presente = editar. */
+  id?: string;
+  pergunta: string;
+  resposta: string;
+  ativo?: boolean;
+};
+
+export type AjustarFaq = (t: ContextoTenant, p: RascunhoDeFaqPedido) => Promise<Faq>;
+export type RemoverFaq = (t: ContextoTenant, id: string) => Promise<void>;
+export type ResponderDuvida = (t: ContextoTenant, pergunta: string) => Promise<FaqEncontrada[]>;
 
 /* ───────────────────────────── criar o negócio ─────────────────────────────
  * O primeiro pedido que uma conta nova faz. Antes deste caso de uso existir, a resposta

@@ -16,6 +16,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as D from "@/adaptadores/saida/demo";
 import type { Canal } from "@/nucleo/dominio/canal";
+import type { Faq } from "@/nucleo/dominio/faq";
 import { toast } from "@/ui/primitivos";
 
 /* ───────────────────────────── tipos ───────────────────────────── */
@@ -656,6 +657,17 @@ export type StoreValue = {
    * sidebar pinta e o mesmo que a MAISA diz no WhatsApp.
    */
   setNomeDoNegocio: (nome: string) => void;
+
+  /* ── as respostas prontas ──
+   * `salvarFaq` devolve se DEU CERTO, e não `void`: a tela precisa saber se limpa o
+   * formulário. Limpar sempre apagaria o que o dono escreveu quando o servidor recusou —
+   * e ele teria que digitar tudo de novo para descobrir o que estava errado. */
+  faqs: Faq[];
+  faqsErro: string | null;
+  /** Uma gravação em curso. Cada uma gera um embedding, então o botão trava enquanto isso. */
+  faqsOcupado: boolean;
+  salvarFaq: (p: { id?: string; pergunta: string; resposta: string }) => Promise<boolean>;
+  removerFaq: (id: string) => Promise<void>;
   /** Frase quando os ajustes não carregaram ou não salvaram. Não-nulo = o que está na
    *  tela pode não ser o que a MAISA está usando no WhatsApp. */
   ajustesErro: string | null;
@@ -2224,6 +2236,88 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [agendar]);
 
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * AS DÚVIDAS FREQUENTES.
+   *
+   * Sem placeholder de fixture, ao contrário do cadastro: uma FAQ inventada na tela seria
+   * indistinguível de uma que o dono cadastrou, e ele a deixaria lá achando que é dele. A
+   * lista começa VAZIA e a frase de vazio convida a escrever a primeira.
+   * ────────────────────────────────────────────────────────────────────────────── */
+  const [faqs, setFaqs] = useState<Faq[]>([]);
+  const [faqsErro, setFaqsErro] = useState<string | null>(null);
+  const [faqsOcupado, setFaqsOcupado] = useState(false);
+
+  useEffect(() => {
+    if (!hidratado) return;
+    let vivo = true;
+    void (async () => {
+      try {
+        const r = await fetch("/api/faqs").then((x) => x.json());
+        if (!vivo) return;
+        if (!r?.ok) { setFaqsErro(r?.info ?? "Não foi possível carregar as dúvidas."); return; }
+        setFaqs(r.faqs ?? []);
+        setFaqsErro(null);
+      } catch {
+        if (vivo) setFaqsErro("Não foi possível carregar as dúvidas.");
+      }
+    })();
+    return () => { vivo = false; };
+  }, [hidratado]);
+
+  const salvarFaq = useCallback(async (p: { id?: string; pergunta: string; resposta: string }) => {
+    setFaqsOcupado(true);
+    try {
+      const r = await fetch("/api/faqs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(p),
+      }).then((x) => x.json());
+
+      if (!r?.ok) {
+        /* A frase do SERVIDOR, não um genérico. Os limites de tamanho e o campo em branco
+         * têm mensagens próprias no caso de uso, e é isso que diz ao dono o que corrigir. */
+        const motivo = r?.info ?? "Não foi possível salvar.";
+        setFaqsErro(motivo);
+        toast(motivo);
+        return false;
+      }
+
+      /* Substitui a linha editada ou acrescenta a nova — pinta o que o BANCO devolveu, que
+       * é onde a normalização aconteceu. Uma segunda ida ao servidor para reler a lista
+       * inteira seria um piscar por uma informação que já veio na resposta. */
+      setFaqs((atual) => {
+        const i = atual.findIndex((f) => f.id === r.faq.id);
+        if (i < 0) return [...atual, r.faq];
+        const copia = [...atual];
+        copia[i] = r.faq;
+        return copia;
+      });
+      setFaqsErro(null);
+      setSalvo(true);
+      agendar(() => setSalvo(false), 2200);
+      return true;
+    } catch {
+      setFaqsErro("Sem conexão com o servidor — nada mudou.");
+      return false;
+    } finally {
+      setFaqsOcupado(false);
+    }
+  }, [agendar]);
+
+  const removerFaq = useCallback(async (id: string) => {
+    /* Tira da tela primeiro e devolve se o servidor recusar: apagar é a ação em que a
+     * espera mais incomoda, e o custo de errar é baixo — a linha volta. */
+    const antes = faqs;
+    setFaqs((atual) => atual.filter((f) => f.id !== id));
+    try {
+      const r = await fetch(`/api/faqs?id=${encodeURIComponent(id)}`, { method: "DELETE" }).then((x) => x.json());
+      if (!r?.ok) { setFaqs(antes); toast(r?.info ?? "Não foi possível apagar."); }
+    } catch {
+      setFaqs(antes);
+      toast("Sem conexão com o servidor — nada mudou.");
+    }
+  }, [faqs]);
+
   const setNomeDoNegocio = useCallback((nome: string) => {
     setCadastro((c) => {
       /* A foto para a volta atrás é tirada UMA vez por rajada, dentro do updater, onde o
@@ -2724,6 +2818,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
     assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
+    faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
     canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     cfg: ajustes.cfg, alternarCfg,
@@ -2752,6 +2847,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
     ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
+    faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
     canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     ajustes.cfg, alternarCfg,

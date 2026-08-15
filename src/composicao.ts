@@ -50,6 +50,11 @@ import { horariosDemo } from "@/adaptadores/saida/demo/horarios-repo";
 import { lembretesDemo } from "@/adaptadores/saida/demo/lembretes";
 import { assistenteSupabase } from "@/adaptadores/saida/supabase/assistente";
 import { horariosSupabase } from "@/adaptadores/saida/supabase/horarios";
+import { faqsSupabase } from "@/adaptadores/saida/supabase/faqs";
+import { faqsDemo } from "@/adaptadores/saida/demo/faqs";
+import { embeddingDemo } from "@/adaptadores/saida/demo/embedding";
+import { embeddingDePergunta, embeddingGemini } from "@/adaptadores/saida/gemini/embedding";
+import { criarAjustarFaq, criarLerFaqs, criarRemoverFaq, criarResponderDuvida } from "@/nucleo/aplicacao/faqs";
 import { lembretesSupabase } from "@/adaptadores/saida/supabase/lembretes";
 import { canalSupabase } from "@/adaptadores/saida/supabase/canal";
 import { canalDemoRepo, provisionamentoDemo } from "@/adaptadores/saida/demo/canal";
@@ -109,6 +114,23 @@ const provisionador = isSupabaseConfigured ? provisionadorSupabase : provisionad
  */
 const assistente = isSupabaseConfigured ? assistenteSupabase : assistenteDemo;
 const horarios = isSupabaseConfigured ? horariosSupabase : horariosDemo;
+const faqs = isSupabaseConfigured ? faqsSupabase : faqsDemo;
+
+/* ⚠️ DOIS geradores de embedding, e o par NÃO é redundância de fiação.
+ *
+ * O `gemini-embedding-001` produz vetores diferentes conforme o `taskType`: um texto
+ * marcado como DOCUMENTO (o que se indexa) e o mesmo texto marcado como CONSULTA (o que se
+ * pergunta) caem em pontos distintos, e casar os dois tipos certos melhora o resultado da
+ * busca. Por isso `embeddingGemini` alimenta o `AjustarFaq` e `embeddingDePergunta`
+ * alimenta o `ResponderDuvida`.
+ *
+ * Trocá-los de lugar não quebra nada visivelmente — só piora o casamento. É o tipo de erro
+ * que só aparece como "a MAISA não acha a FAQ que existe", e por isso está escrito aqui.
+ *
+ * Sem `GEMINI_API_KEY`, os dois caem no `embeddingDemo`, que é saco de palavras e não
+ * semântica: no demo "que horas vocês abrem" NÃO encontra "horários de atendimento". */
+const embeddingParaIndexar = isGeminiConfigured ? embeddingGemini : embeddingDemo;
+const embeddingParaBuscar = isGeminiConfigured ? embeddingDePergunta : embeddingDemo;
 /* A fila de lembretes segue `isAdminConfigured`, e NÃO `isSupabaseConfigured` como as
  * irmãs. É a única porta cuja service role é requisito duro: a rotina não tem sessão para
  * cair, então um Supabase configurado sem service role a deixaria estourando a cada
@@ -255,6 +277,14 @@ export const app = {
    */
   ajustarNegocio: criarAjustarNegocio({ negocio }),
 
+  /* ── as respostas prontas ──
+   * `lerFaqs`/`ajustarFaq`/`removerFaq` são a tela de gestão; `responderDuvida` é o que o
+   * AGENTE chama no meio da conversa, e é ele que fecha a família "configura e ignora". */
+  lerFaqs: criarLerFaqs({ faqs }),
+  ajustarFaq: criarAjustarFaq({ faqs, embedding: embeddingParaIndexar }),
+  removerFaq: criarRemoverFaq({ faqs }),
+  responderDuvida: criarResponderDuvida({ faqs, embeddingDePergunta: embeddingParaBuscar }),
+
   /**
    * CRIAR O NEGÓCIO — o único caso de uso que não recebe inquilino, porque o produz.
    *
@@ -398,7 +428,6 @@ import { criarModeloAnthropic } from "@/adaptadores/saida/anthropic/modelo-anthr
  * justamente esse import que criava o bug de id descrito acima. Eles chegam pelo
  * `repositorioDemo`, que é o fallback do `negocio` quando não há banco — pela porta, como
  * tudo o mais. Só sobrou o que ainda não tem tela que grave. */
-import { FAQS } from "@/adaptadores/saida/demo/conversas";
 import { ASSISTENTE_PADRAO, CFG_PADRAO } from "@/adaptadores/saida/demo/assistente";
 
 /**
@@ -423,11 +452,12 @@ export const agenteConfigurado = () => isGeminiConfigured || !!process.env.ANTHR
  *
  * É esta linha que faz o id no prompt e o id no banco serem o mesmo id. Ver o bloco acima.
  *
- * ⚠️ O QUE AINDA VEM DE FIXTURE, e por quê: `faqs`, e só. A tabela existe
- * (`002_multitenant.sql`), o provisionamento a semeia por vertical, mas nenhuma tela
- * grava nela e `RepositorioNegocio` não tem método de FAQ — então trocar agora daria a
- * mesma FAQ genérica com cara de conteúdo próprio. É o passo seguinte, e é uma porta
- * nova, não uma linha aqui.
+ * ✅ NADA MAIS VEM DE FIXTURE. O parágrafo que estava aqui dizia que `faqs` ainda vinha —
+ * era o último da lista, e saiu em 15/08/2026. Foi como previsto: porta nova
+ * (`RepositorioFaqs`), não uma linha neste arquivo. Só que ela não entrou nesta config —
+ * FAQ deixou de ser texto colado no prompt e virou a ferramenta `responder_duvidas`, com
+ * busca por sentido. Um prompt que carrega a base inteira paga por ela em toda mensagem,
+ * mesmo quando ninguém perguntou nada.
  *
  * ── `assistente` E `cfg` SAÍRAM DA FIXTURE EM 13/08/2026 ──
  *
@@ -482,7 +512,10 @@ const configuracaoDoAgente: ResolvedorDeConfiguracao = async (t) => {
      * MAISA prefere dizer que não sabe a anunciar 8h–20h para um negócio que abre às 14h
      * — anunciar errado traz cliente na porta fechada. */
     semana: semana ?? null,
-    faqs: FAQS,
+    /* `faqs` SAIU daqui em 15/08/2026 — era `FAQS`, a fixture de demonstração, colada no
+     * prompt de todo inquilino enquanto a tabela `faqs` de cada um dormia com o que o dono
+     * cadastrou. Agora é a ferramenta `responder_duvidas`, com busca por sentido. Era o
+     * último caso vivo da família "o dono configura e o produto ignora". */
     cfg: ajustes?.cfg ?? CFG_PADRAO,
   };
 };
@@ -505,6 +538,7 @@ export function agenteWhatsapp() {
       lerAgenda: app.lerAgenda,
       lembrarCliente: app.lembrarCliente,
       anotarFato: app.anotarFato,
+      responderDuvida: app.responderDuvida,
       historico,
       /* Ele só LÊ daqui, e o que lê é uma pergunta: "esta conversa é do dono?". Se for, cala.
        * Ver o passo 1d de `agente.ts` — é o que faz o botão "Assumir" do painel parar de

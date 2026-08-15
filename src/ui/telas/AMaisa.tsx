@@ -21,6 +21,7 @@ const ICONE: Record<string, string> = {
   personalidade: "sparkle",
   horarios: "clock",
   agendamentos: "calendar-check",
+  duvidas: "faq",
   comportamento: "bot",
 };
 
@@ -348,10 +349,145 @@ function ListaToggles({ itens }: { itens: { chave: D.ChaveCfg; titulo: string; d
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * DÚVIDAS FREQUENTES — o que o dono escreve e a MAISA passa a responder.
+ *
+ * Esta seção é a metade que faltava desde a criação do banco: a tabela `faqs` existia,
+ * o provisionamento a semeava, e NENHUMA tela gravava nela — o agente respondia dúvida
+ * com uma fixture de demonstração, igual para todo inquilino.
+ *
+ * ⚠️ SALVA NO BOTÃO, e não enquanto se digita como o resto desta tela. É a única seção
+ * assim, e o motivo é custo: cada gravação gera um embedding (uma chamada paga ao
+ * provedor), então o debounce por tecla que serve para um toggle geraria dezenas de
+ * vetores para uma frase. Aqui o salvar é um ato.
+ * ────────────────────────────────────────────────────────────────────────────── */
+function Duvidas() {
+  const st = useStore();
+  const [rascunho, setRascunho] = React.useState<{ id?: string; pergunta: string; resposta: string }>(
+    { pergunta: "", resposta: "" },
+  );
+  const editando = Boolean(rascunho.id);
+  const podeSalvar = rascunho.pergunta.trim().length > 0 && rascunho.resposta.trim().length > 0;
+
+  const limpar = () => setRascunho({ pergunta: "", resposta: "" });
+
+  return (
+    <div style={s("display:flex;flex-direction:column;gap:16px")}>
+      {st.faqsErro && (
+        <div style={s("padding:10px 12px;border-radius:10px;background:var(--danger-soft);color:var(--danger);font-size:var(--t-xs);line-height:1.5")}>
+          {st.faqsErro}
+        </div>
+      )}
+
+      {/* A lista vem primeiro: o dono precisa ver o que já existe antes de escrever de
+          novo o que já está lá. */}
+      <div style={s("display:flex;flex-direction:column;gap:8px")}>
+        {st.faqs.length === 0 && (
+          <span style={s("font-size:var(--t-sm);color:var(--muted);line-height:1.6")}>
+            Nada cadastrado ainda. Escreva as perguntas que seus clientes mais fazem — endereço,
+            estacionamento, formas de pagamento, política de atraso.
+          </span>
+        )}
+
+        {st.faqs.map((f) => (
+          <div
+            key={f.id}
+            style={s("display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border:1px solid var(--border);border-radius:12px;background:var(--surface)")}
+          >
+            <div style={s("flex:1;min-width:0;display:flex;flex-direction:column;gap:3px")}>
+              <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>{f.pergunta}</span>
+              <span style={s("font-size:var(--t-xs);color:var(--muted);line-height:1.5")}>{f.resposta}</span>
+              {/* `usos` nasceu com a tabela e ficou em zero enquanto nada lia as FAQs.
+                  Agora ele responde "qual dúvida meus clientes mais têm" — que é a
+                  informação que vira serviço novo, preço ou horário estendido. */}
+              {f.usos > 0 && (
+                <span style={s("font-size:var(--t-label);color:var(--muted)")}>
+                  respondeu {f.usos}×
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setRascunho({ id: f.id, pergunta: f.pergunta, resposta: f.resposta })}
+              className="m-press m-focus"
+              aria-label={`Editar: ${f.pergunta}`}
+              style={s("border:none;background:none;cursor:pointer;color:var(--muted);padding:3px")}
+            >
+              <Icon name="edit" size={15} />
+            </button>
+            <button
+              onClick={() => void st.removerFaq(f.id)}
+              className="m-press m-focus"
+              aria-label={`Apagar: ${f.pergunta}`}
+              style={s("border:none;background:none;cursor:pointer;color:var(--muted);padding:3px")}
+            >
+              <Icon name="trash" size={15} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div style={s("display:flex;flex-direction:column;gap:9px;padding-top:4px;border-top:1px solid var(--border)")}>
+        <label style={s("display:flex;flex-direction:column;gap:6px")}>
+          <Rotulo>{editando ? "Editando a pergunta" : "Nova pergunta"}</Rotulo>
+          <input
+            value={rascunho.pergunta}
+            onChange={(e) => setRascunho((r) => ({ ...r, pergunta: e.target.value }))}
+            placeholder="Vocês têm estacionamento?"
+            className="m-focus"
+            style={s(CAMPO)}
+          />
+        </label>
+
+        <label style={s("display:flex;flex-direction:column;gap:6px")}>
+          <Rotulo>Resposta</Rotulo>
+          <textarea
+            rows={2}
+            value={rascunho.resposta}
+            onChange={(e) => setRascunho((r) => ({ ...r, resposta: e.target.value }))}
+            placeholder="Temos convênio com o estacionamento da esquina."
+            className="m-focus"
+            style={s("width:100%;padding:11px 13px;border-radius:12px;border:1px solid var(--border-field);background:var(--surface);font-family:inherit;font-size:var(--t-sm);line-height:1.55;color:var(--ink);outline:none;resize:vertical;min-height:64px")}
+          />
+        </label>
+
+        <div style={s("display:flex;gap:8px;align-items:center")}>
+          {/* `Btn` não tem `disabled` — o bloqueio é na AÇÃO, e o visual só acompanha.
+              Um botão que parece ativo e não faz nada seria pior, então o `pointer-events`
+              também sai: sem ele o cursor continuaria prometendo clique. */}
+          <Btn
+            onClick={() => {
+              if (!podeSalvar || st.faqsOcupado) return;
+              void st.salvarFaq(rascunho).then((deuCerto) => { if (deuCerto) limpar(); });
+            }}
+            style={!podeSalvar || st.faqsOcupado ? { opacity: 0.45, pointerEvents: "none" } : undefined}
+          >
+            {st.faqsOcupado ? "Salvando…" : editando ? "Salvar" : "Adicionar"}
+          </Btn>
+          {editando && (
+            <button
+              onClick={limpar}
+              className="m-press m-focus"
+              style={s("border:none;background:none;cursor:pointer;font-size:var(--t-sm);color:var(--muted)")}
+            >
+              cancelar
+            </button>
+          )}
+        </div>
+
+        <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+          A MAISA procura por sentido, não por palavra exata — quem perguntar “dá pra
+          estacionar aí?” encontra a resposta acima.
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function Corpo({ id }: { id: string }) {
   if (id === "personalidade") return <Personalidade />;
   if (id === "horarios") return <Horarios />;
   if (id === "agendamentos") return <ListaToggles itens={D.TOGGLES_AGENDAMENTO} />;
+  if (id === "duvidas") return <Duvidas />;
   return <ListaToggles itens={D.TOGGLES_COMPORTAMENTO} />;
 }
 
