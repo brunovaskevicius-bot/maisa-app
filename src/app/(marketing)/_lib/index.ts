@@ -14,5 +14,8 @@ export { Wordmark } from "./Wordmark";
 export { GlassButton } from "./GlassButton";
 export { MarketingNav } from "./MarketingNav";
 export { StickyMobileCta } from "./StickyMobileCta";
+/* Montado pelo <World>, como a StickyMobileCta. Exportado aqui só para simetria do
+   índice — nenhuma página precisa importá-lo à mão. */
+export { EntrarNoApp } from "./EntrarNoApp";
 export { Footer } from "./Footer";
 export { CTASection } from "./CTASection";

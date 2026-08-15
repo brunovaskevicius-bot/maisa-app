@@ -1,5 +1,6 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
 import { createClient } from "@/adaptadores/saida/supabase/client";
@@ -148,8 +149,17 @@ function LoginInner() {
           )}
         </div>
 
+        {/* Até 15/08/2026 aqui dizia "Acesso restrito. As contas são criadas pelo
+            administrador — fale com o responsável para receber o seu acesso". Não era
+            política de segurança: era a descrição honesta de um produto sem tela de
+            cadastro. Com `/cadastro` no ar, a frase virou o convite que ela devia ter
+            sido desde sempre. */}
         <p style={s("text-align:center;font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
-          Acesso restrito. As contas são criadas pelo administrador —<br />fale com o responsável para receber o seu acesso.
+          Ainda não tem conta?{" "}
+          <Link href="/cadastro" className="m-focus" style={s("color:var(--primary);font-weight:var(--w-title)")}>
+            Criar conta grátis
+          </Link>
+          <br />14 dias para testar, sem cartão.
         </p>
       </div>
     </div>

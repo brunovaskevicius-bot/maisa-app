@@ -21,8 +21,12 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured } from "./config"
 // chamada `/barbeiros-admin` entraria de graça. O efeito colateral é que o singular não
 // herda nada do plural: as duas LPs de barbearia moram em `/barbeiros` (v3) e `/barbeiro`
 // (v4, a variante filmada), e esquecer esta linha põe a segunda atrás do login.
+// ⚠️ `/cadastro` ENTROU EM 15/08/2026 e é o caso mais óbvio de todos: barrar a tela de
+// criar conta redireciona para o login exatamente quem não tem login — o laço perfeito, e
+// invisível para quem desenvolve porque desenvolvedor já está logado. Mesma família do
+// `/lp` acima, e a mesma consequência: zero venda.
 const PUBLIC_PREFIXES = [
-  "/login", "/auth", "/api", "/lp", "/barbeiro", "/barbeiros", "/terapeutas",
+  "/login", "/cadastro", "/auth", "/api", "/lp", "/barbeiro", "/barbeiros", "/terapeutas",
 ];
 
 /* Exportada para o teste. É a única função deste arquivo que decide quem entra, e o

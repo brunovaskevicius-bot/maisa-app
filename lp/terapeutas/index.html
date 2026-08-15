@@ -106,6 +106,22 @@
 </head>
 <body>
 
+<!-- ── "Entrar" — a porta do app, para quem JÁ é cliente ─────────────────────────
+     Até 15/08/2026 esta LP não tinha UM link para o produto: quem já pagava e digitava
+     o endereço de memória (que é o endereço que ele conhece, porque foi por onde
+     comprou) chegava numa página de venda sem saída para o painel.
+
+     Discreto DE PROPÓSITO. Ele não é CTA: os CTAs desta página são o botão da dobra e
+     os três cartões de `#planos`, e um segundo botão no topo competiria com o primeiro
+     exatamente onde o leitor decide se fica. Quem não procura não vê; quem procura acha
+     onde todo SaaS põe.
+
+     ⚠️ ESTE LINK É ESCRITO À MÃO PORQUE ESTA LP É HTML ESTÁTICO e não importa nada do
+     repositório TypeScript. As duas LPs de barbearia recebem o equivalente do
+     `<World>` (`src/app/(marketing)/_lib/EntrarNoApp.tsx`). São dois lugares, mesmo
+     destino — mesma advertência que o número do WhatsApp já carrega aqui. -->
+<a href="/login" style="position:fixed;top:14px;right:clamp(16px,4vw,32px);z-index:55;display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid var(--border-subtle);background:var(--cream-50);color:var(--green-800);font-size:15px;font-weight:600;box-shadow:var(--shadow-xs);transition:background 120ms var(--ease-out),color 120ms var(--ease-out)" onmouseover="this.style.background='var(--green-900)';this.style.color='var(--cream-50)'" onmouseout="this.style.background='var(--cream-50)';this.style.color='var(--green-800)'">Entrar</a>
+
 <div style="background:var(--surface-page);color:var(--text-body);overflow-x:clip">
 
   <section style="position:relative;min-height:100vh;display:flex;flex-direction:column;overflow:hidden">

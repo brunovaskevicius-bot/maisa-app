@@ -21,6 +21,22 @@ export function whatsappUrl(mensagem: string): string {
   return `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(mensagem)}`;
 }
 
+/* ----------------------------------------------------------------------------
+ * A PORTA DO APP — para quem JÁ é cliente.
+ *
+ * Constante solta e não campo do `IcpConfig`, de propósito: é o MESMO destino para os
+ * dois públicos, porque o app é um só (a variação por cliente é linha no banco, nunca
+ * ramo de código). Pôr isto no `IcpConfig` criaria dois campos com o mesmo valor —
+ * ou seja, uma promessa de que um dia divergem, que ninguém pretende cumprir.
+ *
+ * ⚠️ APONTA PARA `/login` E NÃO PARA `/cadastro`. São públicos diferentes: quem chega
+ * numa LP e quer COMPRAR é atendido pelos CTAs da página; quem procura este link já
+ * paga e só quer entrar. Mandá-lo para o cadastro faria um cliente ativo encarar um
+ * formulário de conta nova — e o `/login` tem link para o cadastro logo abaixo, então
+ * quem errou o caminho está a um clique do certo. O contrário não é verdade.
+ * -------------------------------------------------------------------------- */
+export const APP_URL = "/login";
+
 export interface NavItem {
   label: string;
   href: string;

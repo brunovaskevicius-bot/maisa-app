@@ -404,6 +404,89 @@ body:has(.mundo-terapeutas) {
   .mkt-world { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 }
 
+/* ---- "Entrar" — a porta do app, para quem JÁ é cliente ---------------------
+ *
+ * Fixo no canto superior direito, onde todo SaaS põe. Deliberadamente SEM cara de
+ * botão: a regra desta LP é que nada tire a pessoa da página antes do preço (ver
+ * `barbeiros/page.tsx`), e um segundo botão no topo competiria com o CTA da dobra
+ * exatamente onde o leitor decide se fica. Quem não procura não vê.
+ *
+ * `z-index: 55` fica ABAIXO da barra fixa do mobile (60) e acima de tudo o mais: se
+ * as duas se encontrarem, quem tem que ganhar é o CTA de conversão.
+ *
+ * ⚠️ AS CORES SÃO O PAR `--mk-bg` / `--mk-ink`, E ESSA ESCOLHA É CICATRIZ.
+ *
+ * A primeira versão usava `--mk-nav-bg-scrolled` de fundo e `--mk-ink-soft` de texto, o
+ * que parecia certo (os dois são tokens do mundo). Deu texto ESCURO sobre fundo ESCURO,
+ * ~3:1, medido no headless em 15/08/2026. A causa: o `v3.css` REDEFINE o mundo barbeiros
+ * para claro (`--mk-bg: branco`, `--mk-ink-soft: slate`) e NÃO redefine
+ * `--mk-nav-bg-scrolled`, que continuou navy vindo do `.mundo-barbeiros`. Meia troca de
+ * tema, e o meu componente caiu no vão.
+ *
+ * `--mk-bg` e `--mk-ink` são o par fundo/tinta da página: todo escopo que redefine um
+ * redefine o outro, porque são o que faz a página ser clara ou escura. Parear os dois é
+ * a única combinação que NÃO pode se separar num tema futuro. É por isso que ele é opaco
+ * e não translúcido — sem `backdrop-filter` não há substrato desconhecido para calcular.
+ * -------------------------------------------------------------------------- */
+.mk-entrar {
+  position: fixed;
+  top: 14px;
+  right: var(--mk-gutter);
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  /* 44px é o alvo de toque mínimo; o padding horizontal é menor que o de um botão
+     de verdade justamente para ele não LER como botão. */
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-family: var(--mk-font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--mk-ink);
+  background: var(--mk-bg);
+  /* ⚠️ QUEM SEPARA O CHIP DA PÁGINA É O PREENCHIMENTO OPACO, NÃO ESTA BORDA.
+     Medido: a borda dá 1,42:1 contra o próprio fundo do chip (barbeiros) e 1,23:1
+     (terapeutas) — ou seja, ela é acabamento, e escrever aqui que ela cumpre a WCAG
+     1.4.11 seria mentira confortável. O que cumpre é o par fundo/tinta acima
+     (17,85:1 e 11,75:1 de texto) sobre um retângulo que não deixa nada passar. */
+  border: 1px solid var(--mk-border);
+  box-shadow: var(--mk-shadow-soft);
+  transition: opacity 160ms var(--mk-ease);
+}
+.mk-entrar:hover { opacity: 0.86; }
+
+@media (max-width: 560px) {
+  /* ⚠️ NO CELULAR ELE TROCA DE CANTO, E ISSO É MEDIÇÃO, NÃO GOSTO.
+   *
+   * No topo ele CRUZAVA A MANCHETE. Medido em 15/08/2026 com o Chrome headless em
+   * 390×844, usando os retângulos das LINHAS DE TEXTO (Range.getClientRects) e não a
+   * caixa do elemento, que mente porque o `<h1>` é centrado e ocupa a largura toda:
+   *
+   *     link                  x 306–370 · y 10–48
+   *     1ª linha da manchete  x  80–310 · y 33–69
+   *     sobreposição          4px na horizontal, 15px na vertical
+   *
+   * Quatro pixels parecem nada e não são: a dobra da v3 tem uma regra explícita de que
+   * nada cruza a manchete (`barbeiros/page.tsx`, o bloco da órbita), e a manchete é
+   * centrada com `text-wrap: balance` — outra frase, outra largura, outra colisão. Não
+   * dá para consertar com folga porque não há folga: naquela largura o texto começa a
+   * 33px do topo e um alvo de toque honesto tem 44px.
+   *
+   * Então ele desce para o canto de baixo, logo acima da barra de CTA (72px reservados
+   * pelo `.mkt-world`). Fica longe do herói, mantém os 44px, e continua alcançável de
+   * qualquer ponto da página — que é mais do que o topo oferecia, já que ali ele sumia
+   * ao rolar em navegador nenhum. Quem manda na parte de baixo continua sendo o CTA de
+   * venda: ele é `z-index: 60`, este é 55. */
+  .mk-entrar {
+    top: auto;
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 0.86rem;
+  }
+}
+
 /* ---- prefers-reduced-motion — alternativa instantânea (fica visível) ------ */
 @media (prefers-reduced-motion: reduce) {
   .mkt-scope *, .mkt-scope *::before, .mkt-scope *::after {

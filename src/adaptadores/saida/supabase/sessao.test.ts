@@ -44,6 +44,13 @@ describe("o funil é público", () => {
     expect(isPublic("/auth/callback")).toBe(true);
   });
 
+  /* Barrar a tela de CRIAR CONTA manda para o login justamente quem ainda não tem login.
+   * O laço é perfeito e é invisível para quem desenvolve, porque desenvolvedor já está
+   * logado — mesma forma exata do bug do `/lp` que abriu este arquivo. */
+  it("criar conta abre sem login, senão ninguém nunca terá um", () => {
+    expect(isPublic("/cadastro")).toBe(true);
+  });
+
   /* As rotas de API fazem a própria checagem e respondem 401 em JSON. Barrá-las aqui
    * devolveria um REDIRECT para uma chamada `fetch`, e a tela receberia o HTML da página
    * de login onde esperava um objeto — o erro mais confuso que uma SPA pode dar. */
@@ -67,5 +74,6 @@ describe("o painel não é público", () => {
     expect(isPublic("/lpainel")).toBe(false);
     expect(isPublic("/terapeutas-admin")).toBe(false);
     expect(isPublic("/logins")).toBe(false);
+    expect(isPublic("/cadastros")).toBe(false);
   });
 });

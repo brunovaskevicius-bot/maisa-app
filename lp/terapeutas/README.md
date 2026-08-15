@@ -78,7 +78,13 @@ Não há config: é HTML estático, tudo literal no `index.html`.
 | --- | --- |
 | checkout do plano Completo (R$ 197, 15 dias) | `href` do botão em `#planos`, card do meio |
 | WhatsApp (Essencial, Clínica, rodapé) | `wa.me/5511994294906` — 4 ocorrências |
+| "Entrar" (porta do app) | `<a href="/login">` fixo, logo depois de `<body>` |
 | bonecos da hero | `assets/open-peeps-sheet.png`, regerado por `scripts/recolor_peeps_sheet.py` |
 
 O número do WhatsApp também vive em `src/app/(marketing)/_lib/icp.ts` (para as
 outras 6 LPs). Trocar num lugar exige trocar no outro — esta LP não importa TS.
+
+**O "Entrar" tem a mesma dobradiça.** Nas LPs de barbearia ele é o componente
+`_lib/EntrarNoApp.tsx`, montado pelo `<World>` e lendo `APP_URL` do `icp.ts`. Aqui é
+uma tag escrita à mão, porque esta LP é HTML estático. Mudar o destino do app exige
+mexer nos dois.

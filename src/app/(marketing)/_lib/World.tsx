@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ICPS, type ICP } from "./icp";
 import { StickyMobileCta } from "./StickyMobileCta";
+import { EntrarNoApp } from "./EntrarNoApp";
 
 /* ----------------------------------------------------------------------------
  * <World> — wrapper que cada page.tsx usa em volta de TODO o conteúdo (nav +
@@ -13,6 +14,12 @@ import { StickyMobileCta } from "./StickyMobileCta";
  *   • o skip-link "Pular para o conteúdo" (1º foco tabulável) → #conteudo;
  *     as páginas devem marcar seu <main id="conteudo" tabIndex={-1}>.
  *   • a barra de CTA fixa do mobile (StickyMobileCta), ao alcance do polegar.
+ *   • o link "Entrar" no canto (EntrarNoApp), para quem já é cliente.
+ *
+ * ⚠️ O "de graça" acima é o motivo de o "Entrar" morar AQUI e não numa nav: nem a
+ * <MarketingNav> nem o <Footer> são renderizados por página nenhuma de barbearia —
+ * existem no `_lib` e ninguém os importa. Pendurar o link em qualquer um dos dois
+ * seria escrever código que nunca roda.
  * -------------------------------------------------------------------------- */
 export function World({
   icp,
@@ -28,6 +35,7 @@ export function World({
       <a href="#conteudo" className="mk-skip">
         Pular para o conteúdo
       </a>
+      <EntrarNoApp />
       {children}
       <StickyMobileCta icp={icp} />
     </div>
