@@ -33,8 +33,17 @@ export const PASSOS_DE_ATIVACAO = [
   /** Existe inquilino. Verdadeiro sempre que se consegue perguntar — quem não tem negócio
    *  não chega a esta rota, porque o porteiro barra antes com 409 `sem_negocio`. */
   "negocio_criado",
-  /** O dono mexeu no catálogo semeado: preço, duração, nome ou o liga/desliga de algum
-   *  serviço. Sem isso ele está vendendo os cinco chutes de `criar_negocio()`. */
+  /**
+   * O dono MEXEU no catálogo semeado — preço, duração, nome, categoria ou o liga/desliga
+   * de algum serviço. Sem isso ele está vendendo os cinco chutes de `criar_negocio()`, e
+   * é a MAISA que vai anunciar esses valores ao cliente.
+   *
+   * ⚠️ "Mexeu" e não "passou pela etapa". A distinção custou um conserto: na primeira
+   * versão o wizard gravava as cinco linhas ao clicar em continuar, o `atualizado_em` de
+   * todas se movia, e este passo acendia para quem não tinha tocado em nada. Medido numa
+   * caminhada real em produção em 15/08/2026. Um checklist que se marca sozinho não é
+   * checklist — é enfeite que mente. O wizard passou a mandar só o que mudou.
+   */
   "catalogo_ajustado",
   /** Há instância pareada. É o passo que separa "configurei" de "a MAISA atende". */
   "whatsapp_conectado",

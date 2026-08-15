@@ -267,8 +267,23 @@ function LinhaServico({ sv, aoMudar }: { sv: Servico; aoMudar: (p: Partial<Servi
   );
 }
 
+/** Duas linhas de catálogo são iguais nos campos que esta etapa escreve? */
+const mesmoServico = (a: Servico, b: Servico) =>
+  String(a.nome) === String(b.nome)
+  && a.categoria === b.categoria
+  && String(a.preco) === String(b.preco)
+  && String(a.duracao) === String(b.duracao)
+  && a.ativo === b.ativo;
+
 function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
   const [servicos, setServicos] = useState<Servico[]>([]);
+  /* O catálogo como ele CHEGOU. Sem esta cópia não dá para saber o que mudou — e sem
+   * saber o que mudou, "Salvar e continuar" grava as cinco linhas mesmo quando o dono não
+   * tocou em nada. Medido numa caminhada real em produção em 15/08/2026: as cinco voltaram
+   * do banco com `atualizado_em` mexido, e o passo `catalogo_ajustado` acendeu para quem
+   * só tinha clicado em continuar. Um checklist que se marca sozinho não é checklist. */
+  const original = useRef<Servico[]>([]);
+  const nomeOriginal = useRef<string>("");
   const [profissional, setProfissional] = useState<{ id: string; nome: string } | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [ocupado, setOcupado] = useState(false);
@@ -282,8 +297,9 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
         if (!vivo) return;
         if (r?.ok) {
           setServicos(r.servicos ?? []);
+          original.current = r.servicos ?? [];
           const p = (r.profissionais ?? [])[0];
-          if (p) setProfissional({ id: p.id, nome: p.nome });
+          if (p) { setProfissional({ id: p.id, nome: p.nome }); nomeOriginal.current = p.nome; }
         }
       })
       .catch(() => {})
@@ -306,12 +322,22 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
    * Sequencial e não `Promise.all`: se a terceira linha for recusada, as duas primeiras
    * já estão salvas e a frase aponta a que falhou. Em paralelo, o dono veria um erro sem
    * saber de qual linha ele é.
+   *
+   * ⚠️ SÓ MANDA O QUE MUDOU. Gravar as cinco linhas sempre parece inofensivo e não é: o
+   * `atualizado_em` de todas se move, e `catalogo_ajustado` — que é derivado exatamente
+   * dessa comparação — acende para quem só clicou em continuar. O checklist passaria a se
+   * marcar sozinho, que é o defeito que a derivação existe para não ter.
    */
   const salvar = useCallback(async () => {
     setOcupado(true);
     setErro(null);
     try {
-      for (const sv of servicos) {
+      const mudados = servicos.filter((sv) => {
+        const antes = original.current.find((o) => o.id === sv.id);
+        return !antes || !mesmoServico(antes, sv);
+      });
+
+      for (const sv of mudados) {
         const r = await fetch("/api/servicos", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -328,7 +354,9 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
         }
       }
 
-      if (profissional && profissional.nome.trim()) {
+      /* Mesma regra para quem atende: só grava se o nome mudou. Regravar o nome adivinhado
+       * marcaria o profissional como conferido sem que ninguém o tivesse conferido. */
+      if (profissional && profissional.nome.trim() && profissional.nome !== nomeOriginal.current) {
         const r = await fetch("/api/equipe", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
