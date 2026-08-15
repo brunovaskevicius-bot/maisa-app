@@ -200,7 +200,11 @@ const MOTIVO_GOOGLE: Record<string, string> = {
   profissional_invalido: "Profissional não encontrado",
   /* Novo com o `tenantId` real: logado, mas sem linha em `membros`. Não é erro de OAuth —
    * é o estado de quem acabou de criar a conta e ainda não tem negócio provisionado. */
-  sem_negocio: "Esta conta ainda não tem um negócio. Rode criar_negocio() no Supabase antes de conectar a agenda",
+  /* ⚠️ Esta frase dizia "Rode criar_negocio() no Supabase antes de conectar a agenda" até
+   * 15/08/2026 — instrução de desenvolvedor entregue ao cliente final, e a confissão de
+   * que o produto não sabia se ativar sozinho. Agora existe `/comecar`, e quem cai aqui é
+   * levado para lá pelo `lerCadastro`; esta frase é só o que se lê no meio-tempo. */
+  sem_negocio: "Termine de criar seu negócio para conectar a agenda",
   permissao_negada: "Você não autorizou o acesso à agenda",
   sessao_expirada: "A conexão demorou demais — tente de novo",
   sem_codigo: "O Google não devolveu a autorização",
@@ -970,6 +974,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (!vivo) return;
 
         if (!r?.ok) {
+          /* ⚠️ `sem_negocio` NÃO É ERRO — É O PRIMEIRO LOGIN DE TODO MUNDO.
+           *
+           * Esta é a resposta que o app dá a quem acabou de confirmar o e-mail: existe
+           * sessão, não existe inquilino. Até 15/08/2026 ela virava uma faixa vermelha no
+           * painel mandando rodar SQL no Supabase, com o resto da tela em placeholder de
+           * fixture — a pior primeira impressão possível, e um beco: não havia botão
+           * nenhum que resolvesse.
+           *
+           * Agora existe `/comecar`, então a resposta certa é LEVAR PARA LÁ. O servidor já
+           * diz isso no campo `acao` (`{ metodo: "POST", rota: "/api/negocio" }`, ver
+           * `entrada/http/contexto.ts`); a tela só precisava obedecer.
+           *
+           * `window.location` e não `router.push`: o store é montado acima do router em
+           * `app/page.tsx`, e uma navegação de cliente aqui deixaria este provider vivo
+           * fazendo as outras chamadas — que voltariam todas 409, cada uma acendendo o
+           * próprio aviso. Trocar de página inteira é o que garante que o painel meio
+           * carregado não sobreviva à saída. */
+          if (r?.status === "sem_negocio" && typeof window !== "undefined") {
+            window.location.replace("/comecar");
+            return;
+          }
           /* Mantém o placeholder na tela e ACENDE o aviso. Zerar as listas aqui seria
            * pior: a Agenda perderia as colunas e a Gaveta abriria vazia, sintomas que não
            * apontam para "o cadastro não carregou". */

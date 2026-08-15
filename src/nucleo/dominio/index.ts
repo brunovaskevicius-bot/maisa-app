@@ -6,6 +6,7 @@
 export * from "./tenant";
 export * from "./tempo";
 export * from "./texto";
+export * from "./ativacao";
 export * from "./negocio";
 export * from "./catalogo";
 export * from "./clientes";

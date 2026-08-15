@@ -35,6 +35,7 @@ import type { ResultadoDeNota, Tomador } from "../../dominio/fiscal";
 import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
 import type { VagasDoDia } from "../../dominio/vagas";
 import type { Faq, FaqEncontrada } from "../../dominio/faq";
+import type { ProgressoDaAtivacao } from "../../dominio/ativacao";
 
 /* ───────────────────────────── agenda ───────────────────────────── */
 
@@ -229,6 +230,18 @@ export type AjustarProfissional = (
  * está no cabeçalho de `RepositorioNegocio`.
  */
 export type RemoverServico = (t: ContextoTenant, id: string) => Promise<void>;
+
+/* ───────────────────────────── quanto já está de pé ─────────────────────────────
+ * O que o wizard usa para saber onde retomar, e o que a `FluxoHoje` usa para mostrar o
+ * que falta. Derivado do banco a cada leitura, nunca de uma flag — o porquê inteiro está
+ * em `dominio/ativacao.ts`.
+ *
+ * ⚠️ Existe porque a `FluxoHoje` de um inquilino novo abre VAZIA, e o estado vazio dela é
+ * comemorativo por desenho (*"se ele está vazio, a assistente está fazendo o trabalho"*).
+ * Para quem acabou de entrar isso lê exatamente ao contrário: "está tudo certo" quando
+ * nada está conectado.
+ */
+export type LerAtivacao = (t: ContextoTenant) => Promise<ProgressoDaAtivacao>;
 
 /* ───────────────────────────── as respostas prontas ─────────────────────────────
  * As FAQs do negócio. Quatro casos de uso: três são a tela de gestão, e o quarto é o que

@@ -33,6 +33,9 @@ import {
   criarLerCadastro,
   criarRemoverServico,
 } from "@/nucleo/aplicacao/cadastro";
+import { criarLerAtivacao } from "@/nucleo/aplicacao/ativacao";
+import { ativacaoSupabase } from "@/adaptadores/saida/supabase/ativacao";
+import { ativacaoDemo } from "@/adaptadores/saida/demo/ativacao";
 import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
 import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
 import { criarAjustarHorarios, criarLerHorarios } from "@/nucleo/aplicacao/horarios";
@@ -293,6 +296,15 @@ export const app = {
   ajustarServico: criarAjustarServico({ negocio }),
   removerServico: criarRemoverServico({ negocio }),
   ajustarProfissional: criarAjustarProfissional({ negocio }),
+
+  /**
+   * QUANTO JÁ ESTÁ DE PÉ — derivado do banco a cada leitura, nunca de uma flag.
+   *
+   * Segue `isSupabaseConfigured` como todo o resto: sem banco, o adaptador demo responde
+   * a partir dos mesmos fixtures que as telas leem, e é assim que o wizard é afinado
+   * antes de existir inquilino de verdade.
+   */
+  lerAtivacao: criarLerAtivacao({ ativacao: isSupabaseConfigured ? ativacaoSupabase : ativacaoDemo }),
 
   /* ── as respostas prontas ──
    * `lerFaqs`/`ajustarFaq`/`removerFaq` são a tela de gestão; `responderDuvida` é o que o

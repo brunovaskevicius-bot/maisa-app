@@ -51,6 +51,17 @@ describe("o funil é público", () => {
     expect(isPublic("/cadastro")).toBe(true);
   });
 
+  /* ⚠️ `/comecar` é o OPOSTO do `/cadastro`, e confundir os dois abre o produto.
+   *
+   * O wizard cria NEGÓCIO, não conta — e ele o cria em nome de `auth.uid()`. Público, ele
+   * seria uma tela de criar inquilino aberta a anônimo: a RPC recusaria (ela levanta
+   * `insufficient_privilege` sem sessão), mas a página existiria, prometeria, e falharia
+   * com um erro de banco na cara de quem passasse por ali. O middleware manda para o
+   * login com `?next=/comecar`, e a pessoa volta para cá depois de entrar. */
+  it("o wizard NÃO é público — ele cria negócio em nome de quem está logado", () => {
+    expect(isPublic("/comecar")).toBe(false);
+  });
+
   /* As rotas de API fazem a própria checagem e respondem 401 em JSON. Barrá-las aqui
    * devolveria um REDIRECT para uma chamada `fetch`, e a tela receberia o HTML da página
    * de login onde esperava um objeto — o erro mais confuso que uma SPA pode dar. */

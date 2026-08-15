@@ -28,6 +28,7 @@ Definidos em [`src/adaptadores/entrada/http/contexto.ts`](../src/adaptadores/ent
 |---|---|---|---|
 | `/api/cadastro` | GET | `exigirSessao` | `LerCadastro` — negócio, profissionais, serviços, clientes |
 | `/api/negocio` | POST · PATCH | `exigirUsuario` (POST) · `exigirSessao` (PATCH) | `ProvisionarNegocio` — cria `negocios` + `membros` no primeiro acesso · `AjustarNegocio` — troca o nome |
+| `/api/ativacao` | GET | `sessaoOuDemo` | `LerAtivacao` — quantos dos 5 passos estão feitos. **Derivado do banco a cada leitura**, nunca de uma flag de progresso |
 | `/api/servicos` | PUT · DELETE | `sessaoOuDemo` | `AjustarServico` — cria ou edita pelo `id` · `RemoverServico` |
 | `/api/equipe` | PUT | `sessaoOuDemo` | `AjustarProfissional` — cria ou edita quem atende. **Não mexe em expediente**: aquilo manda na grade inteira e pede caso de uso próprio |
 
