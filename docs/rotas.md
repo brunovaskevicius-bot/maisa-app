@@ -27,7 +27,7 @@ Definidos em [`src/adaptadores/entrada/http/contexto.ts`](../src/adaptadores/ent
 | Rota | Métodos | Porteiro | Caso de uso |
 |---|---|---|---|
 | `/api/cadastro` | GET | `exigirSessao` | `LerCadastro` — negócio, profissionais, serviços, clientes |
-| `/api/negocio` | POST | `exigirSessao` | `ProvisionarNegocio` — cria `negocios` + `membros` no primeiro acesso |
+| `/api/negocio` | POST · PATCH | `exigirUsuario` (POST) · `exigirSessao` (PATCH) | `ProvisionarNegocio` — cria `negocios` + `membros` no primeiro acesso · `AjustarNegocio` — troca o nome |
 | `/api/assistente` | GET · PATCH | `sessaoOuDemo` | `LerAssistente` · `AjustarAssistente` — nome, tom, o que não falar |
 | `/api/horarios` | GET · PUT | `sessaoOuDemo` | `LerHorarios` · `AjustarHorarios` — o expediente que a MAISA anuncia |
 | `/api/conversas` | GET · POST | `sessaoOuDemo` | `ListarConversas` · `LerConversa` · `ResponderConversa` · `MudarPosseConversa` |

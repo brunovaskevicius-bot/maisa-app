@@ -36,6 +36,39 @@ export type Vertical = (typeof VERTICAIS)[number];
 export const ehVertical = (v: unknown): v is Vertical =>
   typeof v === "string" && (VERTICAIS as readonly string[]).includes(v);
 
+/* ───────────────────────────── o nome do negócio ─────────────────────────────
+ * ⚠️ ESTE CAMPO NÃO É DECORATIVO — ELE SAI NA VOZ DA MAISA, PARA O CLIENTE FINAL.
+ *
+ * Ele aparece em três lugares, e só um deles é interno:
+ *   • `persona.ts` — "Você é MAISA, a assistente de atendimento de ___". Vai no prompt
+ *     de TODA mensagem de WhatsApp, então é o que o agente responde quando perguntam
+ *     onde ele trabalha.
+ *   • `lembretes.ts` — "…do seu horário hoje às 18:00, no ___".
+ *   • a sidebar do painel, que é o único uso que o dono vê.
+ *
+ * Foi assim que se descobriu, em 14/08/2026, que o negócio de teste se chamava
+ * `bruno.vaskevicius`: o primeiro lembrete de verdade chegou dizendo "no
+ * bruno.vaskevicius". A linha nascera de SQL escrito à mão em 11/08, antes de existir
+ * tela, e quem escreveu usou o prefixo do e-mail. Ninguém viu por três dias porque
+ * NENHUMA TELA ESCREVIA ESSE CAMPO — só o `criar_negocio()`, no instante da criação.
+ *
+ * ── O TETO, E POR QUE ELE É MENOR DO QUE CABERIA NO BANCO ──
+ * A coluna aceita texto livre. O limite aqui é do PROMPT: este nome entra inteiro no
+ * contexto a cada mensagem, e um "nome" de 500 caracteres é token pago para sempre —
+ * além de ser o vetor óbvio para escrever instrução dentro de um campo de cadastro.
+ * 60 cabe em "Barbearia do Zé — Unidade Centro" com folga e não cabe num parágrafo.
+ *
+ * ⚠️ O MÍNIMO ESPELHA `provisionar_negocio` (`supabase/005_provisionar.sql:113`), que
+ * levanta `check_violation` com menos de 2 caracteres. Duplicado de propósito, pelo
+ * mesmo motivo de `VERTICAIS` acima: o banco recusa lixo mesmo se chamarem a RPC por
+ * fora, e o app recusa antes de gastar uma ida ao banco. */
+export const NOME_NEGOCIO_MIN = 2;
+export const NOME_NEGOCIO_MAX = 60;
+
+/** Colapsa espaço e apara as pontas — o mesmo `btrim` que a RPC faz, feito antes. */
+export const normalizarNomeDoNegocio = (bruto: string): string =>
+  String(bruto ?? "").replace(/\s+/g, " ").trim();
+
 export type Negocio = {
   nome: string;
   plano: string;

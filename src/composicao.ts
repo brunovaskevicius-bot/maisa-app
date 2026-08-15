@@ -26,7 +26,7 @@ import {
   criarCancelarAtendimento, criarDesconectarAgenda, criarLerAgenda, criarListarConexoes,
 } from "@/nucleo/aplicacao/agenda";
 import { criarOferecerHorarios } from "@/nucleo/aplicacao/oferecer-horarios";
-import { criarLerCadastro } from "@/nucleo/aplicacao/cadastro";
+import { criarAjustarNegocio, criarLerCadastro } from "@/nucleo/aplicacao/cadastro";
 import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
 import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
 import { criarAjustarHorarios, criarLerHorarios } from "@/nucleo/aplicacao/horarios";
@@ -245,6 +245,15 @@ export const app = {
 
   /** Nasceu para a TELA: é por aqui que o painel para de importar fixture. */
   lerCadastro: criarLerCadastro({ negocio }),
+
+  /**
+   * RENOMEAR O NEGÓCIO — o par de escrita do `lerCadastro`.
+   *
+   * Mesma dependência, mesma linha do arquivo, porque é o mesmo agregado. Não segue
+   * `isSupabaseConfigured` por conta própria: `negocio` já é o repositório demo ou o do
+   * Supabase conforme a configuração, e essa decisão foi tomada uma vez lá em cima.
+   */
+  ajustarNegocio: criarAjustarNegocio({ negocio }),
 
   /**
    * CRIAR O NEGÓCIO — o único caso de uso que não recebe inquilino, porque o produz.

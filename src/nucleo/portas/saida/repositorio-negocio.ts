@@ -63,10 +63,35 @@ export interface RepositorioNegocio {
   clientePorTelefone(t: ContextoTenant, telefone: string): Promise<Cliente | null>;
 
   /**
-   * O ÚNICO método de escrita desta porta: acha o cliente por telefone ou cria.
+   * Trocar o nome do negócio.
    *
-   * ⚠️ Ele quebra a simetria do arquivo (todo o resto aqui é leitura), então o motivo
-   * precisa estar escrito: sem ele, quem marca pelo WhatsApp nunca entra no cadastro.
+   * ⚠️ ESTE CAMPO SAI NA VOZ DA MAISA — o agente diz "sou a assistente de ___" em toda
+   * conversa e o lembrete diz "no ___". Ver o bloco em `dominio/negocio.ts`.
+   *
+   * ── POR QUE ELE PRECISOU EXISTIR ──
+   * Até 14/08/2026 o nome só era escrito por `criar_negocio()`, no instante da criação, e
+   * NENHUMA TELA o editava. Quem começasse com o nome errado ficava com ele para sempre —
+   * e como o campo só aparece para o cliente final (no WhatsApp), o dono podia passar
+   * meses sem descobrir. A RLS (`gestao atualiza`, `003_rls.sql:311`) já permitia a
+   * escrita desde o começo; o que faltava era caminho no código.
+   *
+   * ── O CONTRATO ──
+   * Devolve o `Negocio` DEPOIS de gravado, não o nome que foi mandado: a normalização
+   * (espaço colapsado) acontece do outro lado, e a tela precisa pintar o que ficou no
+   * banco. Mesma razão do `AjustarAssistente`.
+   *
+   * ⚠️ Só dono e gestor podem — é a RLS que decide, não este código. O adaptador tem que
+   * DISTINGUIR "não tinha permissão" de "gravou", porque um `update` barrado por RLS
+   * volta sem erro e sem linha: o silêncio é o modo de falha, não a exceção.
+   */
+  renomear(t: ContextoTenant, nome: string): Promise<Negocio>;
+
+  /**
+   * Acha o cliente por telefone ou cria.
+   *
+   * ⚠️ Ele quebra a simetria do arquivo (o resto aqui é leitura, fora o `renomear`
+   * acima), então o motivo precisa estar escrito: sem ele, quem marca pelo WhatsApp
+   * nunca entra no cadastro.
    * O agente identificava o desconhecido como `lead:<telefone>` — uma string que o
    * `PARECE_UUID` do adaptador Supabase recusa de propósito, e que portanto nunca ia
    * resolver em cliente nenhum. O efeito era duplo e invisível: a tela de Clientes não

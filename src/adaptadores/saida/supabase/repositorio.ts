@@ -323,6 +323,36 @@ export const repositorioSupabase: RepositorioNegocio = {
     return paraNegocio(data);
   },
 
+  /* ── RENOMEAR ───────────────────────────────────────────────────────────────
+   * ⚠️ O `.select("id")` NÃO É DECORAÇÃO — ele é o que transforma silêncio em erro.
+   *
+   * A RLS de `negocios` (`gestao atualiza`, `003_rls.sql:311`) só deixa dono e gestor
+   * escreverem. Um `update` que a política barra não devolve erro: ele devolve SUCESSO
+   * com zero linhas afetadas. Sem pedir as linhas de volta, um membro comum trocaria o
+   * nome na tela, veria "salvo", recarregaria e encontraria o nome antigo — o mesmo tipo
+   * de defeito que fez a MAISA passar meses configurada e ignorando a configuração.
+   *
+   * `select` vazio aqui tem duas causas possíveis, e as duas merecem barulho: quem pediu
+   * não é dono nem gestor, ou o negócio não existe. `NaoEncontrado` cobre as duas com
+   * honestidade — não sabemos qual foi, e fingir que sabemos daria a frase errada.
+   *
+   * Escreve na TABELA `negocios`, mas relê pela VIEW `v_negocio` (via `this.negocio`):
+   * a view é quem junta plano, cobrança e cartão, e a tela espera o `Negocio` inteiro. */
+  async renomear(t: ContextoTenant, nome: string): Promise<Negocio> {
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("negocios")
+      .update({ nome })
+      .eq("id", t.tenantId)
+      .select("id");
+
+    exigirSemErro("o nome do negócio", error);
+    if (!data || data.length === 0) {
+      throw new NaoEncontrado("Negócio para renomear (só dono ou gestor pode)");
+    }
+    return this.negocio(t);
+  },
+
   async profissional(t, id) {
     if (!PARECE_UUID.test(id)) return null;
     const supabase = clienteDoContexto(t);

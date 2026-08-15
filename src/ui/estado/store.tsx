@@ -648,6 +648,14 @@ export type StoreValue = {
   abrirSecao: (id: string) => void;
   assistente: Assistente;
   setAssistente: (patch: Partial<Assistente>) => void;
+  /**
+   * Trocar o nome do NEGÓCIO (não o da assistente).
+   *
+   * Recurso diferente e rota diferente (`PATCH /api/negocio`), por isso não entra em
+   * `setAssistente`. O valor atual se lê em `cadastro.negocio.nome` — é o mesmo que a
+   * sidebar pinta e o mesmo que a MAISA diz no WhatsApp.
+   */
+  setNomeDoNegocio: (nome: string) => void;
   /** Frase quando os ajustes não carregaram ou não salvaram. Não-nulo = o que está na
    *  tela pode não ser o que a MAISA está usando no WhatsApp. */
   ajustesErro: string | null;
@@ -2171,6 +2179,63 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     mexerNosAjustes({ assistente: p });
   }, [mexerNosAjustes]);
 
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * O NOME DO NEGÓCIO — a mesma mecânica dos ajustes, num campo só.
+   *
+   * Debounce próprio, e não o `mexerNosAjustes` acima, porque são DOIS recursos: os
+   * ajustes vão para `PATCH /api/assistente` e o nome vai para `PATCH /api/negocio`.
+   * Juntá-los num timer só faria uma tecla no nome do negócio reenviar a saudação inteira.
+   *
+   * ⚠️ Este campo não é cosmético: ele entra no prompt do agente a cada mensagem
+   * ("sou a assistente de ___") e no texto de todo lembrete. Até 14/08/2026 NENHUMA tela
+   * o escrevia, e um negócio de teste passou três dias chamado `bruno.vaskevicius` — o
+   * nome saiu no primeiro lembrete de verdade que chegou num celular.
+   * ────────────────────────────────────────────────────────────────────────────── */
+  const nomeAntes = useRef<string | null>(null);
+  const nomeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const enviarNomeDoNegocio = useCallback(async (nome: string) => {
+    const antes = nomeAntes.current;
+    nomeAntes.current = null;
+
+    try {
+      const r = await fetch("/api/negocio", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome }),
+      }).then((x) => x.json());
+
+      if (!r?.ok) {
+        /* Volta ao nome anterior E diz o motivo do servidor. O campo fica no rail e no
+         * WhatsApp do cliente: deixar na tela um nome que o banco recusou faria o dono
+         * acreditar num nome que a MAISA nunca vai usar. */
+        if (antes !== null) setCadastro((c) => ({ ...c, negocio: { ...c.negocio, nome: antes } }));
+        toast(r?.info ?? "Não foi possível salvar o nome do negócio.");
+        return;
+      }
+
+      /* Pinta o que o BANCO gravou — a normalização (espaço colapsado) acontece lá. */
+      setCadastro((c) => ({ ...c, negocio: r.negocio ?? c.negocio }));
+      setSalvo(true);
+      agendar(() => setSalvo(false), 2200);
+    } catch {
+      if (antes !== null) setCadastro((c) => ({ ...c, negocio: { ...c.negocio, nome: antes } }));
+      toast("Não foi possível salvar o nome do negócio.");
+    }
+  }, [agendar]);
+
+  const setNomeDoNegocio = useCallback((nome: string) => {
+    setCadastro((c) => {
+      /* A foto para a volta atrás é tirada UMA vez por rajada, dentro do updater, onde o
+       * estado é garantidamente o corrente — mesma razão do `mexerNosAjustes`. */
+      if (nomeAntes.current === null) nomeAntes.current = c.negocio.nome;
+      return { ...c, negocio: { ...c.negocio, nome } };
+    });
+
+    if (nomeTimer.current) clearTimeout(nomeTimer.current);
+    nomeTimer.current = setTimeout(() => { void enviarNomeDoNegocio(nome); }, JANELA_AJUSTES);
+  }, [enviarNomeDoNegocio]);
+
   const alternarCfg = useCallback((chave: D.ChaveCfg) => {
     /* Lê do estado dentro do updater, e não da closure, porque duas batidas rápidas no
      * mesmo toggle precisam ver a primeira já aplicada — senão a segunda manda o mesmo
@@ -2658,7 +2723,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
-    assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados,
+    assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     cfg: ajustes.cfg, alternarCfg,
@@ -2686,7 +2751,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
-    ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados,
+    ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     ajustes.cfg, alternarCfg,

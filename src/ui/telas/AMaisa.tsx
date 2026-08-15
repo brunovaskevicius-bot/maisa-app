@@ -210,6 +210,26 @@ function Personalidade() {
   const st = useStore();
   return (
     <div style={s("display:flex;flex-direction:column;gap:18px")}>
+      {/* ⚠️ O NOME DO NEGÓCIO VEM PRIMEIRO, E NÃO É DETALHE DE CADASTRO.
+          Ele entra no prompt do agente a cada mensagem ("sou a assistente de ___") e no
+          texto de todo lembrete. Até 14/08/2026 nenhuma tela o escrevia: só o
+          `criar_negocio()` gravava, uma vez, e um negócio passou três dias chamado
+          `bruno.vaskevicius` — o nome saiu no primeiro lembrete que chegou num celular.
+          Está aqui, e não numa tela de "configurações", porque é aqui que se decide como
+          a MAISA se apresenta — e é a primeira coisa que o cliente ouve dela. */}
+      <label style={s("display:flex;flex-direction:column;gap:7px")}>
+        <Rotulo>Nome do negócio</Rotulo>
+        <input
+          value={st.cadastro.negocio.nome}
+          onChange={(e) => st.setNomeDoNegocio(e.target.value)}
+          className="m-focus"
+          style={s(CAMPO)}
+        />
+        <span style={s("font-size:var(--t-xs);color:var(--muted);line-height:1.5")}>
+          É como a MAISA se apresenta no WhatsApp e o que aparece nos lembretes.
+        </span>
+      </label>
+
       <label style={s("display:flex;flex-direction:column;gap:7px")}>
         <Rotulo>Nome do assistente</Rotulo>
         <input

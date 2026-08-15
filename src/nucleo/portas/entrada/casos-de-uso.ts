@@ -178,6 +178,23 @@ export type CadastroDoNegocio = {
 
 export type LerCadastro = (t: ContextoTenant) => Promise<CadastroDoNegocio>;
 
+/* ───────────────────────────── renomear o negócio ─────────────────────────────
+ * O par de escrita do `LerCadastro`, e o menor caso de uso do app.
+ *
+ * Existe porque o nome do negócio SAI NA VOZ DA MAISA — vai no prompt do agente a cada
+ * mensagem e no texto do lembrete — e até 14/08/2026 nenhuma tela o escrevia. Só
+ * `criar_negocio()` o gravava, uma vez, e quem começasse errado ficava errado. Ver o
+ * bloco em `dominio/negocio.ts` para o caso concreto que expôs isso.
+ *
+ * Devolve o `Negocio` inteiro, e não só o nome: a tela pinta o resultado do banco, nunca
+ * o que digitou. É a mesma disciplina do `AjustarAssistente` logo abaixo, e pelo mesmo
+ * motivo — a normalização acontece do outro lado.
+ */
+export type AjustarNegocio = (
+  t: ContextoTenant,
+  p: { nome: string },
+) => Promise<Negocio>;
+
 /* ───────────────────────────── criar o negócio ─────────────────────────────
  * O primeiro pedido que uma conta nova faz. Antes deste caso de uso existir, a resposta
  * do app para o primeiro login de todo mundo era `"Rode criar_negocio() no Supabase"` —

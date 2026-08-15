@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { app } from "@/composicao";
-import { barrouUsuario, exigirUsuario } from "@/adaptadores/entrada/http/contexto";
+import { barrou, barrouUsuario, exigirSessao, exigirUsuario } from "@/adaptadores/entrada/http/contexto";
 import { falha } from "@/adaptadores/entrada/http/respostas";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,6 +68,49 @@ export async function POST(req: Request) {
     );
 
     return NextResponse.json({ ok: true, status: "ok", ...r }, { status: 201 });
+  } catch (e) {
+    return falha("negocio", e);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * PATCH /api/negocio  { nome }  →  { negocio }
+ *
+ * Trocar o nome do negócio depois de criado. Mora na MESMA rota do POST porque é o mesmo
+ * recurso — criar e editar o negócio — e a casa prefere rota por recurso a rota por
+ * tela (ver o cabeçalho de `/api/assistente`).
+ *
+ * ⚠️ USA `exigirSessao`, E NÃO `exigirUsuario` COMO O POST ACIMA. A diferença não é
+ * estilo: o POST é o que CRIA o inquilino, então ele não pode exigir um — só a identidade
+ * da pessoa. Aqui o inquilino já existe e tem que vir da sessão, nunca do corpo. Trocar
+ * um pelo outro aqui abriria o caminho para renomear o negócio dos outros.
+ * ────────────────────────────────────────────────────────────────────────────── */
+export async function PATCH(req: Request) {
+  const porteiro = await exigirSessao();
+  if (barrou(porteiro)) return porteiro.barrado;
+
+  let corpo: unknown;
+  try {
+    corpo = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, status: "payload_invalido", info: "Corpo não é JSON." }, { status: 400 });
+  }
+
+  const { nome } = (corpo ?? {}) as { nome?: unknown };
+
+  /* O patch sem `nome` não é erro do usuário nem sucesso — é chamada perdida, e responder
+   * 200 para ela esconderia um defeito de tela que só apareceria como "não salva". Mesma
+   * decisão do `AjustarAssistente`, escrita lá com mais palavras. */
+  if (nome === undefined) {
+    return NextResponse.json(
+      { ok: false, status: "payload_invalido", info: "Nada para mudar." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const negocio = await app.ajustarNegocio(porteiro.tenant, { nome: String(nome) });
+    return NextResponse.json({ ok: true, status: "ok", negocio });
   } catch (e) {
     return falha("negocio", e);
   }

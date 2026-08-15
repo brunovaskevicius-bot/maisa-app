@@ -22,9 +22,27 @@ import { COLUNAS_AGENDA, EQUIPE, EXPEDIENTE } from "./equipe";
 import { SERVICOS } from "./catalogo";
 import { CLIENTES } from "./clientes";
 
+/* O nome do negócio de demonstração, editável.
+ *
+ * O fixture `NEGOCIO` é uma constante compartilhada — mutá-lo faria a mudança vazar para
+ * todo módulo que o importa (a persona do agente, a saudação padrão do store), o que num
+ * adaptador de demonstração é confusão pura: o dono renomeia numa aba e outra tela muda
+ * sozinha. Guardar o nome AQUI mantém a mutação dentro deste adaptador, que é o único
+ * que tem estado. Reinicia no processo, como todo o resto do demo. */
+let nomeDemo = NEGOCIO.nome;
+
 export const repositorioDemo: RepositorioNegocio = {
   async negocio() {
-    return NEGOCIO;
+    return { ...NEGOCIO, nome: nomeDemo };
+  },
+
+  /* Sem checagem de permissão: no demo existe um negócio e um usuário, e todo mundo é
+   * dono. Quem prova a regra de "só dono ou gestor" é a RLS, e ela vive no Postgres —
+   * imitá-la aqui daria uma segunda cópia da autorização, que é exatamente o que a
+   * arquitetura deste repo não quer. */
+  async renomear(_t, nome) {
+    nomeDemo = nome;
+    return { ...NEGOCIO, nome: nomeDemo };
   },
 
   async profissional(_t, id) {
