@@ -263,3 +263,53 @@ describe("CLAUDE.md", () => {
     expect(truncados).toEqual([]);
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * O CHECKLIST DE ATIVAÇÃO SÓ PODE LER TABELA QUE O PRODUTO ESCREVE.
+ *
+ * `dominio/ativacao.ts` decidiu derivar o progresso do mundo em vez de guardar uma flag,
+ * e o argumento era que uma flag dessincroniza. O adaptador tem um jeito próprio de
+ * dessincronizar, e ele apareceu em produção em 16/08/2026: o passo `primeira_conversa`
+ * consultava `mensagens` (arquivo 002), uma tabela órfã de um desenho anterior — enquanto o
+ * histórico do agente é gravado em `mensagens_agente` (arquivo 007).
+ *
+ * O Bruno conversou com a MAISA pela etapa 4 do wizard, ela marcou de verdade, e o passo
+ * continuou apagado. **Nenhum erro em lugar nenhum**: as duas tabelas existem, a consulta é
+ * válida, a contagem dá zero, e o `Promise.allSettled` não tem o que registrar. O checklist
+ * simplesmente nunca chegaria a 100%.
+ *
+ * ⚠️ Conferir se a tabela EXISTE não pegaria — as duas existem. O que denuncia é ninguém
+ * escrever nela: uma tabela citada só pelo leitor do checklist é, por definição, uma tabela
+ * que o checklist inventou.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+describe("o adaptador de ativação", () => {
+  const ATIVACAO = join(SRC, "adaptadores", "saida", "supabase", "ativacao.ts");
+
+  /** As tabelas que o checklist consulta: `existe(t, "x")` e `.from("x")`. */
+  function tabelasLidas(): string[] {
+    const fonte = readFileSync(ATIVACAO, "utf8");
+    const achadas = new Set<string>();
+    for (const m of fonte.matchAll(/existe\(\s*t\s*,\s*"([a-z_]+)"/g)) achadas.add(m[1]);
+    for (const m of fonte.matchAll(/\.from\("([a-z_]+)"\)/g)) achadas.add(m[1]);
+    return [...achadas];
+  }
+
+  it("consulta pelo menos uma tabela — senão este guarda protege o vazio", () => {
+    expect(tabelasLidas().length).toBeGreaterThan(0);
+  });
+
+  it("toda tabela que ele lê é escrita por algum outro adaptador", () => {
+    const outros = arquivos(join(SRC, "adaptadores"))
+      .filter((f) => f !== ATIVACAO && !f.endsWith(".test.ts"))
+      .map((f) => readFileSync(f, "utf8"));
+
+    const orfas = tabelasLidas().filter((t) => !outros.some((fonte) => fonte.includes(`"${t}"`)));
+
+    expect(
+      orfas,
+      "tabela lida pelo checklist e citada por mais ninguém: ou o produto não grava nela, "
+        + "ou o nome está errado. Nos dois casos o passo nunca acende, e sem erro nenhum",
+    ).toEqual([]);
+  });
+});

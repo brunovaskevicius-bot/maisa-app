@@ -80,9 +80,27 @@ export const ativacaoSupabase: ProgressoDeAtivacao = {
        * caído não conta. */
       { passo: "whatsapp_conectado", resposta: existe(t, "integracoes_whatsapp", { status: "conectado" }) },
       { passo: "agenda_conectada", resposta: existe(t, "integracoes_google") },
-      /* `mensagens` e não `conversas`: a conversa pode existir vazia (o painel a cria ao
-       * abrir uma fila), e o que prova ativação é alguém ter FALADO. */
-      { passo: "primeira_conversa", resposta: existe(t, "mensagens") },
+      /**
+       * A tabela de MENSAGEM, e não a de conversa: a conversa pode existir vazia (o painel
+       * a cria ao abrir uma fila), e o que prova ativação é alguém ter FALADO.
+       *
+       * ⚠️ `mensagens_agente` (arquivo 007), e NÃO `mensagens` (arquivo 002). As duas
+       * existem no banco, e essa é justamente a armadilha: a segunda é de um desenho
+       * anterior, ficou órfã quando o histórico do agente ganhou adaptador próprio, e
+       * **nada no `src/` inteiro escreve nela** — esta linha era o único lugar do
+       * repositório que sequer a mencionava.
+       *
+       * O resultado, medido em 16/08/2026: o Bruno conversou com a MAISA pela etapa 4, ela
+       * marcou de verdade (`atendimentos` tem a linha), e o passo continuava apagado —
+       * porque a consulta perguntava a uma tabela vazia por construção. Nenhum erro em
+       * lugar nenhum: a tabela existe, a consulta é válida, a contagem é zero, e o
+       * `Promise.allSettled` nem tem o que registrar. Um checklist que nunca chega a 100%
+       * é pior que checklist nenhum.
+       *
+       * `src/documentacao.test.ts` ganhou o guarda: toda tabela que este arquivo lê tem que
+       * ser escrita por algum outro adaptador. Existir no banco não bastava.
+       */
+      { passo: "primeira_conversa", resposta: existe(t, "mensagens_agente") },
     ];
 
     const resultados = await Promise.allSettled(perguntas.map((p) => p.resposta));
