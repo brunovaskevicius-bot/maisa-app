@@ -603,6 +603,14 @@ function Falta({
  * Google, e um redirect seguido por `fetch` termina o consent dentro de um XHR — a pessoa
  * fica olhando um botão girando enquanto a tela do Google acontece onde ninguém vê.
  *
+ * ⚠️ O PARÂMETRO SE CHAMA `pid`, E NÃO `profissionalId`. Esta linha nasceu errada e o
+ * sintoma foi o pior possível: a rota lê `searchParams.get("pid")`, recebia vazio, não
+ * achava o id na allowlist de agendas e redirecionava de volta para `/comecar` com
+ * `?google=erro&motivo=profissional_invalido`. Da tela, isso é **um botão que não faz
+ * nada** — ele navega, o servidor recusa e o navegador volta para o mesmo lugar. Medido
+ * com o Bruno preso na etapa 4 em 16/08/2026. O painel sempre usou `pid`
+ * (`store.tsx:2611`); foi este arquivo que inventou um nome sem ler a rota.
+ *
  * ⚠️ `volta` NÃO PODE TER QUERY STRING. O callback compõe o retorno com `?google=ok` numa
  * concatenação crua (`google/callback/route.ts`), então um `volta` que já trouxesse `?`
  * viraria uma URL com dois — e o wizard reabriria na etapa errada. O retorno para a etapa
@@ -636,7 +644,7 @@ function LigarAgenda() {
 
   return (
     <a
-      href={pid ? `/api/google/conectar?profissionalId=${encodeURIComponent(pid)}&volta=%2Fcomecar` : undefined}
+      href={pid ? `/api/google/conectar?pid=${encodeURIComponent(pid)}&volta=%2Fcomecar` : undefined}
       className="m-hov-primary m-press m-focus"
       style={s(`display:inline-flex;align-items:center;justify-content:center;gap:9px;width:100%;height:48px;border-radius:12px;font-family:inherit;font-weight:var(--w-title);font-size:var(--t-body);text-decoration:none;border:none;background:var(--primary);color:var(--on-primary);${pid ? "cursor:pointer" : "opacity:.55;cursor:progress;pointer-events:none"}`)}
     >
@@ -983,8 +991,25 @@ export default function Comecar() {
      * some sozinho. É o oposto de lembrar a etapa no `localStorage`, que é a flag que o
      * `dominio/ativacao.ts` existe para não ter.
      */
-    const google = new URLSearchParams(window.location.search).get("google");
-    if (google === "erro") toast("Não consegui ligar sua agenda. Dá para tentar de novo.");
+    const busca = new URLSearchParams(window.location.search);
+    const google = busca.get("google");
+    /**
+     * ⚠️ O `motivo` VAI PARA A TELA, e essa decisão custou um diagnóstico.
+     *
+     * Antes o aviso era só "não consegui ligar sua agenda, tente de novo". Quando o link
+     * saiu com o parâmetro errado (ver `LigarAgenda`), a rota devolveu
+     * `motivo=profissional_invalido` — a resposta exata — e esta linha jogou fora. Da tela
+     * o botão virou "clico e não acontece nada", e a causa só apareceu lendo o `route.ts`.
+     *
+     * O `motivo` é curto e em snake_case, então não é bonito. É o preço certo: um aviso que
+     * esconde a única informação útil que o servidor mandou não é aviso, é ruído — e as
+     * causas possíveis aqui (`nao_configurado`, `sem_negocio`, `profissional_invalido`,
+     * `nao_autenticado`) pedem conserto DIFERENTE cada uma.
+     */
+    if (google === "erro") {
+      const motivo = busca.get("motivo");
+      toast(`Não consegui ligar sua agenda${motivo ? ` — ${motivo.replace(/_/g, " ")}` : ""}.`);
+    }
 
     fetch("/api/ativacao")
       .then(async (r) => ({ status: r.status, corpo: await r.json().catch(() => null) }))
