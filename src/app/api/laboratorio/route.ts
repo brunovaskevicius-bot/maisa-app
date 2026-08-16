@@ -1,73 +1,162 @@
 import { NextResponse } from "next/server";
 import { agenteConfigurado, agenteWhatsapp, modeloEmUso, servicos } from "@/composicao";
 import { atorAgente, type ContextoTenant } from "@/nucleo/dominio/tenant";
+import { barrou, exigirSessao, type Porteiro } from "@/adaptadores/entrada/http/contexto";
 import { espiarMemoriaDemo, limparDemo } from "@/adaptadores/saida/demo/memoria";
 import { espiarAgendaDemo, limparAgendaDemo } from "@/adaptadores/saida/demo/agenda";
 import { espelhoDemo, zerarEspelhoDemo } from "@/adaptadores/saida/demo/atendimentos";
 import { isGoogleConfigured } from "@/adaptadores/saida/google/config";
 import { isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 import { isGeminiConfigured } from "@/adaptadores/saida/gemini/config";
+import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
 import { hhmm } from "@/nucleo/dominio/tempo";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LABORATÓRIO — conversar com a MAISA sem WhatsApp.
 //
-// GET    → estado (quem responde, qual agenda, o que a MAISA lembra)
+// GET    → estado (quem responde, qual agenda, o exemplo para as falas sugeridas)
 // POST   → manda uma mensagem como se fosse o cliente
-// DELETE → esquece tudo (memória, histórico, agenda)
+// DELETE → esquece tudo (só no modo demonstração; ver o método)
 //
-// ⚠️ POR QUE NÃO É A ROTA `/api/whatsapp`.
+// ⚠️ ELE DEIXOU DE SER DEV-ONLY EM 15/08/2026, e essa é a mudança deste arquivo.
+//
+// Antes: sem autenticação nenhuma, fechado em produção por `MAISA_LABORATORIO=1`, e o
+// inquilino montado aqui dentro a partir de `MAISA_TENANT_ID`. Era coerente enquanto o
+// único usuário era quem estava afinando o tom da MAISA por `curl`.
+//
+// Agora ele é a etapa 4 do `/comecar` — o "ver funcionando" que fecha o onboarding. O
+// inquilino passa a vir da SESSÃO, como em toda rota do painel, e a env sobra só como
+// caminho de desenvolvimento sem login. As consequências, escritas para ninguém se
+// assustar depois:
+//
+//   • Em produção, sem sessão, a resposta agora é 401 e não 404. A rota existe de verdade
+//     e negá-la escondendo-a seria mentir para o próprio produto.
+//   • Ela GASTA TOKEN de modelo e ESCREVE NA AGENDA de quem chama. Com `exigirSessao` isso
+//     é exatamente a mesma exposição que o WhatsApp do próprio inquilino já tem — o dono
+//     gastando o dele, no negócio dele. Não era assim antes: sem porteiro, qualquer um que
+//     achasse a rota gastava a chave de IA de terceiro.
+//
+// ⚠️ POR QUE CONTINUA NÃO SENDO A ROTA `/api/whatsapp`.
 //
 // Aquela é um webhook PÚBLICO e falha fechada: sem `WHATSAPP_WEBHOOK_SECRET` ela recusa
 // tudo, e o inquilino sai do DESTINO da mensagem (instância da Evolution ou número da
-// Cloud API). Para testar o tom da MAISA no navegador, isso significaria configurar
+// Cloud API). Para conversar com a MAISA no navegador, isso significaria configurar
 // Evolution só para digitar "bom dia" — e a tentação seria afrouxar a autenticação do
 // webhook "só no dev". Webhook afrouxado no dev é webhook afrouxado.
 //
-// Então este é um adaptador de entrada IRMÃO, com fronteira própria: fechado em
-// produção, e o contexto do inquilino montado aqui em vez de resolvido de um envelope
-// que não existe. Uma mentira menor e visível, em vez de um furo no lugar sério.
+// Então este é um adaptador de entrada IRMÃO, com fronteira própria — e a fronteira agora
+// é a sessão, que é a mesma do resto do app.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * ⚠️ A FRONTEIRA DESTE ARQUIVO. Rota sem autenticação nenhuma que fala com o agente
- * (gastando token) e escreve na agenda: em produção ela não pode existir.
+ * O caminho de desenvolvimento SEM LOGIN. Não é mais o portão da rota — é a exceção.
  *
- * Fecha por padrão e só abre com `MAISA_LABORATORIO=1` explícito — o inverso (abrir por
- * padrão e fechar com flag) é o arranjo que vaza, porque ninguém lembra de setar a flag
- * no deploy que importa.
+ * Fecha por padrão e só abre com `MAISA_LABORATORIO=1` explícito, pela mesma razão de
+ * sempre: o inverso (abrir por padrão e fechar com flag) é o arranjo que vaza, porque
+ * ninguém lembra de setar a flag no deploy que importa.
  */
 const LIBERADO = process.env.NODE_ENV !== "production" || process.env.MAISA_LABORATORIO === "1";
 
-/** Telefone padrão: a Mariana Alves dos fixtures. Escolhido para o laboratório abrir já
- *  no caminho de CLIENTE RECONHECIDO — é o que exercita a memória. Trocar o número no
- *  campo da tela dá o caminho de desconhecido. */
+/** Telefone de quando não há inquilino de verdade: a Mariana Alves dos fixtures. Escolhido
+ *  para o laboratório abrir já no caminho de CLIENTE RECONHECIDO — é o que exercita a
+ *  memória. Trocar o número no campo da tela dá o caminho de desconhecido. */
 const TELEFONE_PADRAO = "11981234567";
 
 /**
- * O inquilino, montado aqui.
+ * O inquilino de fixture, para o dev sem login.
  *
- * `MAISA_TENANT_ID` com fallback para uma constante é deliberado: exigir a variável
- * faria o laboratório precisar de DUAS configurações para funcionar, e o objetivo é que
- * uma chave de IA baste para conversar. O id só precisa ser estável — é chave de
- * memória, não credencial.
+ * `MAISA_TENANT_ID` com fallback para uma constante é deliberado: exigir a variável faria
+ * este caminho precisar de DUAS configurações, e o objetivo é que uma chave de IA baste
+ * para conversar. O id só precisa ser estável — é chave de memória, não credencial.
  */
 function tenantDoLaboratorio(): ContextoTenant {
   const tenantId = process.env.MAISA_TENANT_ID?.trim() || "laboratorio";
   return { tenantId, usuarioId: tenantId, ator: atorAgente("laboratorio") };
 }
 
-function fechado() {
-  return NextResponse.json({ ok: false, erro: "laboratorio_fechado" }, { status: 404 });
+/**
+ * De quem é esta conversa. **A sessão primeiro, sempre.**
+ *
+ * A ordem é a decisão: tentar a fixture antes faria um dono logado conversar com o
+ * catálogo de outro negócio — que é a família de bug que o `configuracaoDoAgente` do
+ * `composicao.ts` existe para ter fechado. Quem tem sessão fala com o próprio inquilino;
+ * quem não tem só é atendido pelo caminho de desenvolvimento.
+ *
+ * Quando nem um nem outro, devolve o barrado que `exigirSessao` montou (401 ou o 409
+ * `sem_negocio`, que a tela usa para mandar a pessoa criar o negócio) — e não um 404
+ * genérico, que faria a tela do wizard não saber o que dizer.
+ */
+async function inquilino(): Promise<Porteiro> {
+  const p = await exigirSessao();
+  if (!barrou(p)) return p;
+
+  /**
+   * ⚠️ 409 NUNCA CAI NA FIXTURE, e esta linha é o conserto de um defeito medido.
+   *
+   * `exigirSessao` barra por dois motivos diferentes com a mesma forma: 401 é "não tem
+   * ninguém aí" e 409 `sem_negocio` é "tem uma pessoa logada que ainda não criou o
+   * negócio". A primeira versão desta função tratava os dois igual, e o resultado apareceu
+   * numa caminhada em 16/08/2026: uma conta recém-criada, sem inquilino, recebeu **200 com
+   * o catálogo do inquilino de `MAISA_TENANT_ID`** — o negócio de outra pessoa.
+   *
+   * Leitura, em desenvolvimento, e ainda assim é exatamente a família de bug que o resto
+   * deste arquivo existe para não ter. Quem tem sessão recebe a resposta da sessão dele,
+   * sempre; a fixture é só para quem não tem sessão nenhuma.
+   */
+  if (p.barrado.status === 409) return p;
+
+  if (LIBERADO) return { tenant: tenantDoLaboratorio() };
+  return p;
 }
 
-export async function GET() {
-  if (!LIBERADO) return fechado();
+/**
+ * As colunas de diagnóstico do `/laboratorio` leem os adaptadores DEMO direto, e eles só
+ * são os vivos quando não há banco (ver `composicao.ts`).
+ *
+ * Com Supabase configurado, memória e espelho moram no Postgres e estas listas vêm vazias
+ * — o que na tela lia como "a MAISA não lembra de nada" quando o certo é "não é aqui que
+ * ela lembra". A tela usa este campo para dizer isso em vez de mostrar caixas vazias.
+ */
+const ESPIANDO = !isSupabaseConfigured;
 
-  const t = tenantDoLaboratorio();
+export async function GET() {
+  const p = await inquilino();
+  if (barrou(p)) return p.barrado;
+  const t = p.tenant;
+
+  /**
+   * O EXEMPLO — de onde saem as falas sugeridas da etapa 4 do wizard.
+   *
+   * Sai do MESMO repositório que o agente lê para montar o prompt, e é esse o ponto: uma
+   * sugestão escrita à mão ("quero marcar um Corte com o Rafael") num negócio que vende
+   * outra coisa faria a primeira frase do produto ser sobre um serviço que não existe — e
+   * a MAISA responderia, corretamente, que não conhece. O pior desfecho possível para a
+   * tela que existe para mostrar que funciona.
+   *
+   * Só o nome, e não a frase pronta: montar a frase é copy, e copy mora na tela.
+   *
+   * Falha em silêncio (`null`) porque isto é enfeite de uma tela cujo trabalho é conversar:
+   * sem exemplo a pessoa digita, com exemplo ela clica. Derrubar a rota inteira porque a
+   * sugestão não pôde ser calculada seria trocar o essencial pelo conveniente.
+   */
+  const exemplo = await (async () => {
+    try {
+      const [svs, profs] = await Promise.all([
+        servicos.negocio.servicos(t),
+        servicos.negocio.profissionais(t),
+      ]);
+      return {
+        servico: svs.find((s) => s.ativo)?.nome ?? null,
+        profissional: profs.find((pr) => pr.ativo)?.nome ?? null,
+      };
+    } catch (e) {
+      console.warn(`[api/laboratorio] sem exemplo para o inquilino ${t.tenantId}: ${String(e)}`);
+      return { servico: null, profissional: null };
+    }
+  })();
 
   return NextResponse.json({
     ok: true,
@@ -79,7 +168,10 @@ export async function GET() {
     agenda: isGoogleConfigured ? "google" : "demonstração (em memória)",
     canal: isEvolutionConfigured ? "evolution" : "log do servidor",
     telefonePadrao: TELEFONE_PADRAO,
-    memoria: espiarMemoriaDemo(t.tenantId).map((m) => ({
+    exemplo,
+    /** As colunas da direita valem alguma coisa? Ver `ESPIANDO`. */
+    espiando: ESPIANDO,
+    memoria: !ESPIANDO ? [] : espiarMemoriaDemo(t.tenantId).map((m) => ({
       telefone: m.telefone,
       nome: m.nome ?? null,
       servicoFavorito: m.servicoFavoritoId ?? null,
@@ -88,7 +180,7 @@ export async function GET() {
       horarioFavorito: m.horarioFavorito !== undefined ? hhmm(m.horarioFavorito) : null,
       visitas: m.historico.length,
     })),
-    agendados: espiarAgendaDemo(t.tenantId)
+    agendados: !ESPIANDO ? [] : espiarAgendaDemo(t.tenantId)
       .filter((e) => e.daMaisa)
       .map((e) => ({ data: e.data, hora: hhmm(e.inicio), cliente: e.cliente, servico: e.servico })),
     /**
@@ -103,7 +195,7 @@ export async function GET() {
      * `ator` está aqui porque é a pergunta que o espelho existe para responder: quais
      * destes a MAISA marcou sozinha?
      */
-    espelho: espelhoDemo(t.tenantId).map((l) => ({
+    espelho: !ESPIANDO ? [] : espelhoDemo(t.tenantId).map((l) => ({
       data: l.dataLocal,
       hora: hhmm(l.horaInicio),
       cliente: l.clienteNome,
@@ -117,14 +209,15 @@ export async function GET() {
     })),
     /** Quem a MAISA cadastrou conversando. Só os criados pelo agente — o fixture tem 17
      *  e listá-los todos afogaria o que interessa. */
-    clientesNovos: (await servicos.negocio.clientes(t))
+    clientesNovos: !ESPIANDO ? [] : (await servicos.negocio.clientes(t))
       .filter((c) => c.id.startsWith("cl-demo-"))
       .map((c) => ({ id: c.id, nome: c.nome, telefone: c.telefone })),
   });
 }
 
 export async function POST(request: Request) {
-  if (!LIBERADO) return fechado();
+  const p = await inquilino();
+  if (barrou(p)) return p.barrado;
 
   if (!agenteConfigurado()) {
     return NextResponse.json(
@@ -140,7 +233,7 @@ export async function POST(request: Request) {
   if (!texto) return NextResponse.json({ ok: false, erro: "mensagem vazia" }, { status: 400 });
 
   try {
-    const r = await agenteWhatsapp()(tenantDoLaboratorio(), { de, texto });
+    const r = await agenteWhatsapp()(p.tenant, { de, texto });
 
     return NextResponse.json({
       ok: true,
@@ -158,14 +251,33 @@ export async function POST(request: Request) {
     /* No laboratório o erro VAI para a tela, ao contrário da rota de produção que engole.
      * É o ponto: aqui quem lê é quem consegue consertar, e esconder a mensagem do
      * provedor (o 400 que diz qual campo do schema da ferramenta ele recusou) trocaria
-     * dez minutos de conserto por uma tarde de adivinhação. */
+     * dez minutos de conserto por uma tarde de adivinhação.
+     *
+     * ⚠️ O erro mais provável AQUI, e não no webhook: `PrecisaReconectar` vindo de
+     * `instanciaDoInquilino` quando o inquilino não tem WhatsApp pareado. O webhook nunca
+     * o vê (ele só dispara para instância que existe), e a mensagem dele já é a certa —
+     * "este negócio ainda não tem um WhatsApp conectado". */
     console.error("[api/laboratorio] falha", e);
     return NextResponse.json({ ok: false, erro: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
 
 export async function DELETE() {
-  if (!LIBERADO) return fechado();
+  const p = await inquilino();
+  if (barrou(p)) return p.barrado;
+
+  /**
+   * ⚠️ SÓ LIMPA O QUE É DE MENTIRA, e é por isso que devolve `limpou`.
+   *
+   * `limparDemo` e companhia zeram `Map`s de módulo — a memória do modo demonstração. Com
+   * Supabase configurado, memória, espelho e agenda moram em outro lugar e estas chamadas
+   * não fariam nada: um "Esquecer tudo" que responde ok sem apagar nada é pior que um
+   * botão ausente, porque quem clicou passa a acreditar que zerou.
+   *
+   * Apagar de verdade a conversa de um inquilino real é ação do painel, com confirmação —
+   * não um botão de tela de teste.
+   */
+  if (!ESPIANDO) return NextResponse.json({ ok: true, limpou: false });
 
   limparDemo();
   limparAgendaDemo();

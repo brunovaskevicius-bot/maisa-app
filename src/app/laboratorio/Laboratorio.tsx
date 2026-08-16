@@ -33,6 +33,10 @@ type Estado = {
   agenda: string;
   canal: string;
   telefonePadrao: string;
+  /** As duas colunas de baixo leem os adaptadores DEMO, e eles só são os vivos sem banco.
+   *  Ver o `ESPIANDO` da rota — com Supabase configurado elas vêm vazias, e vazio aqui
+   *  leria como "a MAISA não lembra de nada" quando o certo é "não é aqui que ela lembra". */
+  espiando: boolean;
   memoria: {
     telefone: string; nome: string | null; servicoFavorito: string | null;
     profissionalFavorito: string | null; horarioFavorito: string | null; visitas: number;
@@ -231,8 +235,21 @@ export default function Laboratorio() {
         {/* ── o que aconteceu por baixo ── */}
         <aside style={s("min-height:0;overflow-y:auto;background:var(--surface);padding:22px 20px;display:flex;flex-direction:column;gap:22px")} className="lab-lado">
           <Trilha passos={trilha} voltas={voltas} ocupada={ocupada} />
-          <Memoria itens={estado?.memoria ?? []} />
-          <Agendados itens={estado?.agendados ?? []} />
+          {estado && !estado.espiando ? (
+            <Secao titulo="O que ela lembra">
+              <p style={s("margin:0;font-size:var(--t-sm);line-height:var(--lh-prose);color:var(--muted)")}>
+                Com banco configurado, memória e agenda deste inquilino vivem no Supabase e no
+                Google — não neste processo. Veja em <strong style={s("color:var(--ink)")}>Conversas</strong> e
+                na <strong style={s("color:var(--ink)")}>Agenda</strong> do painel. A trilha acima continua
+                valendo: ela é deste turno.
+              </p>
+            </Secao>
+          ) : (
+            <>
+              <Memoria itens={estado?.memoria ?? []} />
+              <Agendados itens={estado?.agendados ?? []} />
+            </>
+          )}
         </aside>
       </div>
 
@@ -339,7 +356,10 @@ function Vazio({ agenda }: { agenda?: string }) {
 
 function Bolha({ fala }: { fala: Fala }) {
   if (fala.de === "sistema") {
-    const pele = fala.tom === "erro" ? "background:var(--danger-soft);color:var(--danger)" : "background:var(--warn-soft);color:var(--warn-ink)";
+    /* `--warn` e não `--warn-ink`: esse token nunca existiu (o parecido é `--warm-ink`, do
+       âmbar, outra família), então a declaração era inválida e a cor caía no herdado. O L
+       de `--warn` é calibrado para dar AA sobre o `-soft` da mesma cor. */
+    const pele = fala.tom === "erro" ? "background:var(--danger-soft);color:var(--danger)" : "background:var(--warn-soft);color:var(--warn)";
     return (
       <div style={s(`align-self:center;max-width:56ch;text-align:center;font-size:var(--t-sm);line-height:var(--lh-prose);padding:9px 15px;border-radius:12px;${pele}`)}>
         {fala.txt}

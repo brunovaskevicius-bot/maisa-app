@@ -18,7 +18,7 @@
  *
  * Mesma razão, levada a sério: o store é a máquina do painel (agenda, conversas, notas,
  * Google) e nada disso responde antes de existir negócio. O wizard fala com as rotas
- * direto — são quatro `fetch` — e o painel assume depois, já com inquilino.
+ * direto — meia dúzia de `fetch` — e o painel assume depois, já com inquilino.
  *
  * ── O QUE ELE DELIBERADAMENTE NÃO PERGUNTA ──
  *
@@ -26,6 +26,11 @@
  * ele é `config_fiscal.prestador_cnpj` e só importa na hora de emitir nota. Perguntar
  * adiantado é a forma mais comum de matar onboarding — e o que não é perguntado aqui vira
  * cartão da jornada no painel, feito quando a pessoa precisar.
+ *
+ * A agenda do Google é a EXCEÇÃO, e ela prova a regra: não existe etapa para ela, mas a
+ * etapa 4 a pede quando ela falta — porque sem agenda a MAISA não marca, e a etapa 4 é
+ * justamente a de ver marcando. Configuração pedida no instante em que o valor dela
+ * aparece na tela não é burocracia; pedida antes, é.
  *
  * ⚠️ SÓ A ETAPA 1 É OBRIGATÓRIA, porque é a única que CRIA alguma coisa. Todas as outras
  * têm "Pular" — e pular não é abandono: o passo continua contado em `/api/ativacao`, que
@@ -36,16 +41,17 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { s, Icon, Toggle, toast, Toaster } from "@/ui/primitivos";
 import type { CategoriaServico, PassoDeAtivacao, Servico, Vertical } from "@/nucleo/dominio";
+import { sugestoes, type ExemploDoNegocio } from "./sugestoes";
 
 /* ───────────────────────────── as etapas ───────────────────────────── */
 
-type EtapaId = "negocio" | "catalogo" | "whatsapp" | "pronto";
+type EtapaId = "negocio" | "catalogo" | "whatsapp" | "ver";
 
 const ETAPAS: { id: EtapaId; titulo: string; sub: string }[] = [
   { id: "negocio", titulo: "Seu negócio", sub: "Como ele se chama e o que você faz" },
   { id: "catalogo", titulo: "O que você faz", sub: "Confira preços e quem atende" },
   { id: "whatsapp", titulo: "Conectar o WhatsApp", sub: "Um QR code e a MAISA entra no ar" },
-  { id: "pronto", titulo: "Pronto", sub: "Seu painel está esperando" },
+  { id: "ver", titulo: "Ver funcionando", sub: "Fale com ela como se fosse seu cliente" },
 ];
 
 const VERTICAIS: { id: Vertical; rotulo: string; desc: string; icone: string }[] = [
@@ -530,31 +536,420 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
   );
 }
 
-/* ───────────────────────────── etapa 4 · pronto ───────────────────────────── */
+/* ─────────────────────────── etapa 4 · ver funcionando ───────────────────────────
+ *
+ * A etapa que separa "vi um filme do produto" de "vi o produto". Aqui o dono escreve como
+ * se fosse o próprio cliente e a MAISA responde de verdade: mesmo agente, mesmas
+ * ferramentas, mesma agenda. O horário que sair daqui EXISTE.
+ *
+ * ── POR QUE ELA COBRA DUAS CONEXÕES ANTES DE DEIXAR CONVERSAR ──
+ *
+ * Porque sem elas a demonstração fracassa, e fracassa da pior forma possível: a MAISA
+ * conversa bem, tenta marcar, não consegue, e escala para humano. Medido lendo o caminho,
+ * não adivinhado:
+ *
+ *   • sem WHATSAPP pareado, `instanciaDoInquilino` (composicao.ts) lança `PrecisaReconectar`
+ *     ao entregar a resposta — falha fechada de propósito, para a resposta de um negócio
+ *     nunca sair pelo número de outro;
+ *   • sem AGENDA do Google ligada, `saida/google/conexoes.ts` lança na primeira consulta de
+ *     horário. O cabeçalho daquele arquivo conta essa história com todas as letras:
+ *     *"a MAISA dizia ao cliente que a agenda caiu e escalava para humano. Conversava e
+ *     nunca marcava."*
+ *
+ * ⚠️ ISSO EXPÔS UM BURACO DO WIZARD CURTO: até aqui ele nunca pedia o Google, e todo mundo
+ * que terminava o onboarding saía com uma MAISA incapaz de marcar. O pedido entra AGORA, e
+ * não como etapa 5, porque é aqui que ele se explica sozinho — a pessoa está a um clique de
+ * ver o resultado. Configuração pedida no momento em que o valor aparece é a única que não
+ * parece burocracia.
+ *
+ * Nada disso é obrigatório: "Abrir meu painel" está sempre na tela. O que não existe é a
+ * opção de conversar e sair achando que funcionou quando não funcionou.
+ * ──────────────────────────────────────────────────────────────────────────────── */
 
-function EtapaPronto({ feitos }: { feitos: PassoDeAtivacao[] }) {
-  const router = useRouter();
-  const conectado = feitos.includes("whatsapp_conectado");
+type Fala = { de: "cliente" | "maisa" | "aviso"; txt: string };
+type Passo = { ferramenta: string; erro: boolean };
+
+/** O que falta antes de conversar — um cartão, uma ação, e o painel sempre à mão. */
+function Falta({
+  icone, titulo, texto, acao, aoPainel,
+}: {
+  icone: string; titulo: string; texto: React.ReactNode; acao: React.ReactNode; aoPainel: () => void;
+}) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, alignItems: "center", textAlign: "center" }}>
-      <div style={s("display:flex;align-items:center;justify-content:center;width:60px;height:60px;border-radius:999px;background:var(--primary-soft)")}>
-        <Icon name="sparkle" size={30} sw={2} stroke="var(--primary-dark)" />
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, alignItems: "center", textAlign: "center" }}>
+      <div style={s("display:flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:999px;background:var(--warm-soft)")}>
+        <Icon name={icone} size={27} sw={2} stroke="var(--warm-ink)" />
       </div>
       <div>
-        <p style={s("font-size:var(--t-title);font-weight:var(--w-title);color:var(--ink);margin:0")}>
-          Seu negócio está de pé
-        </p>
-        <p style={s("font-size:var(--t-sm);color:var(--muted);margin:8px 0 0;line-height:1.55")}>
-          {conectado
-            ? "A MAISA já responde no seu WhatsApp. O que faltar aparece no painel, como tarefa — nada trava."
-            : "Falta conectar o WhatsApp para a MAISA atender. Dá para fazer no painel, quando quiser."}
-        </p>
+        <p style={s("font-size:var(--t-body);font-weight:var(--w-title);color:var(--ink);margin:0")}>{titulo}</p>
+        <p style={s("font-size:var(--t-sm);color:var(--muted);margin:8px 0 0;line-height:1.55")}>{texto}</p>
       </div>
-      <Botao onClick={() => { router.push("/"); router.refresh(); }} full>
+      {acao}
+      <button
+        onClick={aoPainel}
+        className="m-focus"
+        style={s("background:none;border:none;font-family:inherit;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--muted);cursor:pointer;padding:4px 8px")}
+      >
+        Abrir meu painel
+      </button>
+    </div>
+  );
+}
+
+/**
+ * O botão que liga a agenda do Google.
+ *
+ * `<a>` e não `fetch`: `/api/google/conectar` responde com um redirect para o consent do
+ * Google, e um redirect seguido por `fetch` termina o consent dentro de um XHR — a pessoa
+ * fica olhando um botão girando enquanto a tela do Google acontece onde ninguém vê.
+ *
+ * ⚠️ `volta` NÃO PODE TER QUERY STRING. O callback compõe o retorno com `?google=ok` numa
+ * concatenação crua (`google/callback/route.ts`), então um `volta` que já trouxesse `?`
+ * viraria uma URL com dois — e o wizard reabriria na etapa errada. O retorno para a etapa
+ * certa é resolvido pelo próprio `?google=` que o callback acrescenta; ver o `useEffect` de
+ * retomada lá embaixo.
+ */
+function LigarAgenda() {
+  const [pid, setPid] = useState<string | null>(null);
+  const [erro, setErro] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/cadastro")
+      .then((r) => r.json())
+      .then((r) => {
+        if (!vivo) return;
+        const p = r?.ok ? (r.profissionais ?? [])[0] : null;
+        if (p?.id) setPid(p.id); else setErro(true);
+      })
+      .catch(() => vivo && setErro(true));
+    return () => { vivo = false; };
+  }, []);
+
+  if (erro) {
+    return (
+      <p style={s("font-size:var(--t-sm);color:var(--danger);margin:0")}>
+        Não consegui ler quem atende neste negócio. Tente pelo painel, em Configurações.
+      </p>
+    );
+  }
+
+  return (
+    <a
+      href={pid ? `/api/google/conectar?profissionalId=${encodeURIComponent(pid)}&volta=%2Fcomecar` : undefined}
+      className="m-hov-primary m-press m-focus"
+      style={s(`display:inline-flex;align-items:center;justify-content:center;gap:9px;width:100%;height:48px;border-radius:12px;font-family:inherit;font-weight:var(--w-title);font-size:var(--t-body);text-decoration:none;border:none;background:var(--primary);color:var(--on-primary);${pid ? "cursor:pointer" : "opacity:.55;cursor:progress;pointer-events:none"}`)}
+    >
+      <Icon name="calendar" size={19} sw={2} stroke="var(--on-primary)" />
+      Ligar minha agenda
+    </a>
+  );
+}
+
+/**
+ * O que `/api/laboratorio` conta sobre este ambiente antes de qualquer conversa.
+ *
+ * `agendaReal` é o campo que mais decide comportamento nesta tela, e não é sobre o
+ * inquilino — é sobre o DEPLOY. Sem as três variáveis do Google, `composicao.ts` liga a
+ * agenda de memória, e ela responde tão bem quanto a de verdade até o processo reiniciar.
+ * Medido no `npm run dev` em 16/08/2026: `agenda: "demonstração (em memória)"` enquanto a
+ * produção respondia Google.
+ */
+type Ambiente = { pronto: boolean; agendaReal: boolean; exemplo: ExemploDoNegocio };
+
+/** A conversa em si. Só monta quando o que precisa estar de pé está de pé. */
+function Conversa({ ambiente, numero, aoPainel }: { ambiente: Ambiente; numero: string | null; aoPainel: () => void }) {
+  const { exemplo } = ambiente;
+  const semChave = !ambiente.pronto;
+  const [falas, setFalas] = useState<Fala[]>([]);
+  const [texto, setTexto] = useState("");
+  const [ocupada, setOcupada] = useState(false);
+  /* Booleano e não o horário: quem sabe QUANDO é a MAISA, na fala dela. Guardar a data aqui
+   * seria uma segunda fonte da verdade sobre o mesmo atendimento — e a que envelhece, porque
+   * ela não acompanha um remarcar. Esta tela só precisa saber SE existe. */
+  const [marcou, setMarcou] = useState(false);
+  const [consultou, setConsultou] = useState(false);
+  const fim = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fim.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [falas, ocupada]);
+
+  const enviar = useCallback(async (mensagem: string) => {
+    const limpo = mensagem.trim();
+    if (!limpo || ocupada) return;
+
+    setFalas((f) => [...f, { de: "cliente", txt: limpo }]);
+    setTexto("");
+    setOcupada(true);
+
+    try {
+      const r = await fetch("/api/laboratorio", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        /* O telefone é o do PRÓPRIO NEGÓCIO — o número que acabou de ser pareado. É o que
+         * faz a resposta da MAISA chegar no WhatsApp de quem está olhando a tela, que é a
+         * prova que nenhuma captura de tela dá. Não vira laço: a Evolution devolve o que
+         * mandamos com `fromMe: true` e o webhook descarta (ver `whatsapp/contexto.ts`). */
+        body: JSON.stringify({ texto: limpo, de: numero ?? undefined }),
+      });
+      const d = await r.json();
+
+      if (!d?.ok) {
+        setFalas((f) => [...f, { de: "aviso", txt: String(d?.erro ?? "Não consegui falar com a MAISA agora.") }]);
+        return;
+      }
+
+      const trilha: Passo[] = d.trilha ?? [];
+      if (trilha.some((p) => p.ferramenta === "oferecer_horarios" && !p.erro)) setConsultou(true);
+
+      for (const b of (d.bolhas ?? []) as string[]) {
+        setFalas((f) => [...f, { de: "maisa", txt: b }]);
+      }
+
+      /* O horário marcado sai da TRILHA e não do texto da resposta, e essa distinção é o
+       * núcleo do produto: "consultei a agenda e marquei quinta às 15h" e "inventei quinta
+       * às 15h" são indistinguíveis na prosa. A ferramenta ter rodado é a única prova. */
+      if (trilha.some((p) => p.ferramenta === "agendar" && !p.erro)) setMarcou(true);
+      /* O cancelar vem DEPOIS do agendar de propósito: num turno em que a MAISA remarque
+       * (cancela o antigo e marca o novo), a ordem das duas linhas decide o que a tela diz.
+       * "Cancelou por último" só é verdade quando não marcou nada — e aí a checagem acima
+       * não acendeu. Invertê-las apagaria o aviso de um horário que existe. */
+      if (trilha.some((p) => p.ferramenta === "cancelar" && !p.erro)
+          && !trilha.some((p) => p.ferramenta === "agendar" && !p.erro)) setMarcou(false);
+
+      if (d.escalou) {
+        setFalas((f) => [
+          ...f,
+          { de: "aviso", txt: `Ela passou a conversa para você — ${d.motivo ?? "sem motivo informado"}. No WhatsApp de verdade, é isso que acontece quando ela não tem certeza: ela para e te chama, em vez de inventar.` },
+        ]);
+      }
+    } catch {
+      setFalas((f) => [...f, { de: "aviso", txt: "Sem conexão com o servidor." }]);
+    } finally {
+      setOcupada(false);
+    }
+  }, [numero, ocupada]);
+
+  if (semChave) {
+    return (
+      <Falta
+        icone="alert"
+        titulo="A MAISA está sem cérebro configurado"
+        texto="Falta a chave do modelo de linguagem neste ambiente. Nada do que você fez se perdeu — o resto do negócio está de pé."
+        acao={null}
+        aoPainel={aoPainel}
+      />
+    );
+  }
+
+  const chips = sugestoes(exemplo, { comecou: falas.length > 0, marcou });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <p style={s("font-size:var(--t-sm);color:var(--muted);line-height:1.55;margin:0")}>
+        Você é o cliente agora. Mande a primeira mensagem e veja o que ele veria.
+        {numero && <> A resposta dela também chega no seu WhatsApp, em <strong style={s("color:var(--ink)")}>+{numero}</strong>.</>}
+      </p>
+
+      <div style={s("display:flex;flex-direction:column;gap:10px;min-height:180px;max-height:300px;overflow-y:auto;padding:14px;border-radius:14px;border:1px solid var(--border);background:var(--surface-2)")}>
+        {falas.length === 0 && (
+          <p style={s("margin:auto;max-width:30ch;text-align:center;font-size:var(--t-sm);color:var(--muted);line-height:1.55")}>
+            Toque numa das frases abaixo — é o que um cliente seu escreveria.
+          </p>
+        )}
+        {falas.map((f, i) => <BolhaSim key={i} fala={f} />)}
+        {ocupada && (
+          <span style={s("align-self:flex-start;font-size:var(--t-sm);color:var(--muted);padding:9px 13px;border-radius:16px;border:1px solid var(--primary-soft);background:var(--surface)")}>
+            digitando…
+          </span>
+        )}
+        <div ref={fim} />
+      </div>
+
+      {/* A prova, em duas linhas, no lugar da trilha crua do `/laboratorio`. Aquela coluna
+          de JSON é para quem depura o agente; para o dono, o que importa é que ela OLHOU a
+          agenda antes de falar e que o horário existe de verdade. */}
+      {(consultou || marcou) && (
+        <div style={s("display:flex;flex-direction:column;gap:7px;padding:12px 14px;border-radius:12px;background:var(--success-soft)")}>
+          {consultou && (
+            <span style={s("display:flex;align-items:center;gap:8px;font-size:var(--t-sm);color:var(--success)")}>
+              <Icon name="check" size={15} sw={2.4} stroke="var(--success)" />
+              Ela consultou sua agenda antes de responder — não chutou horário.
+            </span>
+          )}
+          {marcou && (
+            <span style={s("display:flex;align-items:center;gap:8px;font-size:var(--t-sm);color:var(--success)")}>
+              <Icon name="calendar-check" size={15} sw={2.4} stroke="var(--success)" />
+              {/* ⚠️ A FRASE MUDA COM O AMBIENTE, e essa é a única razão de `agendaReal`
+                  existir. Sem Google configurado no deploy, o horário foi para a agenda de
+                  memória — ele some no próximo reinício e não está no celular de ninguém.
+                  Dizer "está na sua agenda" ali seria a tela que existe para provar que o
+                  produto funciona sendo o primeiro lugar onde ele mente. */}
+              {ambiente.agendaReal
+                ? "Marcado de verdade. Está na sua agenda agora — para desmarcar, é só pedir a ela."
+                : "Marcado. Neste ambiente a agenda é de demonstração, então o horário não sai daqui — em produção ele cai na sua agenda do Google."}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+        {chips.map((c) => (
+          <button
+            key={c}
+            onClick={() => void enviar(c)}
+            disabled={ocupada}
+            className="m-hov-bg m-focus"
+            style={s(`text-align:left;font-family:inherit;font-size:var(--t-label);color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 13px;${ocupada ? "opacity:.42;cursor:not-allowed" : "cursor:pointer"}`)}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+
+      <form
+        onSubmit={(e) => { e.preventDefault(); void enviar(texto); }}
+        style={{ display: "flex", gap: 9 }}
+      >
+        <input
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          placeholder="Ou escreva do seu jeito"
+          aria-label="Mensagem do cliente"
+          className="m-focus"
+          style={s(`${CAMPO};flex:1;min-width:0`)}
+        />
+        <button
+          type="submit"
+          disabled={ocupada || !texto.trim()}
+          className="m-hov-primary m-press m-focus"
+          style={s(`display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;flex-shrink:0;border-radius:12px;border:none;background:var(--primary);${ocupada || !texto.trim() ? "opacity:.42;cursor:not-allowed" : "cursor:pointer"}`)}
+        >
+          <Icon name="send" size={18} sw={2} stroke="var(--on-primary)" />
+        </button>
+      </form>
+
+      <Botao onClick={aoPainel} variante={marcou ? "primary" : "ghost"} full>
         Abrir meu painel
       </Botao>
     </div>
   );
+}
+
+function BolhaSim({ fala }: { fala: Fala }) {
+  if (fala.de === "aviso") {
+    /* `--warn` sobre `--warn-soft`, e não um `--warn-ink`: aquele token NÃO EXISTE
+     * (`globals.css` tem `--warm-ink`, do âmbar, que é outra família). O L de `--warn` é
+     * calibrado justamente para dar AA sobre o `-soft` da mesma cor — está escrito no
+     * comentário da paleta semântica. */
+    return (
+      <span style={s("align-self:center;max-width:44ch;text-align:center;font-size:var(--t-label);line-height:1.5;color:var(--warn);background:var(--warn-soft);padding:8px 13px;border-radius:11px")}>
+        {fala.txt}
+      </span>
+    );
+  }
+  /* Hierarquia INVERTIDA em relação ao painel, e de propósito: lá "você" é o dono e fica no
+     fill à direita. Aqui quem digita é o CLIENTE, no celular dele — então o fill é dele, e a
+     MAISA é branco com contorno. Mesma regra do design system, sujeito diferente. */
+  const meu = fala.de === "cliente";
+  return (
+    <span
+      style={s(
+        `max-width:82%;align-self:${meu ? "flex-end" : "flex-start"};padding:9px 13px;font-size:var(--t-sm);line-height:1.5;white-space:pre-wrap;` +
+        `border-top-left-radius:16px;border-top-right-radius:16px;` +
+        `border-bottom-right-radius:${meu ? "5px" : "16px"};border-bottom-left-radius:${meu ? "16px" : "5px"};` +
+        (meu
+          ? "background:var(--primary);border:1px solid var(--primary);color:var(--on-primary)"
+          : "background:var(--surface);border:1px solid var(--primary-soft);color:var(--ink)"),
+      )}
+    >
+      {fala.txt}
+    </span>
+  );
+}
+
+function EtapaVerFuncionando({ feitos, aoVoltarParaWhatsApp }: { feitos: PassoDeAtivacao[]; aoVoltarParaWhatsApp: () => void }) {
+  const router = useRouter();
+  const [numero, setNumero] = useState<string | null>(null);
+  const [ambiente, setAmbiente] = useState<Ambiente | null>(null);
+  const aoPainel = useCallback(() => { router.push("/"); router.refresh(); }, [router]);
+
+  useEffect(() => {
+    let vivo = true;
+
+    /* O número pareado é o destinatário da resposta — ver o `de` do POST em `Conversa`.
+     * Falha em silêncio: sem ele a conversa acontece igual, só não chega no celular. */
+    fetch("/api/canal")
+      .then((r) => r.json())
+      .then((r) => { if (vivo && r?.ok && r.canal?.status === "conectado") setNumero(r.canal.numero ?? null); })
+      .catch(() => {});
+
+    fetch("/api/laboratorio")
+      .then((r) => r.json())
+      .then((r) => {
+        if (!vivo) return;
+        setAmbiente({
+          pronto: !!r?.pronto,
+          /* A string vem da rota, que a monta de `isGoogleConfigured`. Comparar por igualdade
+           * e não por `includes` porque o outro valor possível é "demonstração (em memória)",
+           * e um `includes("google")` casaria com uma frase futura que dissesse "sem google". */
+          agendaReal: r?.agenda === "google",
+          exemplo: r?.exemplo ?? { servico: null, profissional: null },
+        });
+      })
+      /* Não saber o ambiente não pode travar a etapa: assume o caso de produção (agenda de
+       * verdade), que é o mais restritivo — pede o que precisa ser pedido em vez de deixar
+       * passar. Errar para o lado de cobrar uma conexão a mais é recuperável; errar para o
+       * lado de deixar conversar sem agenda é a demonstração fracassando na frente da
+       * pessoa. */
+      .catch(() => vivo && setAmbiente({ pronto: true, agendaReal: true, exemplo: { servico: null, profissional: null } }));
+
+    return () => { vivo = false; };
+  }, []);
+
+  if (!feitos.includes("whatsapp_conectado")) {
+    return (
+      <Falta
+        icone="whatsapp"
+        titulo="Falta o WhatsApp"
+        texto="É por ele que a MAISA atende — e é nele que a resposta dela vai chegar quando você testar. Leva um QR code."
+        acao={<Botao onClick={aoVoltarParaWhatsApp} full>Conectar o WhatsApp</Botao>}
+        aoPainel={aoPainel}
+      />
+    );
+  }
+
+  if (!ambiente) {
+    return <div style={{ minHeight: 200 }} aria-busy="true" />;
+  }
+
+  /**
+   * ⚠️ O `ambiente.agendaReal` NA CONDIÇÃO, e não só `feitos`.
+   *
+   * Num deploy SEM as variáveis do Google, `agenda_conectada` nunca pode acontecer: a rota
+   * de conectar responde 400 `nao_configurado` e não há como gravar a linha. Cobrar a
+   * conexão ali seria um beco — botão que não leva a lugar nenhum, etapa que não termina.
+   * E é justamente o ambiente em que a agenda de memória responde e a conversa funciona.
+   *
+   * Em produção, onde o Google está configurado, o portão vale inteiro: sem a linha em
+   * `integracoes_google` a MAISA não consegue nem consultar horário — `saida/google/
+   * conexoes.ts` lança na primeira pergunta, e o cabeçalho daquele arquivo já registra o
+   * desfecho: *"conversava e nunca marcava"*.
+   */
+  if (ambiente.agendaReal && !feitos.includes("agenda_conectada")) {
+    return (
+      <Falta
+        icone="calendar"
+        titulo="Falta sua agenda"
+        texto={<>A MAISA marca <strong style={s("color:var(--ink)")}>na sua agenda do Google</strong> — é lá que ela olha antes de oferecer horário. Sem isso ela conversa, mas não consegue marcar nada.</>}
+        acao={<LigarAgenda />}
+        aoPainel={aoPainel}
+      />
+    );
+  }
+
+  return <Conversa ambiente={ambiente} numero={numero} aoPainel={aoPainel} />;
 }
 
 /* ───────────────────────────── o wizard ───────────────────────────── */
@@ -574,6 +969,23 @@ export default function Comecar() {
    */
   useEffect(() => {
     let vivo = true;
+
+    /**
+     * ⚠️ O RETORNO DO CONSENT DO GOOGLE, e por que ele precisa de um sinal próprio.
+     *
+     * Ligar a agenda sai da etapa 4, atravessa o Google e volta para `/comecar` do zero — a
+     * página remonta e a retomada roda de novo. Sem este `if`, quem tivesse PULADO o
+     * WhatsApp voltaria do consent na etapa 3, um passo para trás, logo depois de ter feito
+     * exatamente o que a etapa 4 pediu.
+     *
+     * `?google=` é acrescentado pelo `google/callback` e não por nós, então ele é prova de
+     * navegação, não estado guardado: nada foi escrito em lugar nenhum, e um F5 depois ele
+     * some sozinho. É o oposto de lembrar a etapa no `localStorage`, que é a flag que o
+     * `dominio/ativacao.ts` existe para não ter.
+     */
+    const google = new URLSearchParams(window.location.search).get("google");
+    if (google === "erro") toast("Não consegui ligar sua agenda. Dá para tentar de novo.");
+
     fetch("/api/ativacao")
       .then(async (r) => ({ status: r.status, corpo: await r.json().catch(() => null) }))
       .then(({ status, corpo }) => {
@@ -582,7 +994,8 @@ export default function Comecar() {
         if (status === 401) { router.push("/login?next=%2Fcomecar"); return; }
         const f: PassoDeAtivacao[] = corpo?.feitos ?? [];
         setFeitos(f);
-        setEtapa(f.includes("whatsapp_conectado") ? "pronto" : f.includes("catalogo_ajustado") ? "whatsapp" : "catalogo");
+        if (google) { setEtapa("ver"); return; }
+        setEtapa(f.includes("whatsapp_conectado") ? "ver" : f.includes("catalogo_ajustado") ? "whatsapp" : "catalogo");
       })
       .catch(() => vivo && setEtapa("negocio"));
     return () => { vivo = false; };
@@ -625,8 +1038,8 @@ export default function Comecar() {
         <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-card);padding:24px 22px")}>
           {etapa === "negocio" && <EtapaNegocio aoCriar={() => avancar("catalogo")} />}
           {etapa === "catalogo" && <EtapaCatalogo aoSeguir={() => avancar("whatsapp")} />}
-          {etapa === "whatsapp" && <EtapaWhatsApp aoSeguir={() => avancar("pronto")} />}
-          {etapa === "pronto" && <EtapaPronto feitos={feitos} />}
+          {etapa === "whatsapp" && <EtapaWhatsApp aoSeguir={() => avancar("ver")} />}
+          {etapa === "ver" && <EtapaVerFuncionando feitos={feitos} aoVoltarParaWhatsApp={() => avancar("whatsapp")} />}
         </div>
 
         {/* ⚠️ "Pular" NÃO aparece na etapa 1, e é a única assimetria da tela: as outras três
@@ -634,7 +1047,7 @@ export default function Comecar() {
             responde 409 em toda rota. */}
         {podePular && (
           <button
-            onClick={() => { toast("Você pode fazer isso depois, pelo painel"); avancar(etapa === "catalogo" ? "whatsapp" : "pronto"); }}
+            onClick={() => { toast("Você pode fazer isso depois, pelo painel"); avancar(etapa === "catalogo" ? "whatsapp" : "ver"); }}
             className="m-focus"
             style={s("align-self:center;background:none;border:none;font-family:inherit;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--muted);cursor:pointer;padding:8px 12px")}
           >

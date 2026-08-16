@@ -10,9 +10,15 @@ import Laboratorio from "./Laboratorio";
 // "soar como gente" é metade do produto. Isto é o lugar de descobrir isso antes de pagar
 // por um número.
 //
-// ⚠️ DEV-ONLY. Mesma fronteira da rota (`api/laboratorio/route.ts`): fecha por padrão em
-// produção e só abre com `MAISA_LABORATORIO=1`. Uma página sem login que gasta token e
-// escreve na agenda não pode ficar de pé em prod por esquecimento.
+// ⚠️ DEV-ONLY — e a ROTA não é mais. Esta página fecha por padrão em produção e só abre
+// com `MAISA_LABORATORIO=1`; a `api/laboratorio/route.ts` passou a `exigirSessao` em
+// 15/08/2026, porque virou a etapa 4 do `/comecar`.
+//
+// As duas fronteiras deixaram de ser a mesma de propósito. Esta tela é a de DEPURAÇÃO: duas
+// colunas, trilha crua em JSON, campo para trocar o telefone do cliente na mão. Nada disso é
+// para o dono de barbearia — para ele existe a etapa 4 do wizard, que mostra o mesmo agente
+// sem o instrumental. Abrir esta aqui em produção não vaza dado (a rota exige sessão), mas
+// entrega uma tela de oficina a quem comprou um produto.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const dynamic = "force-dynamic";

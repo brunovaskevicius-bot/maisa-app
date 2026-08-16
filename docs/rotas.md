@@ -91,16 +91,26 @@ O webhook responde **200 mesmo quando descarta** a mensagem. Para o provedor, re
 significa "tente de novo", e ele reentrega o mesmo evento em loop. O fluxo inteiro, com o que
 é descartado e por quê, está em [`fluxos/mensagem-whatsapp.md`](fluxos/mensagem-whatsapp.md).
 
-## Desenvolvimento
+## Conversar com a MAISA fora do WhatsApp
 
 | Rota | Métodos | Porteiro | O que faz |
 |---|---|---|---|
-| `/api/laboratorio` | GET · POST · DELETE | `MAISA_LABORATORIO=1` | conversa com a MAISA sem número de WhatsApp |
+| `/api/laboratorio` | GET · POST · DELETE | `exigirSessao` (ou `MAISA_LABORATORIO=1` sem login) | conversa com a MAISA sem número de WhatsApp |
 
-**Fecha em produção.** É o laboratório de `/laboratorio` — você é o cliente, e ao lado da
-conversa aparece a trilha do que rodou por baixo. Existe porque no texto da resposta
-*"consultei a agenda e tenho quinta às 15h"* e *"inventei quinta às 15h"* são indistinguíveis,
-e a segunda é o pior bug deste produto.
+Você é o cliente. Roda o **agente real**: mesmas ferramentas, mesma agenda, mesmo modelo — o
+horário que sair daqui existe. Existe porque no texto da resposta *"consultei a agenda e tenho
+quinta às 15h"* e *"inventei quinta às 15h"* são indistinguíveis, e a segunda é o pior bug
+deste produto; a trilha devolvida diz qual dos dois aconteceu.
+
+⚠️ **Deixou de ser dev-only em 15/08/2026.** Ela é a etapa 4 do `/comecar` (o "ver
+funcionando"), então o inquilino passou a vir da **sessão** e a resposta sem login é 401, não
+404. `MAISA_LABORATORIO=1` sobrou só como caminho de desenvolvimento sem login, com um
+inquilino de fixture. Consequência que vale dizer em voz alta: a rota **gasta token de modelo
+e escreve na agenda de quem chama** — com o porteiro, isso é a mesma exposição que o WhatsApp
+do próprio inquilino já tem; sem ele, era a chave de IA aberta para quem achasse a URL.
+
+A **página** `/laboratorio` continua fechada em produção: ela é a versão de depuração, com a
+trilha crua em JSON ao lado. O que o cliente vê é a etapa 4 do wizard.
 
 ## O que NÃO fazer numa rota
 
