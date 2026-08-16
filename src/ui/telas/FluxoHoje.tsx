@@ -22,6 +22,7 @@ import { s, Icon, Monogram, Btn, EmptyState } from "@/ui/primitivos";
 import { useIsMobile } from "@/ui/useIsMobile";
 import * as D from "@/adaptadores/saida/demo";
 import { useStore, type AgendamentoVivo } from "@/ui/estado/store";
+import { JornadaDeAtivacao } from "@/ui/componentes/JornadaDeAtivacao";
 
 /* Cada etapa tem um rótulo, uma cor de ponto e o verbo que a avança.
  * "Chegando" era --warm (âmbar): 1,57:1 sobre fundo claro, o ponto sumia. Virou --warn e não
@@ -185,6 +186,9 @@ export default function FluxoHoje() {
   if (mobile) {
     return (
       <div className="m-enter" style={s("flex:1;min-height:0;overflow-y:auto;padding:2px 16px 24px;display:flex;flex-direction:column;gap:14px")}>
+        {/* Antes da fila, e antes do quadro: quem ainda não conectou nada não tem fila nem
+            quadro, e é justamente essa pessoa que precisa de direção. Some sozinho aos 100%. */}
+        <JornadaDeAtivacao />
         {st.fila.length > 0 && (
           /* `flex-shrink:0` não é enfeite: sem ele o painel some no celular assim que o dia tem
              atendimento. Este contêiner é uma PÁGINA que rola (overflow-y:auto acima), então nada
@@ -221,10 +225,17 @@ export default function FluxoHoje() {
   /* ── desktop: quadro arrastável + painel fixo ── */
   return (
     <div className="m-enter" style={s("flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 330px;height:100%")}>
-      {doDia.length === 0 ? (
-        <div style={s("display:flex;align-items:center;justify-content:center;min-height:0;padding:22px")}>{vazio}</div>
-      ) : (
-      <div style={s("padding:22px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;min-height:0")}>
+      {/* A coluna da esquerda virou uma pilha: a jornada em cima, o quadro (ou o vazio)
+          embaixo. Antes ela era a célula da grade direto, e não havia onde pendurar nada
+          acima sem empurrar o painel da direita para baixo junto.
+          ⚠️ `min-height:0` nos DOIS níveis — sem ele o `overflow-y` do quadro não encontra
+          altura e a coluna cresce até estourar a viewport. */}
+      <div style={s("min-height:0;display:flex;flex-direction:column;padding:22px;gap:16px")}>
+        <JornadaDeAtivacao />
+        {doDia.length === 0 ? (
+          <div style={s("flex:1;display:flex;align-items:center;justify-content:center;min-height:0")}>{vazio}</div>
+        ) : (
+        <div style={s("flex:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;min-height:0")}>
         {COLUNAS.map((col) => {
           const itens = porEtapa(col.id);
           const alvo = st.alvoSolta === col.id && st.arrastando;
@@ -256,8 +267,9 @@ export default function FluxoHoje() {
             </div>
           );
         })}
+        </div>
+        )}
       </div>
-      )}
 
       <div style={s("border-left:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-height:0")}>
         <PrecisaDeVoce />
