@@ -29,6 +29,7 @@ um modelo de linguagem precisa conseguir preencher isso em JSON.
 | `emissor-fiscal.ts` | `EmissorFiscal` (emitir, consultar, cancelar — os três recebendo a `ConfigFiscal` do inquilino) | `adaptadores/saida/focus` |
 | `cadastro-de-emissor.ts` | `CadastroDeEmissor` (consultar CNPJ, criar empresa, subir certificado). ⚠️ **Não tem método que devolva token** — de propósito: credencial de cliente não vira valor de retorno dentro do núcleo | `adaptadores/saida/focus` |
 | `repositorio-fiscal.ts` | `RepositorioFiscal` (a `config_fiscal` do inquilino). ⚠️ Nunca guarda token nem `.pfx` | `adaptadores/saida/supabase` |
+| `repositorio-notas.ts` | `RepositorioNotas` (o que falta emitir + a CLAIM atômica que impede nota duplicada). ⚠️ Não aceita `valor` em lugar nenhum — quem soma é o banco | `adaptadores/saida/supabase` |
 | `repositorio-negocio.ts` | `RepositorioNegocio` (negócio, profissional, serviço, cliente, expediente, allowlist de agendas, cliente por telefone) | `adaptadores/saida/demo` ⚠️ fixtures |
 
 ## Duas decisões que valem explicação

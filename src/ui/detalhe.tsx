@@ -138,7 +138,17 @@ export function useDetalhe(id: string | null): Detalhe | null {
 
   /* ── nota fiscal ── */
   if (id.startsWith("nf-")) {
-    const c = st.clienteDe(id.slice(3));
+    const clienteId = id.slice(3);
+    /* ⚠️ A LINHA DE FATURAMENTO, e não o cadastro do cliente. `clienteDe().valor` é o total
+     * da COMPETÊNCIA; o que se emite é o que está sem nota — "desde a última emissão". Ler o
+     * cadastro aqui mostraria na prévia um valor diferente do que a nota vai levar. */
+    const linha = st.fechamento.find((f) => f.id === clienteId);
+    const cad = st.clienteDe(clienteId);
+    const c = linha ?? (cad ? {
+      id: cad.id, nome: cad.nome, valor: 0, atendimentos: 0, cpf: cad.cpf,
+      teste: cad.teste === true, servicoId: cad.servicoId, canal: cad.canal,
+      servico: null, semCpf: !cad.cpf,
+    } : null);
     if (!c) return null;
     const nota = st.notaDe(c.id);
 
@@ -151,8 +161,8 @@ export function useDetalhe(id: string | null): Detalhe | null {
         linhas: [
           ["Tomador", c.nome],
           ["CPF", c.cpf],
-          ["Serviço", st.nomeServico(c.servicoId)],
-          ["Atendimentos no mês", String(c.atendimentos)],
+          ["Serviço", c.servico ?? st.nomeServico(c.servicoId)],
+          ["Atendimentos sem nota", String(c.atendimentos)],
           ["Competência", D.PERIODO],
           ["Número", nota.numero ?? "sai na emissão"],
         ],
@@ -177,7 +187,9 @@ export function useDetalhe(id: string | null): Detalhe | null {
           nota.pdf
             ? { label: "Baixar PDF", primaria: true, onClick: () => window.open(nota.pdf, "_blank", "noopener") }
             : fecharAcao,
-          { label: "Cancelar nota", tone: "danger", onClick: () => st.cancelarNota(c.id) },
+          /* Pela REF, e não pelo cliente: a partir do segundo mês um cliente tem VÁRIAS notas,
+             e cancelar "a nota do cliente" cancelaria a errada. */
+          ...(nota.ref ? [{ label: "Cancelar nota", tone: "danger" as const, onClick: () => st.cancelarNota(nota.ref!) }] : []),
         ],
       };
     }

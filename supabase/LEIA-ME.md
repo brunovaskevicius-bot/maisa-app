@@ -31,6 +31,7 @@ nesta ordem. Todos são reexecutáveis (`if not exists`, `create or replace`,
 | 011 | `011_agendar_lembretes.sql` | `pg_cron` chamando a rotina a cada 15 min. **Único arquivo específico de ambiente** — carrega a URL do deploy e exige um segredo no Vault |
 | 013 | `013_contatos.sql` | O **caderno de nomes** (`contatos`) e `integracoes_whatsapp.modo` — de quem é o número pareado. Sem isto a MAISA oferece horário para o pai do dono; ver `nucleo/dominio/contatos.ts`. Aditivo: dá para publicar o código antes de rodar, porque `criarAvaliarAtendimento` falha ABERTA de propósito |
 | 014 | `014_fiscal_mei.sql` | **A nota fiscal por inquilino, pelo caminho do MEI.** O 002 acertou a tabela e errou o caminho: `config_fiscal` nasceu com os campos da NFS-e municipal, e MEI é obrigado a emitir pelo Ambiente Nacional desde 09/2023. Reescreve `fiscal_configurado()` para bifurcar por `optante_mei`, e acrescenta `atendimentos.nota_id` — que é o que faz a tela de faturamento parar de contar pelo `localStorage`. Aditivo e reexecutável |
+| 015 | `015_faturamento.sql` | **O faturamento sai do navegador.** `v_a_faturar` (atendimentos já prestados e sem nota) e `abrir_nota()` — a claim atômica que impede documento fiscal duplicado, mesma forma de `reservar_lembretes()`. Depende do 014 (`atendimentos.nota_id`) |
 | 099 | `099_auditoria.sql` | **Falha se o isolamento estiver aberto.** Rode a cada mudança de schema |
 
 ⚠️ O 001–008 já rodou contra o Supabase do Bruno (o app lê `negocios` e `clientes` de lá).

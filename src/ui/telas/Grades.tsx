@@ -107,6 +107,9 @@ export function Faturamento() {
   const estreita = useEstreita();
   const base = st.fechamento;
 
+  /* ⚠️ A soma é do que FALTA emitir, não do mês inteiro. `v_clientes.valor` (o que estava
+     aqui) é o total da competência — com ele, emitir duas vezes no mesmo mês cobrava o mês
+     todo nas duas. Agora `valor` já é "desde a última emissão". */
   const por = (sts: D.StatusNota[]) => base.filter((c) => sts.includes(st.notaDe(c.id).status));
   const emitidas = por(["emitida"]);
   const processando = por(["processando"]);
@@ -161,12 +164,12 @@ export function Faturamento() {
                 titulo={c.nome}
                 // O erro da prefeitura sobe para o corpo do cartão: era o único estado que pede
                 // ação imediata e vivia só no `resumo`, que `hover:none` apaga no celular.
-                sub={nota.status === "erro" ? (nota.erro ?? "A emissão falhou.") : `${c.atendimentos} atendimentos · ${st.nomeServico(c.servicoId)}`}
+                sub={nota.status === "erro" ? (nota.erro ?? "A emissão falhou.") : c.semCpf ? "Falta o CPF — a prefeitura recusa sem ele" : `${c.atendimentos} atendimentos · ${c.servico ?? st.nomeServico(c.servicoId)}`}
                 meta={fmt(c.valor)}
                 tag={tag}
                 onClick={() => st.abrir(`nf-${c.id}`)}
                 resumo={c.teste ? `Tomador de teste — a nota se cancela sozinha depois de emitir. ${resumoNota(nota)}` : resumoNota(nota)}
-                chips={[...(c.teste ? ["teste fiscal"] : []), `CPF ${c.cpf}`, c.canal]}
+                chips={[...(c.teste ? ["teste fiscal"] : []), c.cpf ? `CPF ${c.cpf}` : "sem CPF", c.canal]}
               />
             );
           })}
@@ -184,7 +187,7 @@ export function Faturamento() {
             {
               chave: "nome", label: "Cliente", largura: "minmax(0,1.7fr)",
               ordenar: (c) => c.nome,
-              celula: (c) => <CelulaNome nome={c.nome} seed={c.id} sub={c.teste ? "tomador de teste fiscal" : st.nomeServico(c.servicoId)} />,
+              celula: (c) => <CelulaNome nome={c.nome} seed={c.id} sub={c.teste ? "tomador de teste fiscal" : c.semCpf ? "sem CPF — não entra no lote" : (c.servico ?? st.nomeServico(c.servicoId))} />,
             },
             {
               chave: "atend", label: "Atend.", num: true, largura: "90px", secundaria: true,

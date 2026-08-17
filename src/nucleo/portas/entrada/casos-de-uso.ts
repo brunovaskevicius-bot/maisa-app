@@ -33,7 +33,8 @@ import type { AjustesDaAssistente, AjustesParciais } from "../saida/repositorio-
 import type { Canal, Pareamento } from "../../dominio/canal";
 import type { SemanaAnunciada } from "../../dominio/horarios";
 import type {
-  CadastroDoCnpj, CaminhoFiscal, ConfigFiscal, ResultadoDeNota, Tomador,
+  AFaturar, AmbienteFiscal, CadastroDoCnpj, CaminhoFiscal, ConfigFiscal, NotaGravada,
+  ResultadoDeNota,
 } from "../../dominio/fiscal";
 import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
 import type { VagasDoDia } from "../../dominio/vagas";
@@ -435,15 +436,35 @@ export type DesconectarAgenda = (t: ContextoTenant, p: { agendaId: string }) => 
 
 /* ───────────────────────────── nota fiscal ───────────────────────────── */
 
+/**
+ * ⚠️ ELE ENCOLHEU PARA UM CAMPO EM 17/08/2026, E ISSO FECHOU UM BURACO.
+ *
+ * Antes: `{ valor, discriminacao, tomador, origem }` — tudo vindo do NAVEGADOR. Um POST
+ * forjado em `/api/nf/emitir` emitia documento fiscal de qualquer valor, para qualquer CPF,
+ * sob o CNPJ do dono. E sem má-fé nenhuma, uma tela aberta há dez minutos mandava um total
+ * velho e a nota saía com valor que não correspondia ao que estava marcado.
+ *
+ * Agora só o cliente. Valor, discriminação e tomador saem do banco, na mesma transação que
+ * prende os atendimentos — quem soma é o Postgres, sobre as linhas que acabou de reservar.
+ */
 export type PedidoDeEmissao = {
-  valor: number;
-  discriminacao: string;
-  tomador: Tomador;
-  /** Semente da referência (hoje: o id do cliente). A ref final é cunhada aqui dentro. */
-  origem?: string;
+  clienteId: string;
 };
 
 export type EmitirNota = (t: ContextoTenant, p: PedidoDeEmissao) => Promise<ResultadoDeNota>;
+
+/** A tela de faturamento inteira, numa leitura: o que falta, o que saiu, e se dá para emitir. */
+export type Faturamento = {
+  /** Por cliente: atendimentos já prestados e sem nota. Já significa "desde a última emissão". */
+  aFaturar: AFaturar[];
+  /** O histórico, mais recentes primeiro. */
+  emitidas: NotaGravada[];
+  ambiente: AmbienteFiscal;
+  /** Vazio = dá para emitir. Não vazio, a tela não oferece o botão — ver `LerEstadoFiscal`. */
+  falta: string[];
+};
+
+export type LerFaturamento = (t: ContextoTenant) => Promise<Faturamento>;
 export type ConsultarNota = (t: ContextoTenant, ref: string) => Promise<ResultadoDeNota>;
 export type CancelarNota = (t: ContextoTenant, p: { ref: string; justificativa?: string }) => Promise<ResultadoDeNota>;
 

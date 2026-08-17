@@ -9,7 +9,7 @@ portas de saída que recebe por parâmetro.
 |---|---|---|
 | `agendar-atendimento.ts` | `AgendarAtendimento` | `AgendaExterna`, `RepositorioNegocio` |
 | `agenda.ts` | `LerAgenda`, `CancelarAtendimento`, `ListarConexoes`, `DesconectarAgenda` | `AgendaExterna`, `ConexoesDeAgenda`, `RepositorioNegocio` |
-| `notas.ts` | `EmitirNota`, `ConsultarNota`, `CancelarNota` | `EmissorFiscal` · `RepositorioFiscal` |
+| `notas.ts` | `EmitirNota`, `ConsultarNota`, `CancelarNota`, `LerFaturamento` | `EmissorFiscal` · `RepositorioFiscal` · `RepositorioNotas` |
 | `fiscal.ts` | `LerEstadoFiscal`, `ConsultarCnpj`, `LigarNotaFiscal`, `EnviarCertificado`, `LiberarProducaoFiscal` | `RepositorioFiscal` · `CadastroDeEmissor` |
 | `conversas.ts` | `ListarConversas`, `LerConversa`, `ResponderConversa`, `MudarPosseConversa` | `RepositorioHistorico`, `RepositorioConversas`, `CanalDeMensagens` |
 

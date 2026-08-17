@@ -1,63 +1,188 @@
 /* ─────────────────────────────────────────────────────────────────────────────
  * CASOS DE USO — nota fiscal de serviço.
  *
- * Emitir é assíncrono por natureza: a prefeitura devolve "processando" e o número sai
- * depois. Por isso são três casos de uso e não um — quem pede acompanha por `consultar`
- * até virar autorizado, cancelado ou erro.
+ * Emitir é assíncrono por natureza: a prefeitura devolve "processando" e o número sai depois.
+ * Por isso são vários casos de uso e não um — quem pede acompanha por `consultar` até virar
+ * autorizado, cancelado ou erro.
+ *
+ * ── ⚠️ O BURACO QUE ISTO FECHOU, 17/08/2026 ──
+ *
+ * `PedidoDeEmissao` recebia `valor`, `discriminacao` e `tomador` — do NAVEGADOR. Ou seja: um
+ * POST forjado em `/api/nf/emitir` emitia documento fiscal de qualquer valor, para qualquer
+ * CPF, sob o CNPJ do dono. E mesmo sem má-fé, uma tela aberta há dez minutos mandava um total
+ * velho, e a nota saía com valor que não correspondia ao que estava marcado.
+ *
+ * Agora o pedido é só `{ clienteId }`. Valor, discriminação e tomador saem do banco, na
+ * transação que prende os atendimentos — quem soma é o Postgres, sobre exatamente as linhas
+ * que acabou de reservar.
+ *
+ * ── A ORDEM: ABRIR → EMITIR → CONCLUIR ──
+ *
+ * Marcar os atendimentos ANTES de a nota existir na prefeitura. Está explicado na porta
+ * `RepositorioNotas`, e é a mesma escolha de `reservar_lembretes()`: o erro barato é uma nota
+ * `erro` visível na tela; o caro é uma nota autorizada na prefeitura com os atendimentos
+ * ainda "a faturar", que a próxima tentativa emite de novo.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { CancelarNota, ConsultarNota, EmitirNota } from "../portas/entrada/casos-de-uso";
+import type {
+  CancelarNota, ConsultarNota, EmitirNota, LerFaturamento,
+} from "../portas/entrada/casos-de-uso";
 import type { EmissorFiscal } from "../portas/saida/emissor-fiscal";
 import type { RepositorioFiscal } from "../portas/saida/repositorio-fiscal";
-import { DadoInvalido } from "../dominio/erros";
+import type { RepositorioNotas } from "../portas/saida/repositorio-notas";
+import { discriminacaoDaNota, fiscalFaltando } from "../dominio/fiscal";
+import { DadoInvalido, NaoConfigurado, NaoEncontrado } from "../dominio/erros";
+import { hojeISO } from "../dominio/tempo";
 
 export type DepsNota = {
   emissor: EmissorFiscal;
   /**
-   * ⚠️ ENTROU EM 17/08/2026, e é o que faz a nota sair no CNPJ CERTO.
-   *
-   * Antes o emissor lia o prestador de variável de ambiente — uma resposta só, global. Com
-   * dois clientes no ar, isso não é "configuração incompleta": é a nota de um saindo no
-   * CNPJ do outro. Quem lê o banco é o caso de uso, e é por isso que a configuração é
-   * argumento dos três verbos do emissor.
+   * ⚠️ ENTROU EM 17/08/2026, e é o que faz a nota sair no CNPJ CERTO. Antes o emissor lia o
+   * prestador de variável de ambiente — uma resposta só, global. Com dois clientes no ar isso
+   * não é "configuração incompleta": é a nota de um saindo no CNPJ do outro.
    */
   fiscal: RepositorioFiscal;
+  /** Quem guarda a nota e prende os atendimentos. É o que impede a duplicação. */
+  notas: RepositorioNotas;
   /** Injetado para o núcleo não depender de `crypto` — e para dar teste determinístico. */
   novoId: () => string;
 };
 
-export function criarEmitirNota({ emissor, fiscal, novoId }: DepsNota): EmitirNota {
+/**
+ * A `ref` da nota no provedor, cunhada AQUI — nunca recebida de fora.
+ *
+ * Precisa ser única por emissão (a Focus recusa `ref` repetida) e reconhecível nos relatórios
+ * do provedor, daí o prefixo e a origem no meio.
+ */
+const cunharRef = (novoId: () => string, semente: string) =>
+  `maisa-${String(semente).replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "nf"}-${novoId().slice(0, 8)}`;
+
+export function criarLerFaturamento({ notas, fiscal }: Pick<DepsNota, "notas" | "fiscal">): LerFaturamento {
+  return async (t) => {
+    const [aFaturar, emitidas, config] = await Promise.all([
+      notas.aFaturar(t),
+      notas.listar(t),
+      fiscal.ler(t),
+    ]);
+
+    return {
+      aFaturar,
+      emitidas,
+      ambiente: config.ambiente,
+      /* A tela precisa saber se dá para emitir ANTES de mostrar o botão. Sem isso o dono
+       * clica em "emitir as 12 pendentes" e recebe doze erros de configuração. */
+      falta: fiscalFaltando(config, hojeISO()),
+    };
+  };
+}
+
+export function criarEmitirNota({ emissor, fiscal, notas, novoId }: DepsNota): EmitirNota {
   return async (t, p) => {
-    const doc = p.tomador.cpf || p.tomador.cnpj;
-    if (!p.valor || !p.discriminacao.trim() || !doc) {
-      throw new DadoInvalido("Faltam valor, discriminação ou documento do tomador.");
+    if (!p.clienteId?.trim()) throw new DadoInvalido("Diga de quem é a nota.", "clienteId");
+
+    const config = await fiscal.ler(t);
+    /* Recusa ANTES de abrir a nota. Abrir e só então descobrir que falta dado fiscal deixaria
+     * uma nota `erro` no histórico com os atendimentos presos a ela — trabalho para desfazer
+     * por causa de uma checagem que cabia antes. */
+    const falta = fiscalFaltando(config, hojeISO());
+    if (falta.length) throw new NaoConfigurado(falta);
+
+    /* Precisa da linha de `aFaturar` para montar a discriminação com o serviço prestado. Ela
+     * também é a resposta a "tem o que faturar?" sem gastar a claim. */
+    const pendente = (await notas.aFaturar(t)).find((a) => a.clienteId === p.clienteId);
+
+    if (!pendente) {
+      /* ⚠️ AQUI SE SEPARAM DUAS COISAS QUE PARECEM IGUAIS, e confundi-las custa um clique
+       * repetido em cima de emissão fiscal.
+       *
+       *   já tem nota  → `ja_faturado`. É o SEGUNDO CLIQUE, e a resposta certa é benigna.
+       *   nunca teve   → `NaoEncontrado`. Não há o que emitir, e dizer "já foi" seria mentira.
+       *
+       * Um teste pegou isto: sem a distinção, o duplo clique recebia "esse cliente não tem
+       * atendimento sem nota" — uma frase que soa como erro e faz o dono procurar o problema
+       * justamente onde não há problema nenhum. */
+      const jaTemNota = (await notas.listar(t)).some((n) => n.clienteId === p.clienteId);
+      if (jaTemNota) return { status: "ja_faturado", ref: "", ambiente: config.ambiente };
+      throw new NaoEncontrado("Esse cliente não tem atendimento sem nota.");
     }
 
-    /* A `ref` é a chave da nota no emissor, e é cunhada AQUI — nunca recebida de fora.
-     * Ela precisa ser única por emissão (a Focus recusa ref repetida) e reconhecível nos
-     * relatórios do provedor, daí o prefixo e a origem no meio. */
-    const semente = String(p.origem ?? "nf").replace(/[^a-zA-Z0-9]/g, "");
-    const ref = `maisa-${semente}-${novoId().slice(0, 8)}`;
+    if (!pendente.cpf) {
+      throw new DadoInvalido(
+        `Falta o CPF de ${pendente.nome} — a prefeitura não aceita nota sem o documento do tomador.`,
+        "cpf",
+      );
+    }
 
-    return emissor.emitir(t, await fiscal.ler(t), {
-      ref,
-      valor: p.valor,
-      discriminacao: p.discriminacao.trim(),
-      tomador: p.tomador,
+    const aberta = await notas.abrir(t, {
+      clienteId: p.clienteId,
+      ref: cunharRef(novoId, p.clienteId),
+      ambiente: config.ambiente,
+      discriminacao: discriminacaoDaNota(pendente),
     });
+
+    /* ⚠️ `null` NÃO É ERRO, e este caminho é o da CORRIDA DE VERDADE — não do duplo clique.
+     *
+     * O clique repetido em sequência já foi tratado pela checagem lá acima. O que sobra aqui é
+     * o caso concorrente: duas requisições que passaram pela checagem ao mesmo tempo, e o
+     * `for update skip locked` do banco deu a claim a uma delas. A perdedora enxerga zero.
+     *
+     * Os dois caminhos são necessários, e nenhum é redundante: sem a checagem, o duplo clique
+     * daria uma frase de erro; sem esta linha, a corrida abriria a segunda nota. */
+    if (!aberta) return { status: "ja_faturado", ref: "", ambiente: config.ambiente };
+
+    const r = await emissor.emitir(t, config, {
+      ref: aberta.ref,
+      valor: aberta.valor,
+      discriminacao: aberta.discriminacao,
+      tomador: aberta.tomador,
+    });
+
+    /* Grava o desfecho aconteça o que acontecer — inclusive erro. A nota fica no histórico com
+     * os atendimentos presos, que é o estado retentável. */
+    await notas.concluir(t, aberta.id, r);
+    return r;
   };
 }
 
-export function criarConsultarNota({ emissor, fiscal }: Pick<DepsNota, "emissor" | "fiscal">): ConsultarNota {
+export function criarConsultarNota({ emissor, fiscal, notas }: Pick<DepsNota, "emissor" | "fiscal" | "notas">): ConsultarNota {
   return async (t, ref) => {
     if (!ref) throw new DadoInvalido("ref ausente.", "ref");
-    return emissor.consultar(t, await fiscal.ler(t), ref);
+
+    const nossa = await notas.porRef(t, ref);
+    /* ⚠️ Confere que a `ref` é DESTE inquilino antes de perguntar ao provedor. Sem isso, uma
+     * ref conhecida de outro negócio devolveria número, PDF e o nome do tomador dele — a
+     * consulta é autenticada pelo token da empresa, mas o token é escolhido por ESTE
+     * inquilino, e a Focus responderia sobre qualquer ref que aquela empresa emitiu. */
+    if (!nossa) throw new NaoEncontrado("Essa nota não é deste negócio.");
+
+    const config = await fiscal.ler(t);
+    const r = await emissor.consultar(t, config, ref);
+    await notas.concluir(t, nossa.id, r);
+    return r;
   };
 }
 
-export function criarCancelarNota({ emissor, fiscal }: Pick<DepsNota, "emissor" | "fiscal">): CancelarNota {
+export function criarCancelarNota({ emissor, fiscal, notas }: Pick<DepsNota, "emissor" | "fiscal" | "notas">): CancelarNota {
   return async (t, p) => {
-    if (!p.ref.trim()) throw new DadoInvalido("ref ausente.", "ref");
-    return emissor.cancelar(t, await fiscal.ler(t), p.ref.trim(), p.justificativa);
+    const ref = p.ref.trim();
+    if (!ref) throw new DadoInvalido("ref ausente.", "ref");
+
+    const nossa = await notas.porRef(t, ref);
+    if (!nossa) throw new NaoEncontrado("Essa nota não é deste negócio.");
+
+    const config = await fiscal.ler(t);
+    const r = await emissor.cancelar(t, config, ref, p.justificativa);
+    await notas.concluir(t, nossa.id, r);
+
+    /* ⚠️ CANCELAR NÃO SOLTA OS ATENDIMENTOS, e é decisão, não esquecimento.
+     *
+     * Soltar faria o cliente voltar para "a faturar" e o dono emitiria a nota de novo — que é
+     * às vezes o que ele quer, e às vezes exatamente o que não quer (cancelou porque o serviço
+     * não aconteceu). Não há como distinguir os dois casos aqui, e o erro caro é o segundo:
+     * emitir documento fiscal de serviço não prestado.
+     *
+     * Enquanto não houver uma ação explícita de "refaturar", o caminho é o dono cancelar e
+     * pedir de novo pela gaveta do cliente. */
+    return r;
   };
 }

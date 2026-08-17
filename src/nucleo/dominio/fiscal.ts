@@ -26,6 +26,78 @@ export type Nota = {
   simulada?: boolean;
 };
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * O QUE FALTA FATURAR — e por que a unidade é o ATENDIMENTO, não o cliente.
+ *
+ * ★ A RECLAMAÇÃO DO BRUNO (14/08/2026), que este tipo existe para resolver:
+ *   "a lógica da página de faturamento está errada. ela deve ser diretamente atrelada à tela
+ *    de agendamentos, e deve ser totalmente calculada com base no tanto de agendamentos que
+ *    foram feitos desde a última emissão de notas. além disso, ela deve contabilizar os casos
+ *    em que uma única pessoa teve a nota emitida, e tirar essa pessoa da emissão em massa."
+ *
+ * Antes o "já emitiu" morava no `localStorage`, mapeado POR CLIENTE — não por período. Três
+ * consequências, todas medidas lendo o código: trocar de navegador ressuscitava o botão; quem
+ * teve nota em agosto nunca mais aparecia como pendente; e a soma vinha do total da
+ * competência, então emitir duas vezes no mês cobrava o mês inteiro nas duas.
+ *
+ * Agora a pergunta é `atendimentos.nota_id is null`, e ela responde as DUAS metades da
+ * reclamação de uma vez: já significa "desde a última emissão", e já exclui quem tem nota.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+export type AFaturar = {
+  clienteId: string;
+  nome: string;
+  /** Documento do tomador. Vazio bloqueia a emissão — a prefeitura exige. */
+  cpf: string | null;
+  /** Quantos atendimentos já prestados estão sem nota. Nunca zero. */
+  atendimentos: number;
+  valor: number;
+  /** O serviço mais frequente do período — é o que vai na discriminação. */
+  servico: string | null;
+  /** Do primeiro ao último atendimento sem nota, em data civil. */
+  desde: string;
+  ate: string;
+  competencia: string;
+  /** Cliente de teste fiscal. Fica fora do lote — ver `RepositorioNotas.aFaturar`. */
+  teste: boolean;
+};
+
+/** Uma nota como está no banco. */
+export type NotaGravada = Nota & {
+  id: string;
+  clienteId: string | null;
+  /**
+   * O nome de quem recebeu, como estava NA EMISSÃO.
+   *
+   * ⚠️ Vem do snapshot da nota, e não de um join com `clientes`. Nota fiscal autorizada é
+   * documento imutável: ela não pode passar a mostrar outro nome porque alguém corrigiu o
+   * cadastro depois. É a mesma razão de `notas` não ter FK para `clientes`.
+   */
+  tomadorNome: string | null;
+  valor: number;
+  competencia: string | null;
+  ambiente: AmbienteFiscal | null;
+};
+
+/**
+ * O texto que a prefeitura IMPRIME no documento.
+ *
+ * Mora no núcleo, e não na tela, porque foi na tela que ele já saiu errado uma vez: o store
+ * montava a frase com um nome de serviço do catálogo VIVO, e a nota saía com o nome que o
+ * dono tinha acabado de trocar — descrevendo um serviço diferente do que foi prestado.
+ *
+ * Aqui a fonte é o snapshot do atendimento (`AFaturar.servico`), que não muda depois.
+ */
+export function discriminacaoDaNota(a: Pick<AFaturar, "servico" | "atendimentos" | "competencia">): string {
+  const quantos = `${a.atendimentos} ${a.atendimentos === 1 ? "atendimento" : "atendimentos"}`;
+  const mes = a.competencia ? a.competencia.slice(0, 7).split("-").reverse().join("/") : "";
+  /* "Corte de cabelo — 3 atendimentos · 08/2026". Serviço separado por travessão, período
+   * por ponto médio: é o formato que já estava saindo nas notas, e mudá-lo mudaria o texto
+   * de documentos futuros sem motivo. */
+  const cabeca = [a.servico?.trim() || "Prestação de serviço", quantos].join(" — ");
+  return mes ? `${cabeca} · ${mes}` : cabeca;
+}
+
 /** Quem recebe a nota. */
 export type Tomador = {
   nome?: string | null;
@@ -45,7 +117,17 @@ export type PedidoDeNota = {
 
 /** O que o emissor devolve, já no nosso vocabulário. */
 export type ResultadoDeNota = {
-  status: "processando" | "autorizado" | "cancelado" | "erro" | "simulado";
+  status:
+    | "processando" | "autorizado" | "cancelado" | "erro" | "simulado"
+    /**
+     * ⚠️ NÃO É ERRO, e é por isso que tem nome próprio.
+     *
+     * A claim (`RepositorioNotas.abrir`) não encontrou atendimento sem nota: outra aba, ou o
+     * segundo clique, chegou primeiro e já prendeu tudo. Tratar isso como `erro` faria o dono
+     * clicar de novo procurando entender — e é justamente o clique que a claim existe para
+     * tornar inofensivo. A tela mostra "já faturado" e recarrega a lista.
+     */
+    | "ja_faturado";
   ref: string;
   numero?: string;
   url?: string;

@@ -45,7 +45,9 @@ import { criarAnotarFato, criarLembrarCliente } from "@/nucleo/aplicacao/memoria
 import {
   criarLerConversa, criarListarConversas, criarMudarPosseConversa, criarResponderConversa,
 } from "@/nucleo/aplicacao/conversas";
-import { criarCancelarNota, criarConsultarNota, criarEmitirNota } from "@/nucleo/aplicacao/notas";
+import {
+  criarCancelarNota, criarConsultarNota, criarEmitirNota, criarLerFaturamento,
+} from "@/nucleo/aplicacao/notas";
 
 import { agendaGoogle, conexoesGoogle } from "@/adaptadores/saida/google/agenda-google";
 import { isGoogleConfigured } from "@/adaptadores/saida/google/config";
@@ -92,6 +94,8 @@ import { isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 import { cadastroFocus } from "@/adaptadores/saida/focus/cadastro-focus";
 import { fiscalSupabase } from "@/adaptadores/saida/supabase/fiscal";
 import { cadastroDemo, fiscalDemo } from "@/adaptadores/saida/demo/fiscal";
+import { notasSupabase } from "@/adaptadores/saida/supabase/notas";
+import { notasDemo } from "@/adaptadores/saida/demo/notas";
 import {
   criarConsultarCnpj, criarEnviarCertificado, criarLerEstadoFiscal,
   criarLiberarProducaoFiscal, criarLigarNotaFiscal,
@@ -130,6 +134,17 @@ const emissor = emissorFocus;
  */
 const fiscalPronto = isSupabaseConfigured && cadastroFocus.faltando().length === 0;
 const fiscalRepo = fiscalPronto ? fiscalSupabase : fiscalDemo;
+/**
+ * As notas emitidas seguem `isSupabaseConfigured`, e NÃO o `fiscalPronto` acima.
+ *
+ * ⚠️ A diferença é deliberada. `fiscalPronto` exige token da Focus porque sem ele não há como
+ * cadastrar empresa. Aqui não: a nota é gravada no NOSSO banco, e a claim que impede
+ * duplicação tem que valer mesmo quando a emissão sai `simulado`. Amarrar as duas coisas faria
+ * um ambiente com banco e sem Focus perder a persistência das notas — e o teste do fluxo
+ * inteiro (que é o valor do modo simulado) deixaria de exercitar justamente a garantia mais
+ * frágil: clicar duas vezes não emite duas notas.
+ */
+const notasRepo = isSupabaseConfigured ? notasSupabase : notasDemo;
 const cadastroEmissor = fiscalPronto ? cadastroFocus : cadastroDemo;
 /**
  * O cadastro: quem atende, o que se vende, quem é cliente.
@@ -476,9 +491,10 @@ export const app = {
   /* Os três recebem `fiscal` porque o prestador vem do BANCO, por inquilino — antes vinha
    * de variável de ambiente, e uma resposta global num produto multi-inquilino é a nota de
    * um cliente saindo no CNPJ do outro. */
-  emitirNota: criarEmitirNota({ emissor, fiscal: fiscalRepo, novoId: randomUUID }),
-  consultarNota: criarConsultarNota({ emissor, fiscal: fiscalRepo }),
-  cancelarNota: criarCancelarNota({ emissor, fiscal: fiscalRepo }),
+  emitirNota: criarEmitirNota({ emissor, fiscal: fiscalRepo, notas: notasRepo, novoId: randomUUID }),
+  consultarNota: criarConsultarNota({ emissor, fiscal: fiscalRepo, notas: notasRepo }),
+  cancelarNota: criarCancelarNota({ emissor, fiscal: fiscalRepo, notas: notasRepo }),
+  lerFaturamento: criarLerFaturamento({ notas: notasRepo, fiscal: fiscalRepo }),
 
   /* ── ligar a nota fiscal: UMA pergunta, o CNPJ ── */
   lerEstadoFiscal: criarLerEstadoFiscal({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),

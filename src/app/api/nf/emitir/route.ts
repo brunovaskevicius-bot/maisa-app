@@ -30,20 +30,19 @@ export async function POST(request: Request) {
   if (barrou(porteiro)) return porteiro.barrado;
 
   const body = await request.json().catch(() => ({} as any));
-  const tomador = body?.tomador ?? {};
 
   try {
+    /* ⚠️ UM CAMPO SÓ, E ISSO FECHOU UM BURACO (17/08/2026).
+     *
+     * Esta rota aceitava `valor`, `discriminacao` e `tomador` do corpo do pedido. Ou seja: um
+     * POST forjado emitia documento fiscal de QUALQUER valor, para QUALQUER CPF, sob o CNPJ do
+     * dono — e a Focus não tinha como saber que era mentira, porque a requisição vinha
+     * autenticada e o inquilino era o certo.
+     *
+     * Agora só o cliente. Valor, discriminação e tomador saem do banco, na transação que prende
+     * os atendimentos: quem soma é o Postgres, sobre exatamente as linhas que reservou. */
     const r = await app.emitirNota(porteiro.tenant, {
-      valor: Number(body?.valor),
-      discriminacao: String(body?.discriminacao ?? ""),
-      origem: String(body?.pid ?? "nf"),
-      tomador: {
-        cpf: tomador.cpf,
-        cnpj: tomador.cnpj,
-        nome: tomador.nome,
-        email: tomador.email,
-        telefone: tomador.telefone,
-      },
+      clienteId: String(body?.clienteId ?? ""),
     });
 
     return NextResponse.json({

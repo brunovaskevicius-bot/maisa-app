@@ -83,6 +83,7 @@ muda o comportamento da tela — procure o nome no store antes.
 | Rota | Métodos | Porteiro | Caso de uso |
 |---|---|---|---|
 | `/api/fiscal` | GET · POST · PUT · PATCH | `exigirSessao` | `LerEstadoFiscal` · `ConsultarCnpj` (`?cnpj=`) · `LigarNotaFiscal` · `EnviarCertificado` · `LiberarProducaoFiscal` |
+| `/api/faturamento` | GET | `exigirSessao` | `LerFaturamento` — o que falta emitir, o que já saiu, e o que impede |
 | `/api/nf/emitir` | POST | `sessaoOuDemo` | `EmitirNota` |
 | `/api/nf/status` | GET | `sessaoOuDemo` | `ConsultarNota` |
 | `/api/nf/cancelar` | POST | `sessaoOuDemo` | `CancelarNota` |
@@ -104,6 +105,16 @@ devolve 202 "processando" e a recusa chega minutos depois no status assíncrono.
 pedido ao provedor na hora de emitir e não chega ao núcleo; o certificado atravessa o `PUT` e
 vai embora, sobrando só `certificadoValidoAte`. Ver
 [`portas/saida/cadastro-de-emissor.ts`](../src/nucleo/portas/saida/cadastro-de-emissor.ts).
+
+⚠️ **`POST /api/nf/emitir` aceita UM campo: `clienteId`.** Ele recebia `valor`, `discriminacao`
+e `tomador` do corpo até 17/08/2026 — ou seja, um POST forjado emitia documento fiscal de
+qualquer valor, para qualquer CPF, sob o CNPJ do dono. Agora tudo isso sai do banco, na
+transação que prende os atendimentos.
+
+⚠️ **Emitir duas vezes o mesmo cliente devolve `status: "ja_faturado"`, e isso não é erro.** A
+claim (`abrir_nota()`, `supabase/015`) é atômica e usa `for update skip locked`: o segundo
+clique — ou a segunda aba — não encontra o que prender. Nota fiscal duplicada não se apaga, e
+é o modo de falha que essa função existe para tornar impossível.
 
 Formato de erro dos `/api/nf/*` **diferente** do resto do app: `erros: [{ mensagem }]`, herdado
 da Focus e já entranhado na tela de Faturamento. E `config_incompleta` sai com **HTTP 200** —

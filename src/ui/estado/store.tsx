@@ -17,6 +17,32 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import * as D from "@/adaptadores/saida/demo";
 import type { Canal } from "@/nucleo/dominio/canal";
 import type { Faq } from "@/nucleo/dominio/faq";
+import type { Faturamento } from "@/nucleo/portas/entrada/casos-de-uso";
+
+/**
+ * Uma linha da tela de Faturamento.
+ *
+ * ⚠️ NÃO É `D.Cliente`, e a diferença é o conserto. `fechamento` devolvia clientes, e o valor
+ * vinha de `v_clientes.valor` — o total da COMPETÊNCIA. A unidade certa é "o que falta faturar
+ * deste cliente", que é `atendimentos.nota_id is null`: já significa "desde a última emissão"
+ * e já exclui quem tem nota. Ver `nucleo/dominio/fiscal.ts`.
+ */
+export type LinhaDeFaturamento = {
+  /** O id do CLIENTE — as telas continuam abrindo a gaveta por ele. */
+  id: string;
+  nome: string;
+  valor: number;
+  /** Quantos atendimentos sem nota. Zero = já emitida, e a linha é histórico. */
+  atendimentos: number;
+  cpf: string;
+  teste: boolean;
+  servicoId: string;
+  canal: string;
+  /** O serviço mais frequente do período, do snapshot do atendimento. */
+  servico: string | null;
+  /** ⚠️ Sem CPF a prefeitura recusa — a linha aparece, mas fora do lote. */
+  semCpf: boolean;
+};
 import { toast } from "@/ui/primitivos";
 
 /* ───────────────────────────── tipos ───────────────────────────── */
@@ -643,11 +669,12 @@ export type StoreValue = {
   notaDe: (clienteId: string) => D.Nota;
   emitirNota: (clienteId: string) => void;
   emitirPendentes: () => void;
-  cancelarNota: (clienteId: string) => void;
+  /** Cancela pela REF do provedor, não pelo cliente: um cliente tem várias notas. */
+  cancelarNota: (ref: string) => void;
   /** Clientes com valor fechado no mês — a base do Faturamento. */
-  fechamento: D.Cliente[];
+  fechamento: LinhaDeFaturamento[];
   /** O que o lote REALMENTE vai emitir. Hero, topbar e lote leem daqui — fonte única. */
-  emitiveis: D.Cliente[];
+  emitiveis: LinhaDeFaturamento[];
   loteAberto: boolean;
   pedirLote: () => void;
   fecharLote: () => void;
@@ -1777,33 +1804,67 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [clienteDe]);
 
-  /* ── nota fiscal ── */
-  const notaDe = useCallback(
-    (clienteId: string): D.Nota => db.notas[clienteId] ?? D.NOTAS_INICIAIS[clienteId] ?? { status: "pendente" },
-    [db.notas],
-  );
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * NOTA FISCAL — servidor, não `localStorage`.
+   *
+   * ★ A RECLAMAÇÃO DO BRUNO (14/08/2026) QUE ESTE BLOCO EXISTE PARA CONSERTAR:
+   *   "a lógica da página de faturamento está errada. ela deve ser diretamente atrelada à
+   *    tela de agendamentos, e deve ser totalmente calculada com base no tanto de
+   *    agendamentos que foram feitos desde a última emissão de notas. além disso, ela deve
+   *    contabilizar os casos em que uma única pessoa teve a nota emitida, e tirar essa
+   *    pessoa da emissão em massa."
+   *
+   * O que estava aqui antes: `db.notas`, um mapa CLIENTE → nota no disco do navegador, e
+   * `fechamento` somando `v_clientes.valor` (o total da competência). Três defeitos que
+   * saíam disso, e o terceiro é o que custa papel:
+   *
+   *   • trocar de navegador ressuscitava o botão de emitir;
+   *   • sendo por cliente e não por período, quem teve nota em agosto nunca mais aparecia
+   *     como pendente — setembro nascia fechado;
+   *   • e emitir duas vezes no mesmo mês cobrava o mês inteiro nas duas, gerando um SEGUNDO
+   *     documento fiscal. Nota autorizada não se apaga: cancela-se na prefeitura, e há
+   *     cidade que não aceita cancelamento por webservice nenhum.
+   *
+   * Agora tudo vem de `GET /api/faturamento`, que pergunta ao banco `atendimentos.nota_id
+   * is null` — uma resposta que já significa "desde a última emissão" e que já exclui quem
+   * tem nota. As duas metades da reclamação caem da mesma coluna.
+   *
+   * ⚠️ `db.notas` e `db.proximoNumero` continuam no tipo do `db` por compatibilidade com
+   * discos antigos, e NÃO são mais lidos. Apagá-los do tipo faria o `JSON.parse` de um
+   * `localStorage` gravado ontem carregar campos que o TypeScript não conhece — inofensivo,
+   * mas o `migrarDaV2` já mostrou que essa transição merece uma versão de chave, não um
+   * remendo. Ficam mortos até a próxima virada de `CHAVE`.
+   * ────────────────────────────────────────────────────────────────────────────── */
 
-  const setNota = useCallback((clienteId: string, nota: D.Nota) => {
-    patch((d) => ({ notas: { ...d.notas, [clienteId]: nota } }));
-  }, [patch]);
+  const [faturamento, setFaturamento] = useState<Faturamento | null>(null);
 
-  /** Número local, usado quando a emissão é simulada (sem token da Focus). */
-  const numeroLocal = useCallback((clienteId: string, ref?: string) => {
-    setDb((d) => ({
-      ...d,
-      proximoNumero: d.proximoNumero + 1,
-      notas: {
-        ...d.notas,
-        [clienteId]: {
-          status: "emitida",
-          numero: `2026/${String(d.proximoNumero).padStart(6, "0")}`,
-          data: D.HOJE.data,
-          ref,
-          simulada: true,
-        },
-      },
-    }));
+  const recarregarFaturamento = useCallback(async () => {
+    try {
+      const r = await fetch("/api/faturamento", { cache: "no-store" }).then((x) => x.json());
+      if (r?.ok) { setFaturamento({ aFaturar: r.aFaturar ?? [], emitidas: r.emitidas ?? [], ambiente: r.ambiente, falta: r.falta ?? [] }); return; }
+      /* ⚠️ NÃO ENGOLE. Sem faturamento a tela mostra "Nada a faturar" — que é a frase errada
+       * para um mês cheio de atendimentos, e indistinguível do mês realmente fechado. O
+       * servidor manda a frase certa (inclusive "rode a migração 015"); aqui só se repete. */
+      if (r?.mensagem || r?.erro) toast(String(r.mensagem ?? r.erro));
+    } catch {
+      toast("Não consegui carregar o faturamento.");
+    }
   }, []);
+
+  useEffect(() => { void recarregarFaturamento(); }, [recarregarFaturamento]);
+
+  /**
+   * A nota daquele cliente — a MAIS RECENTE, quando há mais de uma.
+   *
+   * ⚠️ Mais de uma é o caso normal a partir do segundo mês, e não exceção: cada competência
+   * gera a sua. Pegar a primeira do array mostraria a nota de agosto na tela de setembro.
+   * `listar` já devolve por `criado_em` decrescente, então a primeira que casa é a certa.
+   */
+  const notaDe = useCallback(
+    (clienteId: string): D.Nota =>
+      faturamento?.emitidas.find((n: D.Nota & { clienteId: string | null }) => n.clienteId === clienteId) ?? { status: "pendente" },
+    [faturamento],
+  );
 
   // Timers de polling ativos — limpos no unmount para não vazar.
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -1812,130 +1873,136 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     timers.current.push(setTimeout(f, ms));
   }, []);
 
-  const cancelarNota = useCallback(async (clienteId: string) => {
-    const n = notaDe(clienteId);
-    // Notas históricas (as que já vinham emitidas) não têm ref na Focus — cancela só aqui.
-    if (!n.ref) { setNota(clienteId, { ...n, status: "cancelada" }); toast("Nota cancelada"); return; }
+  const cancelarNota = useCallback(async (ref: string) => {
+    if (!ref) return;
     try {
       const r = await fetch("/api/nf/cancelar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ref: n.ref }),
+        body: JSON.stringify({ ref }),
       }).then((x) => x.json());
-      if (r.status === "cancelado") { setNota(clienteId, { ...n, status: "cancelada" }); toast("Nota cancelada"); return; }
-      setNota(clienteId, { ...n, erro: r.erros?.[0]?.mensagem ?? "Não foi possível cancelar." });
+      if (r.status === "cancelado") toast("Nota cancelada");
+      else toast(r.erros?.[0]?.mensagem ?? "Não foi possível cancelar.");
     } catch {
-      setNota(clienteId, { ...n, erro: "Sem conexão para cancelar a nota." });
+      toast("Sem conexão para cancelar a nota.");
     }
-  }, [notaDe, setNota]);
+    /* Recarrega em qualquer desfecho: quem manda no que a tela mostra é o banco, e adivinhar
+     * o novo estado aqui é como o `localStorage` divergia do servidor. */
+    void recarregarFaturamento();
+  }, [recarregarFaturamento]);
 
   /**
    * Nota de cliente de teste se cancela sozinha.
    *
-   * A NFS-e só autoriza de verdade em produção, então validar a integração exige
-   * emitir uma nota real. Deixá-la de pé seria um documento fiscal indevido — o
-   * cancelamento automático é o que torna o teste seguro de repetir.
+   * A NFS-e só autoriza de verdade em produção, então validar a integração exige emitir uma
+   * nota real. Deixá-la de pé seria um documento fiscal indevido — o cancelamento automático
+   * é o que torna o teste seguro de repetir.
    */
-  const agendarCancelamentoDeTeste = useCallback((clienteId: string) => {
-    if (!clienteDe(clienteId)?.teste) return;
+  const agendarCancelamentoDeTeste = useCallback((clienteId: string, ref: string) => {
+    if (!clienteDe(clienteId)?.teste || !ref) return;
     const seg = Math.round(D.TESTE_CANCELA_APOS_MS / 1000);
     toast(`Nota de teste emitida — cancelando em ${seg}s`);
-    agendar(() => { void cancelarNota(clienteId); }, D.TESTE_CANCELA_APOS_MS);
+    agendar(() => { void cancelarNota(ref); }, D.TESTE_CANCELA_APOS_MS);
   }, [agendar, cancelarNota, clienteDe]);
 
   /** Acompanha a emissão assíncrona até sair número (ou erro). */
   const acompanhar = useCallback((clienteId: string, ref: string, tentativa = 0) => {
-    if (tentativa > 20) {
-      setNota(clienteId, { status: "processando", ref });
-      return;
-    }
+    if (tentativa > 20) return;
     agendar(async () => {
       try {
         const r = await fetch(`/api/nf/status?ref=${encodeURIComponent(ref)}`).then((x) => x.json());
-        if (r.status === "autorizado") {
-          setNota(clienteId, { status: "emitida", numero: r.numero, data: D.HOJE.data, ref, pdf: r.pdf });
-          agendarCancelamentoDeTeste(clienteId);
-          return;
-        }
-        if (r.status === "cancelado") { setNota(clienteId, { status: "cancelada", ref }); return; }
-        if (r.status === "simulado") { numeroLocal(clienteId, ref); agendarCancelamentoDeTeste(clienteId); return; }
-        if (r.status === "erro") {
-          setNota(clienteId, { status: "erro", ref, erro: r.erros?.[0]?.mensagem ?? "A prefeitura rejeitou a nota." });
-          return;
-        }
+        /* `consultarNota` já grava o status no banco — aqui só se recarrega. Pintar a tela
+         * com a resposta e gravar no servidor em paralelo é como as duas fontes divergiam. */
+        if (r.status === "autorizado") { await recarregarFaturamento(); agendarCancelamentoDeTeste(clienteId, ref); return; }
+        if (r.status === "cancelado" || r.status === "erro") { void recarregarFaturamento(); return; }
+        if (r.status === "simulado") { await recarregarFaturamento(); agendarCancelamentoDeTeste(clienteId, ref); return; }
         acompanhar(clienteId, ref, tentativa + 1);
       } catch {
         acompanhar(clienteId, ref, tentativa + 1);
       }
     }, tentativa === 0 ? 1400 : 3000);
-  }, [agendar, setNota, numeroLocal, agendarCancelamentoDeTeste]);
+  }, [agendar, agendarCancelamentoDeTeste, recarregarFaturamento]);
 
   const emitirNota = useCallback(async (clienteId: string) => {
-    const c = clienteDe(clienteId);
-    if (!c || c.valor <= 0) return;
-    if (notaDe(clienteId).status === "processando") return;
-
-    setNota(clienteId, { status: "processando" });
     try {
+      /* ⚠️ UM CAMPO. Valor, discriminação e tomador saem do BANCO, na transação que prende os
+       * atendimentos. Esta tela mandava os três até 17/08/2026 — e uma tela aberta há dez
+       * minutos emitia nota com total velho. */
       const r = await fetch("/api/nf/emitir", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pid: clienteId,
-          valor: c.valor,
-          // catálogo vivo, e aqui não é cosmético: a discriminação é o que a prefeitura imprime
-          // no documento. Com `D.nomeServico` a nota saía com o nome que o usuário já trocou.
-          discriminacao: `${nomeServico(c.servicoId)} — ${c.atendimentos} atendimentos · ${D.PERIODO}`,
-          tomador: {
-            cpf: c.cpf.replace(/\D/g, ""),
-            nome: c.nome,
-            email: c.email,
-            telefone: c.telefone.replace(/\D/g, ""),
-          },
-        }),
+        body: JSON.stringify({ clienteId }),
       }).then((x) => x.json());
 
-      if (r.status === "simulado") { numeroLocal(clienteId, r.ref); agendarCancelamentoDeTeste(clienteId); return; }
-      if (r.status === "autorizado") {
-        setNota(clienteId, { status: "emitida", numero: r.numero, data: D.HOJE.data, ref: r.ref, pdf: r.pdf });
-        agendarCancelamentoDeTeste(clienteId);
+      /* ⚠️ NÃO É ERRO. O segundo clique, ou a outra aba, chegou primeiro — e a claim do banco
+       * fez o certo. Mostrar erro aqui faria o dono clicar de novo procurando entender. */
+      if (r.status === "ja_faturado") { toast("Esse cliente já foi faturado"); void recarregarFaturamento(); return; }
+      if (r.status === "processando") { await recarregarFaturamento(); acompanhar(clienteId, r.ref); return; }
+      if (r.status === "autorizado" || r.status === "simulado") {
+        await recarregarFaturamento();
+        agendarCancelamentoDeTeste(clienteId, r.ref);
         return;
       }
-      if (r.status === "processando") { setNota(clienteId, { status: "processando", ref: r.ref }); acompanhar(clienteId, r.ref); return; }
-      if (r.status === "config_incompleta") {
-        setNota(clienteId, { status: "erro", erro: `Faltam dados fiscais: ${(r.faltando ?? []).join(", ")}.` });
-        return;
-      }
-      if (r.status === "nao_autenticado") {
-        setNota(clienteId, { status: "erro", erro: "Sua sessão expirou. Entre de novo para emitir." });
-        return;
-      }
-      setNota(clienteId, { status: "erro", ref: r.ref, erro: r.erros?.[0]?.mensagem ?? r.info ?? "Não foi possível emitir." });
+      if (r.status === "config_incompleta") { toast(`Faltam dados fiscais: ${(r.faltando ?? []).join(", ")}.`); return; }
+      if (r.status === "nao_autenticado") { toast("Sua sessão expirou. Entre de novo para emitir."); return; }
+      toast(r.erros?.[0]?.mensagem ?? r.info ?? "Não foi possível emitir.");
+      void recarregarFaturamento();
     } catch {
-      setNota(clienteId, { status: "erro", erro: "Sem conexão com o servidor de notas." });
+      toast("Sem conexão com o servidor de notas.");
     }
-  }, [notaDe, setNota, numeroLocal, acompanhar, agendarCancelamentoDeTeste, nomeServico, clienteDe]);
+  }, [acompanhar, agendarCancelamentoDeTeste, recarregarFaturamento]);
 
-  const fechamento = useMemo(
-    () => cadastro.clientes.filter((c) => cliAtivo(c.id) && c.valor > 0),
-    [cadastro.clientes, cliAtivo],
-  );
+  /**
+   * As linhas da tela de Faturamento.
+   *
+   * Junta o que falta emitir (do banco) com as notas já emitidas, e completa com o cadastro
+   * o que o servidor não manda (canal, serviço) — esses são de exibição, e o que decide
+   * dinheiro vem inteiro do servidor.
+   */
+  const fechamento = useMemo<LinhaDeFaturamento[]>(() => {
+    if (!faturamento) return [];
+    const porId = new Map(cadastro.clientes.map((c) => [c.id, c]));
 
-  /* FONTE DA VERDADE ÚNICA de "o que o lote vai emitir".
-   * Antes havia três regras divergentes: o hero contava pendente|erro|cancelada, a topbar repetia
-   * essa conta, e o lote emitia só pendente|erro. Resultado: o botão prometia N e o sistema
-   * emitia M, sem explicar a diferença — e se só houvesse canceladas o botão aparecia e não
-   * fazia nada. Agora hero, topbar e lote leem DAQUI. */
+    const pendentes: LinhaDeFaturamento[] = faturamento.aFaturar.map((a) => {
+      const c = porId.get(a.clienteId);
+      return {
+        id: a.clienteId, nome: a.nome, valor: a.valor, atendimentos: a.atendimentos,
+        cpf: a.cpf ?? "", teste: a.teste, servicoId: c?.servicoId ?? "", canal: c?.canal ?? "—",
+        servico: a.servico, semCpf: !a.cpf,
+      };
+    });
+
+    /* Quem já tem nota também aparece — é o histórico do mês. `tomadorNome` vem do snapshot
+     * da própria nota, e não do cadastro: documento fiscal não muda de nome porque alguém
+     * corrigiu o cliente depois. */
+    const jaEmitidos: LinhaDeFaturamento[] = faturamento.emitidas
+      .filter((n) => n.clienteId && !faturamento.aFaturar.some((a) => a.clienteId === n.clienteId))
+      .map((n) => {
+        const c = n.clienteId ? porId.get(n.clienteId) : undefined;
+        return {
+          id: n.clienteId!, nome: n.tomadorNome ?? c?.nome ?? "—", valor: n.valor,
+          atendimentos: 0, cpf: c?.cpf ?? "", teste: c?.teste === true,
+          servicoId: c?.servicoId ?? "", canal: c?.canal ?? "—", servico: null, semCpf: false,
+        };
+      });
+
+    return [...pendentes, ...jaEmitidos];
+  }, [faturamento, cadastro.clientes]);
+
+  /* FONTE DA VERDADE ÚNICA de "o que o lote vai emitir" — hero, topbar e lote leem DAQUI.
+   * Antes havia três regras divergentes e o botão prometia N enquanto o sistema emitia M. */
   const emitiveis = useMemo(
     () => fechamento.filter((c) => {
-      // Tomador de teste fica FORA do lote de propósito: em produção ele emite
-      // uma nota real, e um botão de fechar o mês não deveria disparar isso sem
-      // que alguém pedisse. Ele emite só pela própria gaveta, um a um.
+      /* Tomador de teste fica FORA do lote: em produção ele emite uma nota REAL, e um botão
+       * de fechar o mês não deveria disparar isso sem que alguém pedisse. Ele emite só pela
+       * própria gaveta, um a um. */
       if (c.teste) return false;
-      const s = notaDe(c.id).status;
-      return s === "pendente" || s === "erro";
+      /* ⚠️ Sem CPF a prefeitura recusa. Deixar na lista faria o lote de doze virar onze
+       * sucessos e um erro que ninguém entende — o motivo aparece na linha do cliente. */
+      if (c.semCpf) return false;
+      return c.atendimentos > 0;
     }),
-    [fechamento, notaDe],
+    [fechamento],
   );
 
   const emitirPendentes = useCallback(() => {
@@ -1943,8 +2010,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     toast(`Enviando ${emitiveis.length} ${emitiveis.length === 1 ? "nota" : "notas"} à prefeitura`);
     // Escalonado: emissão em lote não deve disparar N requisições no mesmo tick.
     emitiveis.forEach((c, i) => agendar(() => { void emitirNota(c.id); }, i * 300));
-    // Toast de conclusão: emitir em lote é irreversível e caro; terminar em silêncio deixava o
-    // usuário sem saber se acabou. O atraso acompanha o escalonamento acima.
     agendar(() => toast(`${emitiveis.length === 1 ? "Nota enviada" : "Notas enviadas"} — acompanhe o status em cada cliente`), emitiveis.length * 300 + 400);
   }, [emitiveis, emitirNota, agendar]);
 
