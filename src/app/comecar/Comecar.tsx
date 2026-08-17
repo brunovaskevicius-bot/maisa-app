@@ -42,16 +42,28 @@ import { useRouter } from "next/navigation";
 import { s, Icon, Toggle, toast, Toaster } from "@/ui/primitivos";
 import type { CategoriaServico, PassoDeAtivacao, Servico, Vertical } from "@/nucleo/dominio";
 import { sugestoes, type ExemploDoNegocio } from "./sugestoes";
+import { LigarNotaFiscal } from "@/ui/componentes/LigarNotaFiscal";
 
 /* ───────────────────────────── as etapas ───────────────────────────── */
 
-type EtapaId = "negocio" | "catalogo" | "whatsapp" | "ver";
+type EtapaId = "negocio" | "catalogo" | "whatsapp" | "ver" | "fiscal";
 
 const ETAPAS: { id: EtapaId; titulo: string; sub: string }[] = [
   { id: "negocio", titulo: "Seu negócio", sub: "Como ele se chama e o que você faz" },
   { id: "catalogo", titulo: "O que você faz", sub: "Confira preços e quem atende" },
   { id: "whatsapp", titulo: "Conectar o WhatsApp", sub: "Um QR code e a MAISA entra no ar" },
   { id: "ver", titulo: "Ver funcionando", sub: "Fale com ela como se fosse seu cliente" },
+  /* ★ ETAPA 5, e ela é uma PERGUNTA — não um formulário.
+   *
+   * A nota fiscal é o maior diferencial do produto, e ela é o único passo que depende de o
+   * cliente trazer algo de fora (o certificado digital). As duas coisas juntas fazem dela o
+   * pior candidato a etapa obrigatória: quem não tem o certificado à mão empaca no último
+   * metro do onboarding, com a MAISA já funcionando.
+   *
+   * Então a etapa pergunta "agora ou depois", e "depois" é uma resposta de primeira classe:
+   * o cartão da jornada continua cobrando no painel, sem pressa. O que não podia acontecer é
+   * o dono terminar o onboarding sem SABER que isto existe. */
+  { id: "fiscal", titulo: "Nota fiscal", sub: "Ela emite sozinha depois do atendimento" },
 ];
 
 const VERTICAIS: { id: Vertical; rotulo: string; desc: string; icone: string }[] = [
@@ -666,7 +678,13 @@ function LigarAgenda() {
 type Ambiente = { pronto: boolean; agendaReal: boolean; exemplo: ExemploDoNegocio };
 
 /** A conversa em si. Só monta quando o que precisa estar de pé está de pé. */
-function Conversa({ ambiente, numero, aoPainel }: { ambiente: Ambiente; numero: string | null; aoPainel: () => void }) {
+function Conversa({ ambiente, numero, aoPainel, aoSeguir }: {
+  ambiente: Ambiente; numero: string | null;
+  /** Sair do wizard. Usado pelos becos internos (`Falta`), onde a pessoa está desistindo. */
+  aoPainel: () => void;
+  /** Seguir para a etapa 5. Usado pelo botão final — ver o comentário lá embaixo. */
+  aoSeguir: () => void;
+}) {
   const { exemplo } = ambiente;
   const semChave = !ambiente.pronto;
   const [falas, setFalas] = useState<Fala[]>([]);
@@ -838,9 +856,155 @@ function Conversa({ ambiente, numero, aoPainel }: { ambiente: Ambiente; numero: 
         </button>
       </form>
 
-      <Botao onClick={aoPainel} variante={marcou ? "primary" : "ghost"} full>
-        Abrir meu painel
+      {/* Vai para a etapa 5 (nota fiscal), e não direto para o painel. O rótulo muda de
+          "Continuar" para o convite quando a MAISA ACABOU de marcar: é o instante de maior
+          crédito do onboarding inteiro, e é nele que faz sentido apresentar o diferencial. */}
+      <Botao onClick={aoSeguir} variante={marcou ? "primary" : "ghost"} full>
+        {marcou ? "Agora a nota fiscal" : "Continuar"}
       </Botao>
+    </div>
+  );
+}
+
+/* ────────────────────────── etapa 5 · nota fiscal ──────────────────────────
+ *
+ * ★ UMA PERGUNTA, E "DEPOIS" É RESPOSTA DE PRIMEIRA CLASSE.
+ *
+ * A nota fiscal é o maior diferencial do produto — e o único passo que depende de o cliente
+ * trazer algo de fora: o certificado digital A1 do CNPJ. As duas coisas juntas fazem dela o
+ * pior candidato possível a etapa obrigatória. Quem não tem o arquivo à mão empacaria no
+ * último metro, com a MAISA já atendendo e marcando.
+ *
+ * Então esta etapa não é formulário: é uma escolha de duas. E ela existe porque o desfecho
+ * ruim não era "o dono deixou para depois" — era **o dono terminar o onboarding sem saber que
+ * isto existe**, e descobrir no mês seguinte, se descobrir.
+ *
+ * ── POR QUE ELA REUSA O `LigarNotaFiscal` DO PAINEL ──
+ *
+ * Porque é o MESMO fluxo, e a alternativa é manter dois. É a mesma decisão que a etapa 4 já
+ * tomou ao mandar o cartão da jornada para `/comecar` em vez de duplicar o simulador: um
+ * segundo lugar que pede CNPJ e sobe certificado seria um segundo lugar para consertar quando
+ * a Focus mudar de campo.
+ *
+ * ── ⚠️ ELA SE APAGA QUANDO NÃO TEM O QUE OFERECER ──
+ *
+ * Sem `FOCUS_NFE_TOKEN` no ambiente, ligar a nota fiscal é impossível — e isso não é problema
+ * do dono, é nosso. Cobrar dele um passo que só nós podemos destravar é a pior variante de
+ * checklist que mente. Nesse caso a etapa vira só a despedida.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+function EtapaNotaFiscal({ aoPainel }: { aoPainel: () => void }) {
+  const [estado, setEstado] = useState<{ falta: string[]; provedorFaltando: string[]; ligado: boolean } | null>(null);
+  const [escolheu, setEscolheu] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/fiscal", { cache: "no-store" })
+      .then(async (r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!vivo) return;
+        /* Falha de leitura cai no MESMO estado de "não dá para oferecer": esta etapa é a
+         * última do wizard, e travá-la numa tela de erro por causa de uma consulta é perder
+         * o onboarding inteiro no último passo. */
+        if (!d?.ok) { setEstado({ falta: [], provedorFaltando: ["leitura"], ligado: false }); return; }
+        setEstado({
+          falta: d.falta ?? [],
+          provedorFaltando: d.provedorFaltando ?? [],
+          ligado: d.config?.empresaId != null,
+        });
+      })
+      .catch(() => { if (vivo) setEstado({ falta: [], provedorFaltando: ["leitura"], ligado: false }); });
+    return () => { vivo = false; };
+  }, []);
+
+  if (!estado) return <div style={{ minHeight: 200 }} aria-busy="true" />;
+
+  const indisponivel = estado.provedorFaltando.length > 0;
+  const pronto = !indisponivel && estado.falta.length === 0;
+
+  /* Já está tudo ligado (ou não há o que ligar): só a despedida. Perguntar "quer ligar a nota
+   * fiscal?" a quem já ligou é o tipo de tela que faz a pessoa desconfiar do produto. */
+  if (pronto || indisponivel) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 18, alignItems: "center", textAlign: "center" }}>
+        <div style={s(`display:flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:999px;background:${pronto ? "var(--success-soft)" : "var(--primary-soft)"}`)}>
+          <Icon name={pronto ? "check" : "receipt"} size={27} sw={pronto ? 2.6 : 2} stroke={pronto ? "var(--success)" : "var(--primary-dark)"} />
+        </div>
+        <div>
+          <p style={s("font-size:var(--t-body);font-weight:var(--w-title);color:var(--ink);margin:0")}>
+            {pronto ? "Sua nota fiscal já está ligada" : "Tudo pronto"}
+          </p>
+          <p style={s("font-size:var(--t-sm);color:var(--muted);margin:8px 0 0;line-height:1.55")}>
+            {pronto
+              ? "Depois de cada atendimento ela emite sozinha. Você acompanha em Faturamento."
+              : "A MAISA está no ar. A nota fiscal fica em Faturamento, quando você quiser ligar."}
+          </p>
+        </div>
+        <Botao onClick={aoPainel} full>Abrir meu painel</Botao>
+      </div>
+    );
+  }
+
+  /* Escolheu ligar agora: o cartão do painel, aqui dentro. A saída continua na tela, em texto
+   * discreto — quem descobre no meio que o certificado está no computador do contador precisa
+   * poder sair sem sentir que abandonou o onboarding.
+   *
+   * O rótulo é neutro de propósito: "terminar depois" mentiria para quem acabou de terminar,
+   * e esta tela não sabe em qual dos dois estados o cartão está. */
+  if (escolheu) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <LigarNotaFiscal />
+        <button
+          onClick={aoPainel}
+          className="m-focus"
+          style={s("align-self:center;background:none;border:none;font-family:inherit;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--muted);cursor:pointer;padding:6px 10px")}
+        >
+          Abrir meu painel
+        </button>
+      </div>
+    );
+  }
+
+  const opcao = "display:flex;align-items:flex-start;gap:13px;width:100%;padding:16px 15px;border-radius:14px;border:1px solid var(--border);background:var(--surface);font-family:inherit;text-align:left;cursor:pointer";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <p style={s("font-size:var(--t-sm);color:var(--muted);margin:0;line-height:1.6")}>
+        A MAISA emite a <strong style={s("color:var(--ink)")}>nota fiscal de serviço</strong> sozinha
+        depois de cada atendimento. É a parte que nenhuma outra agenda faz.
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <button onClick={() => setEscolheu(true)} className="m-hov-bg m-press m-focus" style={s(opcao)}>
+          <span aria-hidden style={s("display:flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;border-radius:999px;background:var(--primary-soft)")}>
+            <Icon name="receipt" size={17} sw={2} stroke="var(--primary-dark)" />
+          </span>
+          <span style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+            <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>Ligar agora</span>
+            {/* O tempo e o que vai ser pedido, ditos ANTES do clique. Descobrir no meio do
+                caminho que precisa de um arquivo que está no computador do contador é o
+                abandono mais evitável que existe. */}
+            <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+              Só o CNPJ — eu busco o resto na Receita. Depois o certificado digital A1.
+            </span>
+          </span>
+        </button>
+
+        <button onClick={aoPainel} className="m-hov-bg m-press m-focus" style={s(opcao)}>
+          <span aria-hidden style={s("display:flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;border-radius:999px;background:var(--line)")}>
+            <Icon name="clock" size={17} sw={2} stroke="var(--muted)" />
+          </span>
+          <span style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+            <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>Deixar para depois</span>
+            {/* Diz ONDE fica. "Depois" sem endereço é "nunca" — e é o que transformaria a
+                escolha honesta em perda silenciosa do diferencial. */}
+            <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+              A MAISA já atende e marca. Isto fica esperando em Faturamento.
+            </span>
+          </span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -877,7 +1041,9 @@ function BolhaSim({ fala }: { fala: Fala }) {
   );
 }
 
-function EtapaVerFuncionando({ feitos, aoVoltarParaWhatsApp }: { feitos: PassoDeAtivacao[]; aoVoltarParaWhatsApp: () => void }) {
+function EtapaVerFuncionando({ feitos, aoVoltarParaWhatsApp, aoSeguir }: {
+  feitos: PassoDeAtivacao[]; aoVoltarParaWhatsApp: () => void; aoSeguir: () => void;
+}) {
   const router = useRouter();
   const [numero, setNumero] = useState<string | null>(null);
   const [ambiente, setAmbiente] = useState<Ambiente | null>(null);
@@ -957,7 +1123,7 @@ function EtapaVerFuncionando({ feitos, aoVoltarParaWhatsApp }: { feitos: PassoDe
     );
   }
 
-  return <Conversa ambiente={ambiente} numero={numero} aoPainel={aoPainel} />;
+  return <Conversa ambiente={ambiente} numero={numero} aoPainel={aoPainel} aoSeguir={aoSeguir} />;
 }
 
 /* ───────────────────────────── o wizard ───────────────────────────── */
@@ -1036,6 +1202,10 @@ export default function Comecar() {
       .catch(() => {});
   }, []);
 
+  /* Sair do wizard. Vive aqui e não dentro de cada etapa porque a etapa 5 também precisa —
+   * "deixar para depois" é literalmente abrir o painel, e não um estado a guardar. */
+  const aoPainelDoWizard = useCallback(() => { router.push("/"); router.refresh(); }, [router]);
+
   if (etapa === null) {
     return <div style={{ minHeight: "100vh" }} />;
   }
@@ -1064,7 +1234,8 @@ export default function Comecar() {
           {etapa === "negocio" && <EtapaNegocio aoCriar={() => avancar("catalogo")} />}
           {etapa === "catalogo" && <EtapaCatalogo aoSeguir={() => avancar("whatsapp")} />}
           {etapa === "whatsapp" && <EtapaWhatsApp aoSeguir={() => avancar("ver")} />}
-          {etapa === "ver" && <EtapaVerFuncionando feitos={feitos} aoVoltarParaWhatsApp={() => avancar("whatsapp")} />}
+          {etapa === "ver" && <EtapaVerFuncionando feitos={feitos} aoVoltarParaWhatsApp={() => avancar("whatsapp")} aoSeguir={() => avancar("fiscal")} />}
+          {etapa === "fiscal" && <EtapaNotaFiscal aoPainel={aoPainelDoWizard} />}
         </div>
 
         {/* ⚠️ "Pular" NÃO aparece na etapa 1, e é a única assimetria da tela: as outras três
