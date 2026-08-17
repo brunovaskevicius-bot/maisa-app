@@ -1,0 +1,310 @@
+"use client";
+/* ─────────────────────────────────────────────────────────────────────────────
+ * MEUS CONTATOS — onde o dono diz quem a MAISA atende.
+ *
+ * ── POR QUE ESTA TELA PRECISOU EXISTIR (17/08/2026) ──
+ *
+ * O relato foi: *"acabei de pegar meus contatos aqui. falta uma tela para eu poder dizer
+ * quais são e quais não são meus clientes. ele diz que isso é possível, mas não diz como
+ * fazer, onde fazer etc."*
+ *
+ * E ele estava descrevendo um buraco exato: o caminho inteiro já existia menos o último
+ * palmo. `PATCH /api/contatos` marca contato desde sempre, `criarMarcarContato` valida,
+ * a coluna guarda o ternário, e `podeResponder` lê. O que não existia era **um lugar para
+ * clicar**. O cartão "De quem é esse número" chegava a dizer *"1.840 contatos aqui, 3
+ * marcados como cliente"* — informava o número e não oferecia o gesto.
+ *
+ * Funcionalidade sem porta de entrada é funcionalidade que não existe, e essa é pior que a
+ * ausente: ela promete na tela e não entrega.
+ *
+ * ── O TERNÁRIO É O CONTEÚDO DESTA TELA, NÃO UM DETALHE ──
+ *
+ * `cliente` tem três valores e os três significam coisas diferentes para o silêncio da
+ * MAISA (ver `dominio/contatos.ts`):
+ *
+ *   • `true`  → ela atende
+ *   • `null`  → o dono nunca disse. Ela CALA — é o padrão seguro, e é onde nascem os 1.840
+ *   • `false` → o dono disse que não. Ela cala, e a diferença para `null` é que isto é uma
+ *               resposta: some da fila de "falta decidir" e nunca mais é sugerido
+ *
+ * Uma tela de dois estados (um switch ligado/desligado) apagaria a distinção entre "não
+ * decidi" e "decidi que não" — e é essa distinção que diz ao dono quanto trabalho falta.
+ * Por isso são dois botões e um filtro "falta decidir", em vez de um toggle.
+ *
+ * ⚠️ NÃO EXISTE "MARCAR TODOS". Com 1.840 entradas ele é irresistível e é a única ação
+ * desta tela que não tem volta prática: marcar todo mundo como cliente transforma a agenda
+ * inteira do celular pessoal em gente que a MAISA atende — inclusive a mãe do dono, que é
+ * o erro que este produto inteiro tenta não cometer (ver o cabeçalho de
+ * `DeQuemEEsseNumero`). A busca existe para ele achar quem importa; o resto pode ficar
+ * calado, porque calado é o padrão que não machuca.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+import React from "react";
+import { s, Icon, Filtros, EmptyState, SectionTitle, Btn, toast } from "@/ui/primitivos";
+import { TelaGrade } from "@/ui/componentes/Cartao";
+import { useStore } from "@/ui/estado/store";
+import { telefoneBonito } from "@/nucleo/dominio/clientes";
+import type { Contato, ModoDoNumero } from "@/nucleo/dominio/contatos";
+
+type Filtro = "Falta decidir" | "Atende" | "Não atende" | "Todos";
+const FILTROS: Filtro[] = ["Falta decidir", "Atende", "Não atende", "Todos"];
+
+/** Em qual balde cada contato cai. Um lugar só, para o filtro e o contador concordarem. */
+const baldeDe = (c: Contato): Filtro =>
+  c.cliente === true ? "Atende" : c.cliente === false ? "Não atende" : "Falta decidir";
+
+/**
+ * Casa a busca contra nome E telefone.
+ *
+ * Os dois porque o dono procura das duas formas, e por 1.840 entradas ele procura mesmo:
+ * "Zé" quando lembra o nome, os quatro últimos dígitos quando o contato entrou sem nome
+ * (que é a maioria do que vem de uma agenda de WhatsApp).
+ */
+function casa(c: Contato, busca: string): boolean {
+  const q = busca.trim().toLowerCase();
+  if (!q) return true;
+  const digitos = q.replace(/\D/g, "");
+  if (digitos && c.chave.includes(digitos)) return true;
+  return (c.nome ?? "").toLowerCase().includes(q);
+}
+
+/* Quantos desenhar de uma vez. A agenda do Bruno tem 1.840 entradas, e 1.840 linhas com
+ * dois botões cada é uma tela que trava no celular — o aparelho onde ele vai fazer isso.
+ * Paginar por botão em vez de scroll infinito: o dono está PROCURANDO alguém, e a busca é
+ * o caminho rápido; a lista longa é só o fallback de quem quer varrer. */
+const PAGINA = 60;
+
+export default function Contatos() {
+  const st = useStore();
+  const [contatos, setContatos] = React.useState<Contato[] | null>(null);
+  const [modo, setModo] = React.useState<ModoDoNumero>("negocio");
+  const [busca, setBusca] = React.useState("");
+  const [filtro, setFiltro] = React.useState<Filtro>("Falta decidir");
+  const [mostrando, setMostrando] = React.useState(PAGINA);
+  /** Quem está com escrita em voo — trava só a linha, nunca a tela. */
+  const [salvando, setSalvando] = React.useState<Set<string>>(new Set());
+
+  const ler = React.useCallback(async () => {
+    try {
+      const r = await fetch("/api/contatos", { cache: "no-store" }).then((x) => x.json());
+      if (r?.ok) { setContatos(r.contatos ?? []); setModo(r.modo); }
+      else setContatos([]);
+    } catch { setContatos([]); }
+  }, []);
+
+  React.useEffect(() => { void ler(); }, [ler]);
+
+  /**
+   * Marca um contato, otimista.
+   *
+   * Otimista porque a tarefa é REPETITIVA: o dono vai clicar dezenas de vezes seguidas, e
+   * esperar um round-trip entre cliques transforma dez minutos de trabalho em vinte. A
+   * reversão é o próprio valor anterior, guardado antes de escrever — e não uma releitura
+   * da lista inteira, que jogaria fora as outras marcações em voo.
+   */
+  const marcar = React.useCallback(async (c: Contato, cliente: boolean | null) => {
+    const anterior = c.cliente;
+    setContatos((lista) => lista?.map((x) => (x.chave === c.chave ? { ...x, cliente } : x)) ?? lista);
+    setSalvando((s0) => new Set(s0).add(c.chave));
+
+    try {
+      const r = await fetch("/api/contatos", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        /* Manda a `chave` no campo `telefone`: o núcleo aplica `chaveDe()` no que recebe, e
+         * a chave já É o resultado dessa função. Mandar o nome junto seria reescrever com o
+         * que a tela tem em mãos — e a tela não é dona do nome, o caderno é. */
+        body: JSON.stringify({ telefone: c.chave, cliente }),
+      }).then((x) => x.json());
+      if (!r?.ok) throw new Error(r?.info ?? "recusado");
+    } catch {
+      setContatos((lista) => lista?.map((x) => (x.chave === c.chave ? { ...x, cliente: anterior } : x)) ?? lista);
+      toast("Não consegui salvar essa marcação");
+    } finally {
+      setSalvando((s0) => { const n = new Set(s0); n.delete(c.chave); return n; });
+    }
+  }, []);
+
+  /* Reinicia a paginação quando o recorte muda. Sem isto, filtrar depois de ter carregado
+   * 300 linhas mostraria 300 de um conjunto de 12 — e o botão "mostrar mais" sumiria sem
+   * que nada tivesse acabado. */
+  React.useEffect(() => { setMostrando(PAGINA); }, [busca, filtro]);
+
+  if (contatos === null) return <TelaGrade><div style={{ minHeight: 200 }} /></TelaGrade>;
+
+  const contagem = {
+    "Falta decidir": contatos.filter((c) => c.cliente == null).length,
+    "Atende": contatos.filter((c) => c.cliente === true).length,
+    "Não atende": contatos.filter((c) => c.cliente === false).length,
+    "Todos": contatos.length,
+  } as Record<Filtro, number>;
+
+  const filtrados = contatos.filter((c) => (filtro === "Todos" || baldeDe(c) === filtro) && casa(c, busca));
+  const visiveis = filtrados.slice(0, mostrando);
+
+  return (
+    <TelaGrade>
+      <section>
+        <SectionTitle
+          title="Quem a MAISA atende"
+          sub={
+            modo === "negocio"
+              ? "Neste número ela atende todo mundo — estas marcações ficam guardadas para se você mudar de ideia"
+              : "Ela atende quem você marcar aqui, e quem você não tem salvo. Cala para o resto."
+          }
+        />
+
+        {/* ⚠️ O AVISO DO MODO "NEGÓCIO" É O MAIS IMPORTANTE DESTA TELA. Sem ele, o dono
+            marca duzentos contatos achando que está mudando alguma coisa e não muda nada —
+            e depois conclui que o produto ignorou o trabalho dele. */}
+        {modo === "negocio" && (
+          <div style={s("display:flex;gap:10px;align-items:flex-start;padding:12px 14px;margin-bottom:14px;border-radius:12px;background:var(--warm-soft);color:var(--warn);font-size:var(--t-label);line-height:1.5")}>
+            <Icon name="sparkle" size={16} />
+            <span>
+              Este número está como <b>só do negócio</b>, então a MAISA responde todo mundo e
+              nada aqui muda o que ela faz hoje. Para ela calar com quem não é cliente, mude
+              em <b>Ajustes da MAISA → De quem é esse número</b>.
+            </span>
+          </div>
+        )}
+
+        {contatos.length === 0 ? (
+          <EmptyState
+            icon="download"
+            title="Seus contatos ainda não estão aqui"
+            sub="Traga a agenda do WhatsApp para escolher quem ela atende — e para ela chamar seus clientes pelo nome."
+            /* Leva ao lugar onde a importação acontece, em vez de só descrevê-lo. Um vazio
+               que diz "vá em Ajustes da MAISA" e não abre Ajustes da MAISA é a mesma falha
+               que criou esta tela: instrução sem porta. */
+            action={<Btn variant="primary" icon="bot" onClick={() => st.irPara("assistente")}>Trazer meus contatos</Btn>}
+          />
+        ) : (
+          <>
+            <div style={s("display:flex;flex-direction:column;gap:12px;margin-bottom:16px")}>
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar por nome ou telefone"
+                aria-label="Buscar contato"
+                className="m-focus"
+                style={s("width:100%;max-width:380px;height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--border-field);background:var(--surface);font-family:inherit;font-size:var(--t-body);color:var(--ink);outline:none")}
+              />
+              {/* O número em cada aba não é enfeite: com 1.840 contatos, "falta decidir 1.837"
+                  é a informação que diz se vale a pena varrer ou se é melhor só buscar. */}
+              <Filtros
+                opcoes={FILTROS.map((f) => `${f} (${contagem[f]})`)}
+                ativo={`${filtro} (${contagem[filtro]})`}
+                onChange={(v) => setFiltro(FILTROS.find((f) => v.startsWith(f)) ?? "Todos")}
+              />
+            </div>
+
+            {filtrados.length === 0 ? (
+              <EmptyState
+                icon="search"
+                title={busca ? "Ninguém com esse nome ou número" : "Nada neste filtro"}
+                sub={busca ? "Tente parte do nome, ou os últimos dígitos do telefone." : undefined}
+              />
+            ) : (
+              <>
+                <div style={s("display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden")}>
+                  {visiveis.map((c, i) => (
+                    <Linha
+                      key={c.chave}
+                      contato={c}
+                      ultima={i === visiveis.length - 1}
+                      ocupado={salvando.has(c.chave)}
+                      aoMarcar={(v) => void marcar(c, v)}
+                    />
+                  ))}
+                </div>
+
+                {filtrados.length > visiveis.length && (
+                  <div style={s("display:flex;justify-content:center;margin-top:14px")}>
+                    <Btn variant="secondary" onClick={() => setMostrando((n) => n + PAGINA)}>
+                      Mostrar mais {Math.min(PAGINA, filtrados.length - visiveis.length)} de{" "}
+                      {filtrados.length - visiveis.length}
+                    </Btn>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </section>
+    </TelaGrade>
+  );
+}
+
+/** Uma pessoa e a decisão sobre ela. Fora do componente de cima para a lista não repintar
+ *  todas as linhas a cada tecla digitada na busca. */
+function Linha(
+  { contato, ultima, ocupado, aoMarcar }: {
+    contato: Contato; ultima: boolean; ocupado: boolean;
+    aoMarcar: (v: boolean | null) => void;
+  },
+) {
+  const atende = contato.cliente === true;
+  const recusado = contato.cliente === false;
+
+  return (
+    <div style={s(`display:flex;align-items:center;gap:12px;padding:12px 14px;${ultima ? "" : "border-bottom:1px solid var(--line)"};opacity:${ocupado ? ".55" : "1"}`)}>
+      <span style={s("flex:1;min-width:0")}>
+        <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>
+          {/* Sem nome mostra o telefone formatado, nunca "Contato sem nome": o telefone é a
+              única informação verdadeira que temos, e é por ele que o dono reconhece. */}
+          {contato.nome?.trim() || telefoneBonito(contato.chave)}
+        </span>
+        {contato.nome?.trim() && (
+          <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:1px")}>
+            {telefoneBonito(contato.chave)}
+          </span>
+        )}
+      </span>
+
+      {/* Dois botões e não um switch: ver o cabeçalho — "não decidi" e "decidi que não" são
+          estados diferentes, e um switch só tem dois. Clicar no que já está ativo DESFAZ,
+          voltando para "falta decidir"; sem isso, marcar errado não teria volta. */}
+      <span style={s("display:flex;gap:6px;flex-shrink:0")}>
+        <Escolha
+          rotulo="Atende"
+          ativo={atende}
+          cor="var(--success)"
+          fundo="var(--success-soft)"
+          onClick={() => aoMarcar(atende ? null : true)}
+        />
+        <Escolha
+          rotulo="Não"
+          ativo={recusado}
+          cor="var(--muted)"
+          fundo="var(--surface-2)"
+          onClick={() => aoMarcar(recusado ? null : false)}
+        />
+      </span>
+    </div>
+  );
+}
+
+function Escolha(
+  { rotulo, ativo, cor, fundo, onClick }: {
+    rotulo: string; ativo: boolean; cor: string; fundo: string; onClick: () => void;
+  },
+) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={ativo}
+      className="m-hov-bg m-press m-focus"
+      style={s(
+        `display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 11px;border-radius:99px;` +
+        `font-family:inherit;font-size:var(--t-label);font-weight:var(--w-title);cursor:pointer;` +
+        `border:1px solid ${ativo ? cor : "var(--border)"};background:${ativo ? fundo : "var(--surface)"};` +
+        `color:${ativo ? cor : "var(--muted)"}`,
+      )}
+    >
+      {/* O ✓ carrega o estado junto com a cor: cor sozinha é o sinal mais frágil que existe,
+          e aqui ela decide se a MAISA fala ou cala com uma pessoa. */}
+      {ativo && <Icon name="check" size={12} sw={3} stroke="currentColor" />}
+      {rotulo}
+    </button>
+  );
+}

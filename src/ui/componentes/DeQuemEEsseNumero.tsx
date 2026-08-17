@@ -21,6 +21,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { s, Icon, Btn, toast } from "@/ui/primitivos";
 import type { Contato, ModoDoNumero } from "@/nucleo/dominio/contatos";
+import { useStore } from "@/ui/estado/store";
 
 type Estado = { modo: ModoDoNumero; contatos: Contato[] };
 
@@ -38,6 +39,7 @@ const OPCOES: { id: ModoDoNumero; titulo: string; sub: string }[] = [
 ];
 
 export function DeQuemEEsseNumero({ compacto }: { compacto?: boolean }) {
+  const st = useStore();
   const [estado, setEstado] = useState<Estado | null>(null);
   const [ocupado, setOcupado] = useState<null | "modo" | "importar">(null);
 
@@ -99,6 +101,9 @@ export function DeQuemEEsseNumero({ compacto }: { compacto?: boolean }) {
   if (!estado) return null;
 
   const clientes = estado.contatos.filter((c) => c.cliente === true).length;
+  /* Quantos ainda não têm resposta. Vai no rótulo do botão porque é o número que diz se
+   * vale a pena entrar — "3 sem resposta" e "1.837 sem resposta" pedem decisões diferentes. */
+  const naoDecididos = estado.contatos.filter((c) => c.cliente == null).length;
 
   return (
     <section
@@ -169,6 +174,19 @@ export function DeQuemEEsseNumero({ compacto }: { compacto?: boolean }) {
               ? "Lendo sua agenda…"
               : estado.contatos.length === 0 ? "Trazer meus contatos" : "Atualizar meus contatos"}
           </Btn>
+          {/* ⚠️ A PORTA QUE FALTAVA (17/08/2026). Este bloco dizia "3 marcados como cliente"
+              e parava aí — informava o número e não oferecia o gesto. O relato foi exato:
+              "ele diz que isso é possível, mas não diz como fazer, onde fazer". O botão
+              existe agora, e só aparece com contatos na casa, porque antes disso a ação
+              certa é importar. */}
+          {estado.contatos.length > 0 && (
+            <Btn variant="secondary" icon="clientes" onClick={() => st.irPara("contatos")}>
+              {naoDecididos > 0
+                ? `Escolher quem ela atende (${naoDecididos} sem resposta)`
+                : "Rever quem ela atende"}
+            </Btn>
+          )}
+
           {/* A frase que evita o suporte: importar de novo não desfaz o que foi marcado. */}
           {estado.contatos.length > 0 && (
             <span style={s("font-size:var(--t-micro);color:var(--muted);line-height:1.45")}>

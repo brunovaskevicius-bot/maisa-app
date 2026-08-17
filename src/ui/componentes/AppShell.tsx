@@ -25,6 +25,7 @@ import FluxoHoje from "../telas/FluxoHoje";
 import Conversas from "../telas/Conversas";
 import Agenda from "../telas/Agenda";
 import AMaisa from "../telas/AMaisa";
+import Contatos from "../telas/Contatos";
 import { Clientes, Faturamento, Equipe, Servicos, Mais } from "../telas/Grades";
 
 /* ───────────────────────────── mapa de telas ───────────────────────────── */
@@ -50,6 +51,11 @@ const TELA: Record<TelaId, { rotulo: string; titulo: string; sub: string; icone:
   equipe: { rotulo: "Equipe", titulo: "Equipe", sub: "Quem atende e quando", icone: "equipe", Comp: Equipe },
   servicos: { rotulo: "Serviços", titulo: "Serviços", sub: "O que você oferece e por quanto", icone: "tag", Comp: Servicos },
   assistente: { rotulo: "A MAISA", titulo: "Ajustes da MAISA", sub: "Uma seção por vez — o preview segue você", icone: "bot", Comp: AMaisa },
+  // Fora do rail e das abas de propósito: é tarefa de configuração que se faz uma vez, e um
+  // ícone permanente na barra competiria com as telas do dia a dia. Chega-se aqui pelo
+  // cartão "De quem é esse número" (Ajustes da MAISA) e pelos atalhos do "Mais" — que é
+  // exatamente o caminho que a pessoa já percorre quando decide mexer nisso.
+  contatos: { rotulo: "Meus contatos", titulo: "Quem a MAISA atende", sub: "Marque quem é cliente — ela cala para o resto da sua agenda", icone: "clientes", Comp: Contatos },
   mais: { rotulo: "Mais", titulo: "Mais", sub: "Respostas, plano e números", icone: "dots", Comp: Mais },
 };
 
@@ -66,7 +72,7 @@ const ABAS: { id: TelaId; rotulo: string; cobre: TelaId[] }[] = [
   { id: "conversas", rotulo: "Conversas", cobre: ["conversas"] },
   { id: "agenda", rotulo: "Agenda", cobre: ["agenda"] },
   { id: "clientes", rotulo: "Clientes", cobre: ["clientes"] },
-  { id: "mais", rotulo: "Mais", cobre: ["mais", "faturamento", "equipe", "servicos", "assistente"] },
+  { id: "mais", rotulo: "Mais", cobre: ["mais", "faturamento", "equipe", "servicos", "assistente", "contatos"] },
 ];
 
 /* ───────────────────────────── contadores ─────────────────────────────

@@ -588,6 +588,7 @@ export function Mais() {
     { id: "servicos", titulo: "Serviços", sub: "O que você oferece e por quanto", icone: "tag" },
     // o item que faltava: a tab bar diz que "Mais" cobre `assistente` e não havia caminho nenhum
     { id: "assistente", titulo: "Ajustes da MAISA", sub: "Tom de voz, horários e o que ela pode fazer", icone: "bot" },
+    { id: "contatos", titulo: "Meus contatos", sub: "Quem ela atende e de quem ela cala", icone: "clientes" },
   ];
 
   const conteudo = [
