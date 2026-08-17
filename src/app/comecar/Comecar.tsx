@@ -80,6 +80,9 @@ const VERTICAIS: { id: Vertical; rotulo: string; desc: string; icone: string }[]
  * números do painel (`store.tsx`): 3s × 40 ≈ 2 min, mais que a validade de um QR. */
 const INTERVALO_PAREAMENTO = 3000;
 const TENTATIVAS_PAREAMENTO = 40;
+/** Teto de renovações automáticas do código. Mesma razão do painel: uma aba esquecida não
+ *  pode pedir código novo ao WhatsApp indefinidamente. ≈6 min de janela. */
+const MAX_RENOVACOES_CODIGO = 5;
 
 const CAMPO =
   "width:100%;height:46px;padding:0 14px;border-radius:12px;border:1px solid var(--border-field);background:var(--surface);font-family:inherit;font-size:var(--t-sm);color:var(--ink);outline:none";
@@ -451,6 +454,10 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
   const [numero, setNumero] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const tentativas = useRef(0);
+  /** O telefone deste pareamento e quantas vezes o código já trocou. Em memória, nunca em
+   *  disco — ver o comentário equivalente no `store.tsx`. */
+  const numeroDoPareamento = useRef<string | null>(null);
+  const renovacoes = useRef(0);
 
   /* ── ESTA É A ETAPA QUE MAIS PERDE GENTE, E A CÂMERA É O MOTIVO ──
    *
@@ -504,6 +511,8 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
       }
       setQrcode(r.pareamento?.qrcode ?? null);
       setCodigo(r.pareamento?.codigo ?? null);
+      numeroDoPareamento.current = comNumero ?? null;
+      renovacoes.current = 0;
       if (r.pareamento?.status === "conectado") { setStatus("conectado"); return; }
       setStatus("pareando");
 
@@ -553,6 +562,50 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
     }
   }, [parar]);
 
+  /**
+   * Outro código sem refazer a instância. Disparada pelo contador do `CodigoPareamento`.
+   *
+   * Repete a lógica do `store.tsx` em vez de importá-la, e é a mesma escolha que o resto
+   * deste arquivo faz: o wizard NÃO usa o store (ver o cabeçalho — o painel inteiro
+   * depende de um inquilino que aqui pode não existir ainda). Meia dúzia de `fetch` é o
+   * preço combinado dessa separação.
+   */
+  const renovar = useCallback(async () => {
+    const numero = numeroDoPareamento.current;
+    if (!numero) return;
+
+    if (renovacoes.current >= MAX_RENOVACOES_CODIGO) {
+      parar();
+      setStatus("parado");
+      setCodigo(null);
+      setQrcode(null);
+      setErro("Passou do tempo de conectar. Peça um código novo para tentar de novo.");
+      return;
+    }
+    renovacoes.current += 1;
+
+    try {
+      const r = await fetch("/api/canal/codigo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero }),
+      }).then((x) => x.json());
+
+      if (!r?.ok || !r.codigo) {
+        setErro("Não consegui gerar um código novo. Leia o QR de outro aparelho, ou peça outro código.");
+        return;
+      }
+      setCodigo(r.codigo);
+      setErro(null);
+      /* O polling continua de onde estava, só com o relógio zerado: sem isto ele morreria
+       * em 2 min enquanto o código segue se renovando, e a tela deixaria de perceber a
+       * conexão no instante em que ela finalmente acontece. */
+      tentativas.current = 0;
+    } catch {
+      setErro("Sem conexão com o servidor para renovar o código.");
+    }
+  }, [parar]);
+
   if (status === "conectado") {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 20, alignItems: "center", textAlign: "center" }}>
@@ -577,7 +630,7 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
 
       {status === "pareando" && mostrandoCodigo && codigo ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <CodigoPareamento codigo={codigo} />
+          <CodigoPareamento codigo={codigo} aoRenovar={renovar} />
           <span style={s("font-size:var(--t-label);color:var(--muted);text-align:center")}>
             Esperando você digitar o código no WhatsApp…
           </span>

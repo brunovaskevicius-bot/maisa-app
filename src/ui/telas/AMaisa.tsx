@@ -312,7 +312,9 @@ function FaixaCanal() {
       {/* Os dois são EFÊMEROS: a Evolution troca o QR a cada poucos segundos, o código do
           WhatsApp vale cerca de um minuto, e o polling do store remove os dois no instante
           em que conecta. Nunca guardamos isto em lugar nenhum. */}
-      {mostrandoCodigo && st.codigo && <CodigoPareamento codigo={st.codigo} />}
+      {mostrandoCodigo && st.codigo && (
+        <CodigoPareamento codigo={st.codigo} aoRenovar={st.renovarCodigo} />
+      )}
 
       {!mostrandoCodigo && st.qrcode && (
         <div style={s("display:flex;align-items:center;gap:16px;padding:12px;border-radius:12px;background:var(--surface)")}>

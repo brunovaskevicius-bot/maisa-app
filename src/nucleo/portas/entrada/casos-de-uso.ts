@@ -326,6 +326,19 @@ export type ProvisionarNegocio = (
  */
 export type LerCanal = (t: ContextoTenant) => Promise<Canal>;
 export type ConectarCanal = (t: ContextoTenant, p?: { numero?: string }) => Promise<Pareamento>;
+/**
+ * Outro código para o pareamento em curso, sem derrubar a instância.
+ *
+ * Existe porque o código do WhatsApp vence em cerca de um minuto e o dono está fazendo uma
+ * tarefa de dois aplicativos: copiar aqui, trocar de app, achar o menu, colar. Quem se
+ * atrapalha no meio perdia o código e recebia "expirou, clique em conectar de novo" — que
+ * refazia a instância inteira e devolvia a pessoa ao começo.
+ *
+ * Devolve `null` quando o provedor não emitiu código novo. Não é exceção: quem chama
+ * continua com o QR e a tela oferece gerar tudo de novo.
+ */
+export type RenovarCodigo = (t: ContextoTenant, p: { numero: string }) => Promise<string | null>;
+
 export type DesconectarCanal = (t: ContextoTenant) => Promise<void>;
 
 /* ────────────────────── o caderno de nomes, e quem ela atende ──────────────────────

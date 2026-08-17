@@ -30,6 +30,9 @@ const CODIGO_FALSO = "MAISADEM";
 /** Quando cada instância terminou de "parear". Chave = nome da instância. */
 const pareiaEm = new Map<string, number>();
 
+/** Quantas vezes cada instância já renovou o código. Só para o código de demonstração mudar. */
+const renovacoes = new Map<string, number>();
+
 export const provisionamentoDemo: ProvisionamentoDeCanal = {
   faltando: () => [],
 
@@ -65,6 +68,15 @@ export const provisionamentoDemo: ProvisionamentoDeCanal = {
       status: "pareando",
       instancia: p.instancia,
     };
+  },
+
+  async renovarCodigo(p): Promise<string | null> {
+    /* Muda a cada chamada, e é o ponto: com um código fixo, a tela do contador pareceria
+     * funcionar mesmo se a renovação nunca acontecesse de verdade. Aqui o número na tela
+     * trocar É a prova de que o caminho inteiro rodou. */
+    const n = (renovacoes.get(p.instancia) ?? 0) + 1;
+    renovacoes.set(p.instancia, n);
+    return `DEMO${String(n).padStart(4, "0")}`;
   },
 
   async desconectar(instancia: string): Promise<void> {

@@ -128,6 +128,7 @@ não é falha de requisição, é o app dizendo ao dono o que falta. Ver
 | `/api/whatsapp` | GET · POST | `SEGREDO` | **o webhook.** Recebe a mensagem do cliente e roda o agente |
 | `/api/whatsapp/conexao` | GET · POST | `SEGREDO` | pareamento da instância |
 | `/api/canal` | GET · POST · DELETE | `exigirSessao` | `LerCanal` · `ConectarCanal` · `DesconectarCanal` — a visão do painel do mesmo canal |
+| `/api/canal/codigo` | POST | `exigirSessao` | `RenovarCodigo` — outro código de pareamento, **sem** derrubar a instância |
 | `/api/rotinas/lembretes` | POST | `SEGREDO` | `EnviarLembretes` — disparado por `pg_cron` a cada 15 min |
 
 O webhook responde **200 mesmo quando descarta** a mensagem. Para o provedor, resposta de erro
@@ -151,6 +152,22 @@ WhatsApp deve emitir o código. Quem escreve `integracoes_whatsapp.numero` conti
 [`portas/saida/provisionamento-canal.ts`](../src/nucleo/portas/saida/provisionamento-canal.ts).
 É também por isso que ele não fere a regra do `tenantId`: `numero` não escolhe inquilino,
 instância nem destino de webhook.
+
+### `POST /api/canal/codigo` — o código vence, e a tela troca sozinha
+
+O código do WhatsApp vale cerca de um minuto, e parear é tarefa de **dois aplicativos**:
+copiar aqui, trocar de app, achar *Aparelhos conectados*, colar. Quem se atrapalha no meio
+perdia o código — relatado em 17/08/2026 como *"deu certo logar com código, mas o meu código
+expirou no meio"*.
+
+A tela mostra um contador e chama esta rota quando ele zera. Ela **não é** `POST /api/canal`
+com outro nome: aquela apaga a instância, espera 3s e recria (é a que derruba o WhatsApp de
+quem estava atendendo); esta deixa a instância em `connecting` e só pede outro código na
+mesma sessão do Baileys. Um disparo automático na primeira seria perigoso; nesta é barato.
+
+`codigo: null` volta com **`ok: true`** — significa "não emiti outro agora", não falha da
+requisição: a instância segue de pé e o QR segue válido. A tela oferece o QR em vez de
+acender erro.
 
 ## Conversar com a MAISA fora do WhatsApp
 

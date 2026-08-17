@@ -49,7 +49,7 @@ import { toast } from "@/ui/primitivos";
 
 export type TelaId =
   | "fluxo" | "conversas" | "agenda" | "clientes" | "faturamento"
-  | "equipe" | "servicos" | "assistente" | "mais";
+  | "equipe" | "servicos" | "assistente" | "contatos" | "mais";
 
 export type AbaConversa = "todas" | "espera" | "maisa" | "ok";
 
@@ -216,6 +216,15 @@ const JANELA_AJUSTES = 500;
 const INTERVALO_PAREAMENTO = 3000;
 /** Quantas perguntas antes de desistir. 3s × 40 ≈ 2min, mais que a validade de um QR. */
 const TENTATIVAS_PAREAMENTO = 40;
+/**
+ * Quantas vezes o código se renova sozinho antes de a tela desistir.
+ *
+ * Existe porque a renovação automática, sem teto, deixaria um painel esquecido numa aba
+ * pedindo código novo ao WhatsApp para sempre — uma chamada por minuto, indefinidamente,
+ * por um pareamento que ninguém vai concluir. Cinco dá cerca de seis minutos de janela,
+ * que é muito mais do que a tarefa precisa e pouco o bastante para não virar rotina.
+ */
+const MAX_RENOVACOES_CODIGO = 5;
 
 /* Motivos que a rota de conexão devolve na query string, em português de gente.
  * Cada um diz o que aconteceu E o que fazer — "erro genérico" não ajuda ninguém. */
@@ -726,6 +735,9 @@ export type StoreValue = {
   /** `numero` presente pede o CÓDIGO em vez do QR — o caminho de quem está no celular,
    *  onde ler o QR é impossível porque a câmera não fotografa a própria tela. */
   conectarCanal: (p?: { numero?: string }) => Promise<void>;
+  /** Troca o código atual por um novo, sem derrubar o pareamento. A tela chama quando o
+   *  contador zera; o número vem do próprio pareamento em curso, não do campo. */
+  renovarCodigo: () => Promise<void>;
   desconectarCanal: () => Promise<void>;
   /** Desconecta e já pede pareamento novo. Perde o número atual — confirme antes de chamar. */
   trocarNumero: (p?: { numero?: string }) => Promise<void>;
@@ -2331,6 +2343,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [qrcode, setQrcode] = useState<string | null>(null);
   /** Os 8 caracteres, quando o pareamento em curso é por código. */
   const [codigo, setCodigo] = useState<string | null>(null);
+  /**
+   * O telefone DESTE pareamento, e quantas vezes o código já se renovou.
+   *
+   * ⚠️ EM `useRef`, NUNCA EM DISCO. É o mesmo número que o dono digitou para receber o
+   * código, e a regra do produto é que ele seja insumo e morra com o pareamento — quem
+   * grava número é o `ownerJid` do provedor, depois de conectar. Guardar aqui é o mínimo
+   * para conseguir pedir OUTRO código sem obrigar a redigitar, e some no F5 junto com o
+   * resto do pareamento (que também não sobrevive, porque o código já teria vencido).
+   *
+   * `ref` e não `state`: nenhuma tela desenha isto, e num `state` cada renovação
+   * repintaria a faixa inteira por um dado que ninguém lê.
+   */
+  const numeroDoPareamento = useRef<string | null>(null);
+  const renovacoes = useRef(0);
   const pollCanal = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pararPolling = useCallback(() => {
@@ -2340,7 +2366,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* Os dois somem SEMPRE JUNTOS, e é por isso que existe uma função em vez de duas
    * chamadas soltas. Esquecer uma delas num dos cinco pontos de limpeza deixaria na tela
    * um código morto ao lado de um QR vivo — e o dono digitaria o código. */
-  const limparPareamento = useCallback(() => { setQrcode(null); setCodigo(null); }, []);
+  const limparPareamento = useCallback(() => {
+    setQrcode(null);
+    setCodigo(null);
+    numeroDoPareamento.current = null;
+    renovacoes.current = 0;
+  }, []);
 
   const buscarCanal = useCallback(async (): Promise<Canal | null> => {
     try {
@@ -2418,6 +2449,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       setQrcode(r.pareamento?.qrcode ?? null);
       setCodigo(r.pareamento?.codigo ?? null);
+      /* Guarda o número DESTE pareamento para conseguir renovar sem redigitar. Zera as
+       * renovações junto: começou pareamento novo, começou orçamento novo. */
+      numeroDoPareamento.current = p?.numero?.trim() || null;
+      renovacoes.current = 0;
 
       /* ⚠️ PEDIU CÓDIGO E VEIO SÓ QR. Acontece de verdade — o pairing code depende da
        * versão do Baileys do servidor e falha calado. Sem este aviso, o dono digitaria o
@@ -2438,6 +2473,54 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setCanalOcupado(false);
     }
   }, [buscarCanal, iniciarPolling]);
+
+  /**
+   * Outro código, sem derrubar o pareamento. Disparada pelo contador da tela, não por
+   * clique — por isso ela é silenciosa no caminho feliz e só fala quando desiste.
+   */
+  const renovarCodigo = useCallback(async () => {
+    const numero = numeroDoPareamento.current;
+    /* Sem número guardado não há o que renovar: ou o pareamento é por QR, ou a tela foi
+     * recarregada. Nos dois casos, insistir mandaria string vazia ao provedor. */
+    if (!numero) return;
+
+    if (renovacoes.current >= MAX_RENOVACOES_CODIGO) {
+      pararPolling();
+      limparPareamento();
+      setCanalErro(
+        "Passou do tempo de conectar. Clique em conectar de novo para receber um código novo.",
+      );
+      return;
+    }
+    renovacoes.current += 1;
+
+    try {
+      const r = await fetch("/api/canal/codigo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero }),
+      }).then((x) => x.json());
+
+      /* `codigo: null` chega com `ok: true` — é "não consegui emitir outro agora", não
+       * falha da requisição. A instância segue de pé e o QR segue válido, então a saída é
+       * oferecer o outro caminho em vez de acender erro sobre um pareamento que respira. */
+      if (!r?.ok || !r.codigo) {
+        setCanalErro(
+          "Não consegui gerar um código novo. Leia o QR de outro aparelho, ou clique em conectar para recomeçar.",
+        );
+        return;
+      }
+
+      setCodigo(r.codigo);
+      setCanalErro(null);
+      /* Reinicia o relógio do polling junto com o código. Sem isto, `TENTATIVAS_PAREAMENTO`
+       * (≈2min) mataria a consulta enquanto o código continua se renovando — a tela pararia
+       * de perceber a conexão que acabou de acontecer. */
+      iniciarPolling(true);
+    } catch {
+      setCanalErro("Sem conexão com o servidor para renovar o código.");
+    }
+  }, [iniciarPolling, limparPareamento, pararPolling]);
 
   const desconectarCanal = useCallback(async () => {
     setCanalOcupado(true);
@@ -3121,7 +3204,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
-    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, desconectarCanal, trocarNumero,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     cfg: ajustes.cfg, alternarCfg,
     salvo, salvar,
@@ -3150,7 +3233,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
-    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, desconectarCanal, trocarNumero,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     ajustes.cfg, alternarCfg,
     salvo, salvar,

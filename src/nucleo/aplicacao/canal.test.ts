@@ -14,7 +14,7 @@ import type { EstadoDoCanal, Pareamento } from "@/nucleo/dominio/canal";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import type { ProvisionamentoDeCanal } from "@/nucleo/portas/saida/provisionamento-canal";
 import type { RepositorioCanal } from "@/nucleo/portas/saida/repositorio-canal";
-import { criarConectarCanal, criarDesconectarCanal, criarLerCanal } from "./canal";
+import { criarConectarCanal, criarDesconectarCanal, criarLerCanal, criarRenovarCodigo } from "./canal";
 
 const t: ContextoTenant = {
   tenantId: "tenant-uuid-1",
@@ -27,6 +27,8 @@ function montar(inicial: { linha?: Awaited<ReturnType<RepositorioCanal["ler"]>>;
   let linha = inicial.linha ?? null;
   let estado: EstadoDoCanal = inicial.estado ?? { status: "desconectado", numero: null };
   let quebrado = false;
+  let renovacoes = 0;
+  let semCodigoNovo = false;
   const chamadas: string[] = [];
 
   const provisionamento: ProvisionamentoDeCanal = {
@@ -50,6 +52,11 @@ function montar(inicial: { linha?: Awaited<ReturnType<RepositorioCanal["ler"]>>;
         status: "pareando",
         instancia: p.instancia,
       };
+    },
+    async renovarCodigo(p) {
+      chamadas.push(`renovarCodigo(${p.instancia},${p.numero})`);
+      renovacoes += 1;
+      return semCodigoNovo ? null : `NOVO${String(renovacoes).padStart(4, "0")}`;
     },
     async desconectar(instancia) {
       chamadas.push(`desconectar(${instancia})`);
@@ -79,10 +86,12 @@ function montar(inicial: { linha?: Awaited<ReturnType<RepositorioCanal["ler"]>>;
     ler: criarLerCanal(deps),
     conectar: criarConectarCanal(deps),
     desconectar: criarDesconectarCanal(deps),
+    renovar: criarRenovarCodigo(deps),
     get linha() { return linha; },
     provedorCai: () => { quebrado = true; },
     provedorVolta: () => { quebrado = false; },
     provedorDiz: (e: EstadoDoCanal) => { estado = e; },
+    provedorSemCodigoNovo: () => { semCodigoNovo = true; },
   };
 }
 
@@ -326,5 +335,85 @@ describe("desconectarCanal", () => {
     const vazio = montar();
     await vazio.desconectar(t);
     expect(vazio.chamadas).toEqual([]);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * RENOVAR O CÓDIGO — o conserto do relato de 17/08/2026.
+ *
+ * "deu certo logar com código, mas o problema real foi que o meu código expirou no meio."
+ *
+ * Parear por código é tarefa de DOIS aplicativos: copiar aqui, trocar de app, achar
+ * Aparelhos conectados, colar. O código do WhatsApp vence em cerca de um minuto, e quem se
+ * atrapalha no caminho perdia tudo — a saída era "clique em conectar de novo", que apaga e
+ * recria a instância inteira para trocar oito caracteres.
+ * ────────────────────────────────────────────────────────────────────────────── */
+describe("renovarCodigo", () => {
+  it("emite outro código sem apagar nem recriar a instância", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+    });
+
+    const codigo = await m.renovar(t, { numero: "(11) 99429-4906" });
+
+    expect(codigo).toBe("NOVO0001");
+    /* O ponto inteiro da rota separada: nada de destrutivo acontece aqui. */
+    expect(m.chamadas.some((c) => c.startsWith("desconectar"))).toBe(false);
+    expect(m.chamadas.some((c) => c.startsWith("conectar"))).toBe(false);
+  });
+
+  it("normaliza o telefone, como `conectar` faz", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+    });
+
+    await m.renovar(t, { numero: "(11) 99429-4906" });
+
+    expect(m.chamadas).toContain("renovarCodigo(FAQ,5511994294906)");
+  });
+
+  /* Revalida no núcleo em vez de confiar na tela: entre conectar e renovar pode ter havido
+   * um F5, e o campo do telefone volta vazio. Sem esta guarda, iria string vazia ao
+   * provedor a cada minuto, para sempre. */
+  it("recusa telefone inválido sem chamar o provedor", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+    });
+
+    await expect(m.renovar(t, { numero: "" })).rejects.toThrow(/telefone/i);
+    expect(m.chamadas.some((c) => c.startsWith("renovarCodigo"))).toBe(false);
+  });
+
+  /* Falha fechada: renovar não é caminho para CRIAR instância. Quem cria é `conectar`, que
+   * também aponta o webhook — nascer por aqui deixaria uma instância sem webhook, que é a
+   * falha mais cara do produto (pareia, diz "conectado", e ninguém responde). */
+  it("sem pareamento em curso, não inventa instância", async () => {
+    const m = montar();
+
+    await expect(m.renovar(t, { numero: "11994294906" })).rejects.toThrow();
+    expect(m.chamadas.some((c) => c.startsWith("renovarCodigo"))).toBe(false);
+  });
+
+  /* `null` é resposta legítima — a versão do Baileys pode não emitir. Quem chama ainda tem
+   * o QR, e a tela oferece gerar tudo de novo. Não pode virar exceção. */
+  it("provedor sem código novo devolve null, e não erro", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+    });
+    m.provedorSemCodigoNovo();
+
+    await expect(m.renovar(t, { numero: "11994294906" })).resolves.toBeNull();
+  });
+
+  /* A regra que atravessa este arquivo inteiro: o digitado é insumo, nunca o gravado. */
+  it("não escreve nada no banco", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+    });
+
+    await m.renovar(t, { numero: "11994294906" });
+
+    expect(m.chamadas.filter((c) => c.startsWith("salvar"))).toEqual([]);
+    expect(m.linha?.numero).toBeNull();
   });
 });

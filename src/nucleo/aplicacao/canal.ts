@@ -19,12 +19,12 @@
  * já tem nome mantém o dele. É a mesma escolha que o resto do repo faz com id legado.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { ConectarCanal, DesconectarCanal, LerCanal } from "../portas/entrada/casos-de-uso";
+import type { ConectarCanal, DesconectarCanal, LerCanal, RenovarCodigo } from "../portas/entrada/casos-de-uso";
 import type { ProvisionamentoDeCanal } from "../portas/saida/provisionamento-canal";
 import type { RepositorioCanal } from "../portas/saida/repositorio-canal";
 import type { Canal } from "../dominio/canal";
 import { numeroParaPareamento } from "../dominio/canal";
-import { DadoInvalido } from "../dominio/erros";
+import { DadoInvalido, NaoEncontrado } from "../dominio/erros";
 
 type Deps = {
   provisionamento: ProvisionamentoDeCanal;
@@ -119,6 +119,34 @@ export function criarConectarCanal(deps: Deps): ConectarCanal {
     await deps.canal.salvar(t, { instancia, status: r.status, numero: linha?.numero ?? null });
 
     return r;
+  };
+}
+
+export function criarRenovarCodigo(deps: Deps): RenovarCodigo {
+  return async (t, p) => {
+    const linha = await deps.canal.ler(t);
+    /* Sem linha não há pareamento em curso, e renovar código de instância inexistente
+     * criaria uma no provedor pelo caminho errado — quem cria é `conectar`, que também
+     * aponta o webhook. Falha fechada e com frase: a tela manda conectar. */
+    if (!linha?.instancia) {
+      throw new NaoEncontrado("pareamento em curso");
+    }
+
+    /* Revalida o telefone AQUI, e não confia no que a tela mandou. É o mesmo argumento de
+     * `conectar`: este número vira chamada ao provedor, e a tela pode ter sido recarregada
+     * com o campo em branco entre uma coisa e outra. */
+    const numero = numeroParaPareamento(p.numero);
+    if (!numero) {
+      throw new DadoInvalido(
+        "Esse telefone não parece um WhatsApp válido. Digite com DDD, como (11) 99999-9999.",
+        "numero",
+      );
+    }
+
+    /* NÃO grava nada. Renovar não muda status (segue `pareando`) nem número (esse continua
+     * vindo do `ownerJid`, depois). Uma escrita aqui só teria como efeito reabrir a porta
+     * para o digitado virar o gravado. */
+    return deps.provisionamento.renovarCodigo({ instancia: linha.instancia, numero });
   };
 }
 

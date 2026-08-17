@@ -60,8 +60,60 @@ export const telefoneMascarado = (digitos: string) => (digitos ? telefoneBonito(
  * 1/I são o erro mais comum. Fonte de largura fixa não resolve sozinha, mas é o que
  * separa os caracteres o bastante para a pessoa conferir o que digitou.
  */
-export function CodigoPareamento({ codigo }: { codigo: string }) {
+/**
+ * Quanto tempo a tela dá ao código antes de pedir outro.
+ *
+ * ⚠️ 60s É A NOSSA JANELA, NÃO UMA GARANTIA DO WHATSAPP. Ninguém publica a validade exata
+ * do pairing code, e ela já foi observada variando. O número foi escolhido pelo lado do
+ * erro que dói menos: curto demais renova um código que ainda valia (custa uma chamada e
+ * um pisca na tela), longo demais deixa a pessoa digitando um código morto — que é
+ * exatamente o relato que criou este contador.
+ */
+const VALIDADE_CODIGO_S = 60;
+
+export function CodigoPareamento(
+  { codigo, aoRenovar }: {
+    codigo: string;
+    /** Pedir outro código ao servidor. A tela chama sozinha quando o contador zera. */
+    aoRenovar?: () => void | Promise<void>;
+  },
+) {
   const [copiou, setCopiou] = React.useState(false);
+
+  /* ── O CONTADOR ──
+   *
+   * Reinicia quando o CÓDIGO muda, não a cada render: é `codigo` na lista de dependências
+   * que faz a renovação zerar o relógio sozinha. Um `useState` inicializado uma vez
+   * mostraria o tempo do primeiro código para sempre.
+   *
+   * Conta a partir de um instante fixo em vez de decrementar um número. Decrementar erra
+   * quando a aba fica em segundo plano — o navegador engasga os timers, e o contador
+   * mostraria 40s restantes num código que já morreu há meio minuto. Aqui, voltar para a
+   * aba mostra a verdade na primeira batida. */
+  const [restante, setRestante] = React.useState(VALIDADE_CODIGO_S);
+
+  React.useEffect(() => {
+    const nasceu = Date.now();
+    setRestante(VALIDADE_CODIGO_S);
+
+    const id = setInterval(() => {
+      const falta = Math.max(0, VALIDADE_CODIGO_S - Math.floor((Date.now() - nasceu) / 1000));
+      setRestante(falta);
+    }, 500);
+
+    return () => clearInterval(id);
+  }, [codigo]);
+
+  /* Renovar é efeito SEPARADO do contador de propósito. Junto, o `setRestante` de cada
+   * batida entraria na mesma dependência do disparo e a renovação sairia mais de uma vez
+   * — cada uma invalidando o código da anterior, num laço que nunca estabiliza. */
+  const jaPediu = React.useRef(false);
+  React.useEffect(() => { jaPediu.current = false; }, [codigo]);
+  React.useEffect(() => {
+    if (restante > 0 || jaPediu.current || !aoRenovar) return;
+    jaPediu.current = true;
+    void aoRenovar();
+  }, [restante, aoRenovar]);
 
   const copiar = React.useCallback(async () => {
     try {
@@ -115,12 +167,37 @@ export function CodigoPareamento({ codigo }: { codigo: string }) {
         <li>Digite (ou cole) o código acima</li>
       </ol>
 
-      {/* Diz que o prazo existe SEM cronômetro. Um contador regressivo transforma uma
-          tarefa de 20 segundos em corrida contra o relógio, e quem se atrapalha refaz. */}
-      <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
-        O código vale por cerca de um minuto. Se vencer, é só gerar outro — esta tela avisa
-        sozinha quando conectar.
-      </span>
+      {/* ⚠️ ESTE PARÁGRAFO DIZIA O CONTRÁRIO até 17/08/2026: "diz que o prazo existe SEM
+          cronômetro — um contador transforma uma tarefa de 20 segundos em corrida contra o
+          relógio". O raciocínio estava certo e a premissa estava errada. Não é tarefa de 20
+          segundos: é trocar de aplicativo, achar um menu de três níveis e colar. O relato
+          que derrubou o argumento foi "o meu código expirou no meio" — e sem contador a
+          pessoa não tem como saber que foi isso que aconteceu. Ela conclui que digitou
+          errado, e digita de novo.
+
+          O que mata a corrida contra o relógio não é esconder o relógio, é a renovação
+          automática logo abaixo: zerou, chega outro sozinho. */}
+      <div style={s("display:flex;align-items:center;gap:9px;font-size:var(--t-label);line-height:1.5")}>
+        <span
+          aria-hidden
+          style={s(
+            `display:inline-flex;align-items:center;justify-content:center;min-width:46px;height:24px;` +
+            `padding:0 8px;border-radius:99px;font-variant-numeric:tabular-nums;font-weight:var(--w-title);` +
+            (restante > 15
+              ? "background:var(--surface-2);color:var(--muted)"
+              : "background:var(--warn-soft);color:var(--warn)"),
+          )}
+        >
+          {restante > 0 ? `0:${String(restante).padStart(2, "0")}` : "…"}
+        </span>
+        {/* `aria-live` para quem usa leitor de tela: o número mudando de segundo em segundo
+            seria ruído insuportável, então só a TROCA DE FASE é anunciada. */}
+        <span aria-live="polite" style={s("color:var(--muted)")}>
+          {restante > 0
+            ? <>Vale por mais <b style={s("color:var(--ink)")}>{restante}s</b>. Depois disso eu troco por um novo, sozinho.</>
+            : <>Pedindo um código novo…</>}
+        </span>
+      </div>
     </div>
   );
 }

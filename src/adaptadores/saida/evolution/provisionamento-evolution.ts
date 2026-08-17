@@ -100,6 +100,12 @@ export const provisionamentoEvolution: ProvisionamentoDeCanal = {
     return { qrcode: emitido.qrcode, codigo, status: "pareando", instancia: p.instancia };
   },
 
+  async renovarCodigo(p): Promise<string | null> {
+    /* Sem apagar, sem esperar 3s, sem recriar: a instância segue em `connecting` e o
+     * Baileys emite outro código na mesma sessão. Ver o porquê na porta. */
+    return pedirCodigoDePareamento(p.instancia, p.numero);
+  },
+
   async desconectar(instancia: string): Promise<void> {
     await apagarInstancia(instancia);
   },

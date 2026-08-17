@@ -40,7 +40,7 @@ import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
 import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
 import { criarAjustarHorarios, criarLerHorarios } from "@/nucleo/aplicacao/horarios";
 import { criarEnviarLembretes } from "@/nucleo/aplicacao/lembretes";
-import { criarConectarCanal, criarDesconectarCanal, criarLerCanal } from "@/nucleo/aplicacao/canal";
+import { criarConectarCanal, criarDesconectarCanal, criarLerCanal, criarRenovarCodigo } from "@/nucleo/aplicacao/canal";
 import { criarAnotarFato, criarLembrarCliente } from "@/nucleo/aplicacao/memoria";
 import {
   criarLerConversa, criarListarConversas, criarMudarPosseConversa, criarResponderConversa,
@@ -408,6 +408,7 @@ export const app = {
   lerCanal: criarLerCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
   conectarCanal: criarConectarCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
   desconectarCanal: criarDesconectarCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
+  renovarCodigo: criarRenovarCodigo({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
 
   /**
    * O QUE FALTA PARA CONECTAR — perguntado ANTES de oferecer o botão.

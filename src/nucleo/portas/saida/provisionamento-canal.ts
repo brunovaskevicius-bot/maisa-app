@@ -84,6 +84,28 @@ export interface ProvisionamentoDeCanal {
     numero?: string;
   }): Promise<Pareamento>;
 
+  /**
+   * Um código NOVO para o pareamento que já está em curso — sem derrubar nada.
+   *
+   * ── POR QUE NÃO DÁ PARA REUSAR `conectar` ──
+   *
+   * `conectar` APAGA E RECRIA a instância (ver o cabeçalho do adaptador da Evolution), e é
+   * assim de propósito: é o único jeito de arrancar um QR novo. Mas usar isso para renovar
+   * um código custaria três segundos de espera e jogaria fora a sessão do Baileys que está
+   * viva esperando o pareamento — para trocar oito caracteres.
+   *
+   * Aqui é a chamada barata: a instância continua em `connecting`, o WhatsApp emite outro
+   * código, e o dono nem percebe a troca além do número na tela.
+   *
+   * ⚠️ ISTO INVALIDA O CÓDIGO ANTERIOR. Quem chama tem que ter certeza de que o velho já
+   * morreu — renovar enquanto o dono digita é trocar o chão embaixo dele. É por isso que a
+   * tela só renova quando o contador chega a zero, e não antes.
+   *
+   * `null` = não veio código. Não é erro do produto: a versão do Baileys pode não suportar,
+   * e quem chama já tem o QR na mão como alternativa.
+   */
+  renovarCodigo(p: { instancia: string; numero: string }): Promise<string | null>;
+
   /** Apaga a instância no provedor. Silencioso se ela já não existe. */
   desconectar(instancia: string): Promise<void>;
 
