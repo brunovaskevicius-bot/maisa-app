@@ -6,6 +6,9 @@
 # next.js
 /.next/
 /out/
+# Build de verificação: `MAISA_DIST_DIR=.next-verificacao npx next build` roda com o `next dev`
+# no ar sem clobberar o `.next` dele. Ver o ⚠️ do `distDir` em next.config.mjs.
+/.next-*/
 
 # espelho da LP estática (fonte é lp/, gerado por scripts/espelha-lp.mjs)
 /public/lp/

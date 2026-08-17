@@ -2,6 +2,29 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  /* ⚠️ O CONSERTO DE UM PÉ DE OUVIDO REAL, 17/08/2026.
+   *
+   * O `CLAUDE.md` avisa: "Nunca `npm run build` com o `next dev` no ar — o build clobbera o
+   * `.next` do dev e a tela perde todo o CSS. Parece bug do código, e não é."
+   *
+   * O aviso estava lá e não bastava, porque não havia como obedecer: `next build` não tem
+   * flag de diretório de saída, e `NEXT_DIST_DIR` **não existe** — passá-la é silenciosamente
+   * ignorado, o build escreve em `.next` como sempre, e a única pista é a tela do dev ficando
+   * sem estilo. Foi exatamente o que aconteceu aqui.
+   *
+   * Com esta linha, verificar um build sem derrubar o dev é:
+   *
+   *     MAISA_DIST_DIR=.next-verificacao npx next build
+   *
+   * ⚠️ CAMINHO RELATIVO, SEMPRE. O Next resolve `distDir` a partir da raiz do projeto e não
+   * recusa caminho absoluto — ele o trata como relativo. Passar `/tmp/build-x` criou
+   * `code/private/tmp/build-x`, 208 MB dentro do repositório e fora do `.gitignore`. O
+   * `.gitignore` cobre `/.next*`, então qualquer nome com esse prefixo já nasce ignorado.
+   *
+   * Sem a variável, nada muda — `.next` continua sendo o padrão para o `dev`, para o CI e
+   * para a Vercel. Aviso em prosa depende de alguém lembrar; isto não. */
+  distDir: process.env.MAISA_DIST_DIR || ".next",
+
   async rewrites() {
     return [
       // A LP oficial de terapeutas é um bundle estático servido de public/lp
