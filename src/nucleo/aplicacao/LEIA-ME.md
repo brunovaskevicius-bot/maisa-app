@@ -9,7 +9,8 @@ portas de saída que recebe por parâmetro.
 |---|---|---|
 | `agendar-atendimento.ts` | `AgendarAtendimento` | `AgendaExterna`, `RepositorioNegocio` |
 | `agenda.ts` | `LerAgenda`, `CancelarAtendimento`, `ListarConexoes`, `DesconectarAgenda` | `AgendaExterna`, `ConexoesDeAgenda`, `RepositorioNegocio` |
-| `notas.ts` | `EmitirNota`, `ConsultarNota`, `CancelarNota` | `EmissorFiscal` |
+| `notas.ts` | `EmitirNota`, `ConsultarNota`, `CancelarNota` | `EmissorFiscal` · `RepositorioFiscal` |
+| `fiscal.ts` | `LerEstadoFiscal`, `ConsultarCnpj`, `LigarNotaFiscal`, `EnviarCertificado`, `LiberarProducaoFiscal` | `RepositorioFiscal` · `CadastroDeEmissor` |
 | `conversas.ts` | `ListarConversas`, `LerConversa`, `ResponderConversa`, `MudarPosseConversa` | `RepositorioHistorico`, `RepositorioConversas`, `CanalDeMensagens` |
 
 ### `conversas.ts` — o painel do outro lado da mesma thread

@@ -32,7 +32,9 @@ import type { RascunhoDeProfissional, RascunhoDeServico } from "../saida/reposit
 import type { AjustesDaAssistente, AjustesParciais } from "../saida/repositorio-assistente";
 import type { Canal, Pareamento } from "../../dominio/canal";
 import type { SemanaAnunciada } from "../../dominio/horarios";
-import type { ResultadoDeNota, Tomador } from "../../dominio/fiscal";
+import type {
+  CadastroDoCnpj, CaminhoFiscal, ConfigFiscal, ResultadoDeNota, Tomador,
+} from "../../dominio/fiscal";
 import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
 import type { VagasDoDia } from "../../dominio/vagas";
 import type { Faq, FaqEncontrada } from "../../dominio/faq";
@@ -444,3 +446,52 @@ export type PedidoDeEmissao = {
 export type EmitirNota = (t: ContextoTenant, p: PedidoDeEmissao) => Promise<ResultadoDeNota>;
 export type ConsultarNota = (t: ContextoTenant, ref: string) => Promise<ResultadoDeNota>;
 export type CancelarNota = (t: ContextoTenant, p: { ref: string; justificativa?: string }) => Promise<ResultadoDeNota>;
+
+/* ────────────────────── ligar a nota fiscal (uma pergunta) ──────────────────────
+ *
+ * ★ O ONBOARDING FISCAL FAZ **UMA** PERGUNTA: o CNPJ.
+ *
+ * Razão social, município, CNAE e — o que decide o caminho de emissão — `optante_mei` vêm
+ * da Receita a partir dos 14 dígitos. Endereço, inscrição municipal e código de serviço
+ * municipal não são perguntados: no caminho nacional (MEI) o DPS não tem esses campos.
+ *
+ * Sobra um passo humano, e só um: o certificado digital. Ele não é pergunta, é entrega —
+ * e é o único lugar onde o cliente precisa trazer algo de fora.
+ * ──────────────────────────────────────────────────────────────────────────────── */
+
+/** O estado fiscal do negócio, com a frase do que falta pronta para a tela. */
+export type EstadoFiscal = {
+  config: ConfigFiscal;
+  caminho: CaminhoFiscal;
+  /** Vazio = dá para emitir. Frases em português, na ordem em que resolver. */
+  falta: string[];
+  /** O provedor está configurado no ambiente? Vazio = sim. */
+  provedorFaltando: string[];
+};
+
+export type LerEstadoFiscal = (t: ContextoTenant) => Promise<EstadoFiscal>;
+
+/** Prévia do CNPJ antes de gravar nada — para a tela mostrar o nome e pedir confirmação. */
+export type ConsultarCnpj = (t: ContextoTenant, cnpj: string) => Promise<CadastroDoCnpj | null>;
+
+/**
+ * Liga a nota fiscal: consulta o CNPJ, cadastra a empresa no emissor, grava o que voltou.
+ *
+ * Idempotente do nosso lado: chamar com a empresa já criada não cria outra — devolve o
+ * estado. É o que protege do duplo clique, e o provedor NÃO deduplica por CNPJ.
+ */
+export type LigarNotaFiscal = (t: ContextoTenant, p: { cnpj: string; email?: string | null }) => Promise<EstadoFiscal>;
+
+/** Repassa o certificado A1 ao emissor. O arquivo não fica com a gente. */
+export type EnviarCertificado = (
+  t: ContextoTenant,
+  p: { pfxBase64: string; senha: string },
+) => Promise<EstadoFiscal>;
+
+/**
+ * Vira a chave para produção — a partir daí a nota vale.
+ *
+ * ⚠️ Recusa enquanto `falta` não estiver vazio. É a única barreira entre "configurei
+ * metade" e um documento fiscal torto que só se conserta cancelando na prefeitura.
+ */
+export type LiberarProducaoFiscal = (t: ContextoTenant) => Promise<EstadoFiscal>;

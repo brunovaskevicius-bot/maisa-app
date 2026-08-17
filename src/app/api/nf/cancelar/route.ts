@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { app, servicos } from "@/composicao";
+import { app } from "@/composicao";
 import { barrou, sessaoOuDemo } from "@/adaptadores/entrada/http/contexto";
 import { falhaFiscal } from "@/adaptadores/entrada/http/fiscal";
 
@@ -26,7 +26,10 @@ export async function POST(request: Request) {
     });
 
     if (r.status === "cancelado") {
-      return NextResponse.json({ ok: true, status: "cancelado", ref: r.ref, simulado: servicos.emissor.simulado });
+      /* `simulado` vem do RESULTADO, não de um getter global do emissor — ver o ⚠️ em
+       * `/api/nf/emitir`. Aqui o estrago seria o oposto e igualmente ruim: dizer
+       * "simulado" sobre um cancelamento que aconteceu de verdade na prefeitura. */
+      return NextResponse.json({ ok: true, status: "cancelado", ref: r.ref, simulado: r.simulado === true });
     }
     return NextResponse.json({ ok: false, status: "erro", ref: r.ref, erros: r.erros });
   } catch (e) {

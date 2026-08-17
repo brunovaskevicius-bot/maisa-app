@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { app, servicos } from "@/composicao";
+import { app } from "@/composicao";
 import { barrou, sessaoOuDemo } from "@/adaptadores/entrada/http/contexto";
 import { falhaFiscal } from "@/adaptadores/entrada/http/fiscal";
 
@@ -12,8 +12,14 @@ import { falhaFiscal } from "@/adaptadores/entrada/http/fiscal";
 //
 // Modos (decididos dentro do adaptador, ver saida/focus/emissor-focus.ts):
 //   • sem FOCUS_NFE_TOKEN             → "simulado" (seguro, sessão validada)
-//   • token sem dados fiscais         → "config_incompleta" (lista o que falta)
-//   • token + dados fiscais completos → emissão real (homologação ou produção)
+//   • token sem dados do inquilino    → "config_incompleta" (lista o que falta)
+//   • tudo pronto                     → emissão real (homologação ou produção)
+//
+// ⚠️ `ambiente` VEM DO RESULTADO, e não mais de `servicos.emissor.ambiente` (17/08/2026).
+// Aquele getter era global — o ambiente do ENV — e respondia o mesmo para todo inquilino.
+// Numa tela fiscal isso é a mentira mais cara possível: a rota dizia
+// `ambiente: "homologacao"` para uma nota que saiu em PRODUÇÃO, e o dono lia "isto é teste"
+// sobre um documento com validade fiscal. Agora quem responde é a emissão que aconteceu.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const runtime = "nodejs";
@@ -44,7 +50,8 @@ export async function POST(request: Request) {
       ok: r.status !== "erro",
       status: r.status,
       ref: r.ref,
-      ambiente: servicos.emissor.ambiente,
+      ambiente: r.ambiente,
+      simulado: r.simulado,
       numero: r.numero,
       url: r.url,
       pdf: r.pdf,

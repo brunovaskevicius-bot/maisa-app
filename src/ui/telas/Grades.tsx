@@ -13,6 +13,7 @@ import * as D from "@/adaptadores/saida/demo";
 import { useIsMobile, useEstreita } from "@/ui/useIsMobile";
 import { useStore, type TelaId } from "@/ui/estado/store";
 import { Cartao, GradeCartoes, Hero, TelaGrade, type TomTag } from "@/ui/componentes/Cartao";
+import { LigarNotaFiscal } from "@/ui/componentes/LigarNotaFiscal";
 
 /* Estado da nota → como o cartão se apresenta. Um lugar só, para as duas telas
    que mostram nota (Faturamento e a ficha do cliente) contarem a mesma coisa. */
@@ -139,6 +140,12 @@ export function Faturamento() {
           : undefined}
         pronto={noLote.length === 0 && processando.length === 0 ? "Mês fechado" : undefined}
       />
+
+      {/* Acima da lista de propósito: enquanto a nota fiscal não está ligada, todo botão de
+          emitir desta tela é promessa que o emissor vai recusar. O cartão desaparece sozinho
+          quando não há nada a fazer (e quando o emissor não está configurado no ambiente,
+          que não é problema do dono). */}
+      <LigarNotaFiscal />
 
       {base.length === 0 ? (
         <EmptyState icon="receipt" title="Nada a faturar" sub="Nenhum cliente ativo com valor fechado nesta competência." />

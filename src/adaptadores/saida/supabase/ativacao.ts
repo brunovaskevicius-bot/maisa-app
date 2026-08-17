@@ -55,6 +55,29 @@ async function catalogoAjustado(t: ContextoTenant): Promise<boolean> {
   });
 }
 
+/**
+ * A nota fiscal está pronta para emitir?
+ *
+ * Lê `v_negocio.fiscal_pronto`, que é `fiscal_configurado(config_fiscal)` — a mesma regra do
+ * 014, no banco. Não é uma segunda implementação: é a MESMA, e é por isso que se lê a view em
+ * vez de trazer as colunas e recalcular aqui.
+ *
+ * ⚠️ A view devolve `false` para quem não é gestão, porque a RLS de `config_fiscal` esconde a
+ * linha do atendente. Isso está certo neste contexto: para quem não pode configurar, "não
+ * configurado" é a leitura honesta. Está escrito assim no `004_visoes.sql`.
+ */
+async function fiscalPronto(t: ContextoTenant): Promise<boolean> {
+  const supabase = clienteDoContexto(t);
+  const { data, error } = await supabase
+    .from("v_negocio")
+    .select("fiscal_pronto")
+    .eq("tenant_id", t.tenantId)
+    .maybeSingle<{ fiscal_pronto: boolean | null }>();
+
+  if (error) throw new Error(error.message);
+  return data?.fiscal_pronto === true;
+}
+
 /** Existe ao menos uma linha que casa com o filtro? Sem trazer as linhas. */
 async function existe(
   t: ContextoTenant,
@@ -101,6 +124,20 @@ export const ativacaoSupabase: ProgressoDeAtivacao = {
        * ser escrita por algum outro adaptador. Existir no banco não bastava.
        */
       { passo: "primeira_conversa", resposta: existe(t, "mensagens_agente") },
+      /**
+       * A nota fiscal ligada.
+       *
+       * ⚠️ NÃO É "existe linha em config_fiscal" — `criar_negocio()` insere a linha no
+       * instante da criação do inquilino (005, com `ambiente` só). Contar a existência
+       * marcaria este passo para todo mundo, no primeiro segundo, e o checklist nasceria
+       * mentindo. É o mesmo defeito que `whatsapp_conectado` evita ao exigir
+       * `status = 'conectado'` em vez de "existe pareamento".
+       *
+       * `fiscal_pronto` é a coluna da view `v_negocio`, que chama `fiscal_configurado()` —
+       * empresa criada no emissor + certificado dentro da validade + código de serviço do
+       * caminho certo. A regra mora no 014 e é espelhada por `dominio/fiscal.fiscalFaltando`.
+       */
+      { passo: "nota_fiscal_ligada", resposta: fiscalPronto(t) },
     ];
 
     const resultados = await Promise.allSettled(perguntas.map((p) => p.resposta));

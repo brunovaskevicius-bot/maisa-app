@@ -89,6 +89,13 @@ import {
   criarLerContatos, criarMarcarContato,
 } from "@/nucleo/aplicacao/contatos";
 import { isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
+import { cadastroFocus } from "@/adaptadores/saida/focus/cadastro-focus";
+import { fiscalSupabase } from "@/adaptadores/saida/supabase/fiscal";
+import { cadastroDemo, fiscalDemo } from "@/adaptadores/saida/demo/fiscal";
+import {
+  criarConsultarCnpj, criarEnviarCertificado, criarLerEstadoFiscal,
+  criarLiberarProducaoFiscal, criarLigarNotaFiscal,
+} from "@/nucleo/aplicacao/fiscal";
 
 /* As implementações escolhidas HOJE. Uma linha por decisão. */
 
@@ -103,6 +110,27 @@ import { isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 const agenda = isGoogleConfigured ? agendaGoogle : agendaDemo;
 const conexoes = isGoogleConfigured ? conexoesGoogle : conexoesDemo;
 const emissor = emissorFocus;
+/**
+ * ── FISCAL: DUAS PORTAS, E UM CRITÉRIO SÓ ──
+ *
+ * `fiscalRepo` guarda a `config_fiscal` do inquilino; `cadastroEmissor` cria a empresa na
+ * Focus e sobe o certificado dela. As duas seguem **a mesma condição**, e ela é o E das
+ * duas credenciais.
+ *
+ * ⚠️ O E É O PONTO, e a alternativa é que explica: escolhidos por critérios separados,
+ * existiria o arranjo "token da Focus sem banco" — onde `cadastroEmissor` criaria uma
+ * empresa DE VERDADE, cobrada, e `fiscalDemo` guardaria o `empresaId` em memória, que morre
+ * no próximo deploy. O resultado é CNPJ duplicado na conta da Focus a cada reinício, e a
+ * Focus não deduplica por CNPJ (ver `criarEmpresa`).
+ *
+ * Com o E, um ambiente sem uma das duas coisas cai inteiro na demonstração: a tela fiscal
+ * abre, o CNPJ "consulta", a empresa "é criada" — nada sai do processo. É o que faz o passo
+ * que mais precisa de iteração (a tela de uma pergunta) rodar em `npm run dev` sem conta
+ * na Focus.
+ */
+const fiscalPronto = isSupabaseConfigured && cadastroFocus.faltando().length === 0;
+const fiscalRepo = fiscalPronto ? fiscalSupabase : fiscalDemo;
+const cadastroEmissor = fiscalPronto ? cadastroFocus : cadastroDemo;
 /**
  * O cadastro: quem atende, o que se vende, quem é cliente.
  *
@@ -445,9 +473,19 @@ export const app = {
   listarConexoes: criarListarConexoes({ conexoes }),
   desconectarAgenda: criarDesconectarAgenda({ conexoes }),
 
-  emitirNota: criarEmitirNota({ emissor, novoId: randomUUID }),
-  consultarNota: criarConsultarNota({ emissor }),
-  cancelarNota: criarCancelarNota({ emissor }),
+  /* Os três recebem `fiscal` porque o prestador vem do BANCO, por inquilino — antes vinha
+   * de variável de ambiente, e uma resposta global num produto multi-inquilino é a nota de
+   * um cliente saindo no CNPJ do outro. */
+  emitirNota: criarEmitirNota({ emissor, fiscal: fiscalRepo, novoId: randomUUID }),
+  consultarNota: criarConsultarNota({ emissor, fiscal: fiscalRepo }),
+  cancelarNota: criarCancelarNota({ emissor, fiscal: fiscalRepo }),
+
+  /* ── ligar a nota fiscal: UMA pergunta, o CNPJ ── */
+  lerEstadoFiscal: criarLerEstadoFiscal({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),
+  consultarCnpj: criarConsultarCnpj({ cadastro: cadastroEmissor }),
+  ligarNotaFiscal: criarLigarNotaFiscal({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),
+  enviarCertificado: criarEnviarCertificado({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),
+  liberarProducaoFiscal: criarLiberarProducaoFiscal({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),
 };
 
 /** Exposto para as rotas relatarem configuração (o que falta, qual ambiente fiscal). */

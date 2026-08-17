@@ -16,6 +16,7 @@ Cumpre a porta `RepositorioNegocio` com fixtures em memória. É o antigo
 | `equipe.ts` | `EQUIPE`, `COLUNAS_AGENDA` (a allowlist), `EXPEDIENTE`, e os atalhos `atende`/`podeComecar`. |
 | `catalogo.ts` | `SERVICOS`. |
 | `clientes.ts` | `CLIENTES`, `NOTAS_INICIAIS`, `PROXIMO_NUMERO`, `TESTE_CANCELA_APOS_MS`. |
+| `fiscal.ts` | `fiscalDemo`, `cadastroDemo`. Estado de partida: um **MEI com o CNPJ ligado e sem certificado** — que é exatamente o passo onde todo cliente real vai parar. Quem abre a tela sem conta na Focus vê a mesma tela que o cliente vê. |
 | `contatos.ts` | `contatosDemo`, `contatosDoCanalDemo`, `limparContatosDemo`. O caderno de partida tem **Pai** e **Mãe** não marcados como cliente: é o estado em que o guardrail realmente cala alguém, e é o que faz o comportamento ser verificável no `/laboratorio` sem configurar nada. |
 | `conversas.ts` | Só `FAQS`. As conversas de demonstração (`CONVERSAS`, `THREADS`, `SUGESTOES`, `FILA_CONVERSAS`) **saíram**: a tela lê `GET /api/conversas`, que lê a mesma tabela que o agente escreve. Conversa inventada ao lado de conversa real faria o dono responder a quem não existe. |
 | `assistente.ts` | `SECOES_AJUSTE`, `DIAS_PADRAO`, `CFG_PADRAO`, `TOGGLES_*`, `PREVIEWS`. |

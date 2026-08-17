@@ -82,13 +82,32 @@ muda o comportamento da tela — procure o nome no store antes.
 
 | Rota | Métodos | Porteiro | Caso de uso |
 |---|---|---|---|
+| `/api/fiscal` | GET · POST · PUT · PATCH | `exigirSessao` | `LerEstadoFiscal` · `ConsultarCnpj` (`?cnpj=`) · `LigarNotaFiscal` · `EnviarCertificado` · `LiberarProducaoFiscal` |
 | `/api/nf/emitir` | POST | `sessaoOuDemo` | `EmitirNota` |
 | `/api/nf/status` | GET | `sessaoOuDemo` | `ConsultarNota` |
 | `/api/nf/cancelar` | POST | `sessaoOuDemo` | `CancelarNota` |
 
-Formato de erro **diferente** do resto do app: `erros: [{ mensagem }]`, herdado da Focus e já
-entranhado na tela de Faturamento. E `config_incompleta` sai com **HTTP 200** — não é falha de
-requisição, é o app dizendo ao dono quais variáveis fiscais faltam. Ver
+**O `/api/fiscal` é o onboarding fiscal, e ele faz UMA pergunta: o CNPJ.** Razão social,
+município, CNAE e — o que decide o caminho de emissão — `optante_mei` vêm da Receita a partir
+dos 14 dígitos. `POST` consulta e cadastra a empresa no emissor; `PUT` instala o certificado
+A1; `PATCH` vira a chave para produção e **recusa enquanto faltar qualquer coisa**.
+
+⚠️ Ele é `exigirSessao` e os `/api/nf/*` são `sessaoOuDemo`, e a diferença é o custo: aqui se
+cria uma **empresa cobrada** numa conta de emissor fiscal, e a Focus não deduplica por CNPJ.
+
+⚠️ **MEI vai pelo Ambiente Nacional, obrigatoriamente.** O `caminho` do GET diz por onde a
+nota sai (`nacional` | `municipal`) — e o modo de falha de errar isso é traiçoeiro: a emissão
+devolve 202 "processando" e a recusa chega minutos depois no status assíncrono. A regra está em
+[`nucleo/dominio/fiscal.ts`](../src/nucleo/dominio/fiscal.ts) e tem teste.
+
+⚠️ **Nem o token do emissor nem o `.pfx` do certificado ficam no nosso banco.** O token é
+pedido ao provedor na hora de emitir e não chega ao núcleo; o certificado atravessa o `PUT` e
+vai embora, sobrando só `certificadoValidoAte`. Ver
+[`portas/saida/cadastro-de-emissor.ts`](../src/nucleo/portas/saida/cadastro-de-emissor.ts).
+
+Formato de erro dos `/api/nf/*` **diferente** do resto do app: `erros: [{ mensagem }]`, herdado
+da Focus e já entranhado na tela de Faturamento. E `config_incompleta` sai com **HTTP 200** —
+não é falha de requisição, é o app dizendo ao dono o que falta. Ver
 [`entrada/http/fiscal.ts`](../src/adaptadores/entrada/http/LEIA-ME.md).
 
 ## WhatsApp — chamado por máquina

@@ -124,6 +124,13 @@ export function JornadaDeAtivacao() {
        * segundo simulador para manter. */
       ir: () => { window.location.href = "/comecar"; },
     },
+    {
+      id: "nota_fiscal_ligada", titulo: "Nota fiscal", icone: "receipt",
+      /* ★ O ganho aqui é o único que fala de DINHEIRO e de tempo do dono, porque é o único
+       * passo que não é setup: é a coisa que o produto faz e a concorrência não. */
+      ganho: "Ela emite sozinha depois de cada atendimento",
+      ir: () => st.irPara("faturamento"),
+    },
   ];
 
   if (formado || feitos === null) return null;

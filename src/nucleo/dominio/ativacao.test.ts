@@ -13,10 +13,10 @@ import { describe, expect, it } from "vitest";
 import { PASSOS_DE_ATIVACAO, progressoDe, type PassoDeAtivacao } from "./ativacao";
 
 describe("progresso da ativação", () => {
-  it("negócio recém-criado tem 1 de 5 — nunca zero", () => {
+  it("negócio recém-criado tem 1 de 6 — nunca zero", () => {
     const p = progressoDe(["negocio_criado"]);
     expect(p.feitos).toEqual(["negocio_criado"]);
-    expect(p.porcentagem).toBe(20);
+    expect(p.porcentagem).toBe(17);
     expect(p.completo).toBe(false);
   });
 
@@ -39,13 +39,13 @@ describe("progresso da ativação", () => {
   it("passo repetido não conta duas vezes", () => {
     const p = progressoDe(["negocio_criado", "negocio_criado", "negocio_criado"]);
     expect(p.feitos).toHaveLength(1);
-    expect(p.porcentagem).toBe(20);
+    expect(p.porcentagem).toBe(17);
   });
 
   it("passo inventado é ignorado, não somado", () => {
     const p = progressoDe(["negocio_criado", "pagou_a_fatura" as PassoDeAtivacao]);
     expect(p.feitos).toEqual(["negocio_criado"]);
-    expect(p.porcentagem).toBe(20);
+    expect(p.porcentagem).toBe(17);
   });
 
   it("nada feito é 0 e não quebra", () => {
@@ -56,13 +56,19 @@ describe("progresso da ativação", () => {
   /* ⚠️ Este teste existe para DOER quando alguém acrescentar um passo. Não é redundância:
    * a ordem e a quantidade são contrato com a tela e com a porcentagem que o dono vê, e
    * mudar qualquer um dos dois é decisão de produto — não refatoração. */
-  it("são cinco passos, nesta ordem", () => {
+  it("são seis passos, nesta ordem", () => {
     expect(PASSOS_DE_ATIVACAO).toEqual([
       "negocio_criado",
       "catalogo_ajustado",
       "whatsapp_conectado",
       "agenda_conectada",
       "primeira_conversa",
+      /* ★ Entrou em 17/08/2026. A nota fiscal é o maior diferencial do produto, e um
+       * diferencial fora do checklist do primeiro dia é um diferencial que o cliente
+       * descobre no mês seguinte — se descobrir. Último de propósito: é o único passo que
+       * exige o cliente trazer algo de fora (o certificado digital), e pedir isso antes de
+       * a MAISA marcar o primeiro horário é cobrar trabalho antes de mostrar valor. */
+      "nota_fiscal_ligada",
     ]);
   });
 });

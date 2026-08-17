@@ -51,6 +51,23 @@ export const PASSOS_DE_ATIVACAO = [
   "agenda_conectada",
   /** Alguém conversou com a MAISA — a prova de que o conjunto funciona. */
   "primeira_conversa",
+  /**
+   * A nota fiscal está ligada: CNPJ cadastrado no emissor e certificado dentro da validade.
+   *
+   * ★ ENTROU EM 17/08/2026 PORQUE É O MAIOR DIFERENCIAL DO PRODUTO — e um diferencial que
+   * não aparece no checklist do primeiro dia é um diferencial que o cliente descobre no mês
+   * seguinte, se descobrir. Os outros quatro passos entregam "a MAISA marca horário"; este é
+   * o que ela faz que ninguém mais faz.
+   *
+   * ⚠️ ELE MUDA A PORCENTAGEM DE TODO MUNDO, e isso é mudança de produto, não de tipo — a
+   * própria regra escrita acima. Quem estava em 100% com quatro passos cai para 83%, e é
+   * honesto: aquela pessoa não tem nota fiscal ligada.
+   *
+   * É o último de propósito. Depende do CNPJ e de um certificado digital, e é o único passo
+   * onde o cliente precisa trazer algo de fora — pedir isso antes de a MAISA ter marcado o
+   * primeiro horário é cobrar trabalho antes de mostrar valor.
+   */
+  "nota_fiscal_ligada",
 ] as const;
 
 export type PassoDeAtivacao = (typeof PASSOS_DE_ATIVACAO)[number];

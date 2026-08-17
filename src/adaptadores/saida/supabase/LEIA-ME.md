@@ -18,6 +18,7 @@ renovar sessão.
 | `repositorio.ts` | servidor | `RepositorioNegocio`: negócio, equipe, catálogo, carteira. Lê das **views**. |
 | `atendimentos.ts` | servidor | `RegistroDeAtendimentos` — o espelho do que a MAISA marcou. |
 | `memoria.ts` | servidor | `RepositorioMemoria` + `RepositorioHistorico` + `RepositorioConversas`: o perfil do cliente, a thread do WhatsApp e quem conduz cada conversa. **É o que faz o painel ver a conversa** — enquanto isto era um `Map` de processo (`saida/demo/memoria.ts`), a tela rodava em outro processo que o webhook e a thread era invisível para ela por construção. |
+| `fiscal.ts` | servidor | `RepositorioFiscal`: a `config_fiscal` do inquilino (CNPJ, município, regime, `focus_empresa_id`, vencimento do certificado). ⚠️ **Não lê nem escreve segredo** — o token da Focus é pedido ao provedor na hora de emitir, e o `.pfx` nunca chega ao banco. `upsert` com `.select()` porque escrita barrada por RLS volta sem erro e sem linha. |
 | `contatos.ts` | servidor | `RepositorioContatos`: o caderno de nomes (tabela `contatos`) e o modo do número (`integracoes_whatsapp.modo`). ⚠️ Lido pelo AGENTE, sem sessão — a RLS sai de cena e o `.eq("tenant_id")` daqui é o cinto único. O upsert da importação **não toca em `cliente`**: reimportar não pode apagar o que o dono marcou. |
 
 ## Duas decisões estruturais
