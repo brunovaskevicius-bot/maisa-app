@@ -83,7 +83,31 @@ curl -X POST https://SEU-APP/api/whatsapp \
 ```
 
 `conexao` responde `conectado: true` só quando o estado é `open`. `connecting` e `close`
-significam QR Code para ler — e isso é um humano com o celular na mão, não código.
+significam pareamento pendente — e isso é um humano com o celular na mão, não código.
+
+## Parear: QR ou código de 8 caracteres
+
+`criarInstancia` devolve `{ qrcode, codigo }`. O `codigo` só vem quando se passa `numero`, e é
+o "Conectar com número de telefone" do WhatsApp — **o caminho de quem está no próprio celular**,
+onde o QR é impossível de ler porque a câmera não fotografa a tela do mesmo aparelho.
+
+São **duas chamadas em cascata**, e a segunda não é redundância:
+
+1. `POST /instance/create` com `number` no corpo. Funciona em algumas versões da Evolution e é
+   ignorado em outras, que devolvem o QR e `pairingCode` ausente.
+2. `GET /instance/connect/{instancia}?number=` — o endpoint documentado do recurso. Só roda
+   quando a primeira não trouxe o código, e é **silencioso em qualquer falha**: quem chamou já
+   tem um QR válido na mão, e transformar "não consegui o código" em exceção destruiria um
+   pareamento que ia funcionar pelo outro caminho.
+
+⚠️ **`qrcode: true` continua no corpo mesmo quando se pede código.** O pairing code depende da
+versão do Baileys do servidor e falha calado (vem `null`). O QR do mesmo corpo é a rede de
+segurança — e é o que a tela oferece como "prefiro ler o QR". Pedir os dois custa uma chamada
+só; pedir só o código e receber `null` deixaria o dono sem caminho nenhum.
+
+⚠️ **O código também vence, e vence mais rápido que o QR** (~1 min). É por isso que `conectar`
+apaga e recria a instância em qualquer estado que não seja `open`: código velho é pior que QR
+velho, porque o dono digita oito caracteres à mão para o WhatsApp dizer que estão errados.
 
 ## Env vars
 

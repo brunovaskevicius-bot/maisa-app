@@ -53,6 +53,48 @@ export function numeroDeJid(jid: string | null | undefined): string | null {
 }
 
 /**
+ * O telefone DIGITADO pelo dono, virando o formato que o pareamento por código exige.
+ *
+ * ── POR QUE ISTO EXISTE, SE O DONO "NUNCA DIGITA O TELEFONE" ──
+ *
+ * Porque quem conecta pelo celular não consegue ler o QR: a câmera do aparelho não
+ * fotografa a própria tela. O WhatsApp resolve isso com "Conectar com número de telefone",
+ * que troca a câmera por um código de 8 caracteres — e para emitir esse código o provedor
+ * precisa saber PARA QUAL número emitir. Não há como não perguntar.
+ *
+ * ⚠️ ISSO NÃO REVOGA A REGRA DE QUEM É A FONTE DA VERDADE. O que o dono digita é INSUMO
+ * do pareamento e morre ali: quem escreve `integracoes_whatsapp.numero` continua sendo o
+ * `ownerJid` que o provedor devolve depois de conectar (ver `numeroDeJid` e o
+ * `EstadoDoCanal`). Guardar o digitado seria gravar uma intenção como se fosse um fato —
+ * e o dia em que ele errar um dígito, a tela mostraria para sempre um número que não
+ * pareou. Com a regra atual, errar o dígito só faz o código não chegar.
+ *
+ * ── O VIÉS BRASILEIRO É DELIBERADO ──
+ *
+ * 10 ou 11 dígitos ganham `55` na frente, porque é o que o dono digita: ele escreve
+ * "(11) 99429-4906", não "+55 11…". A consequência é que um número estrangeiro de 11
+ * dígitos (um +1 americano, por exemplo) seria lido como brasileiro. É trade-off
+ * assumido — o produto vende para barbearia e clínica no Brasil, e quem tiver número de
+ * fora pode digitar com o DDI que o ramo de 12–15 dígitos aceita.
+ *
+ * `null` = não dá para pedir código com isso. Quem chama transforma em erro de campo,
+ * nunca em chamada ao provedor: pedir código para um número inválido gasta uma tentativa
+ * do WhatsApp e devolve um código que não chega em lugar nenhum.
+ */
+export function numeroParaPareamento(v: string | null | undefined): string | null {
+  const d = String(v ?? "").replace(/\D/g, "");
+  /* Celular ou fixo com DDD e sem DDI — o caso normal, e por isso o primeiro. */
+  if (d.length === 10 || d.length === 11) return `55${d}`;
+  /* Já veio com o 55: aceita como está, inclusive o celular antigo de 8 dígitos (12 no
+   * total). Não normalizamos o nono dígito aqui — quem sabe se a linha o tem é a operadora,
+   * e inventar um dígito faria pedir código para um número que não existe. */
+  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) return d;
+  /* Estrangeiro com DDI. 15 é o teto do E.164. */
+  if (d.length >= 12 && d.length <= 15) return d;
+  return null;
+}
+
+/**
  * O que o PROVEDOR sabe sobre a instância agora.
  *
  * Nasceu com `status` só. O `numero` entrou depois, em 13/08/2026, porque a coluna
@@ -80,13 +122,28 @@ export type Canal = {
 /**
  * O que a tela precisa para desenhar o passo "conecte seu WhatsApp".
  *
- * `qrcode` é `data:image/png;base64,…` pronto para um `<img src>`. Ele é EFÊMERO: a
- * Evolution troca o código a cada poucos segundos e o antigo para de funcionar, então
- * isto não se guarda em lugar nenhum — nem no banco, nem no estado do navegador além do
- * necessário para pintar.
+ * ── DOIS CAMINHOS, E O SEGUNDO NÃO É LUXO ──
+ *
+ * `qrcode` é `data:image/png;base64,…` pronto para um `<img src>`. `codigo` são os 8
+ * caracteres do "Conectar com número de telefone" do WhatsApp. Vêm juntos no mesmo tipo
+ * porque respondem à mesma pergunta do dono ("como eu ligo isso?") e porque a escolha
+ * entre eles é da TELA, não do domínio: quem está no celular não tem como ler o QR — a
+ * câmera não fotografa a própria tela —, e quem está no computador acha o código mais
+ * trabalhoso que apontar a câmera.
+ *
+ * Os dois são EFÊMEROS e não se guardam em lugar nenhum, nem no banco: a Evolution troca
+ * o QR a cada poucos segundos e o código do WhatsApp vale cerca de um minuto. Persistir
+ * qualquer um dos dois é oferecer ao dono um código morto na próxima vez que ele abrir a
+ * tela — e o sintoma disso é ele concluir que o produto não funciona.
+ *
+ * `codigo: null` com `status: "pareando"` é caso legítimo: significa "pediram QR". O
+ * inverso também — os dois nulos ao mesmo tempo é que é problema, e quem trata é a tela
+ * (ver o comentário de `conectar` no adaptador da Evolution).
  */
 export type Pareamento = {
   qrcode: string | null;
+  /** Os 8 caracteres do "Conectar com número de telefone". `null` = pareamento por QR. */
+  codigo: string | null;
   status: StatusDoCanal;
   instancia: string;
 };

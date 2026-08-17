@@ -16,6 +16,11 @@
  * recriado. É destrutivo de propósito, e é seguro porque só destrói pareamento que já
  * não estava funcionando.
  *
+ * Vale igual para o CÓDIGO de pareamento (o "Conectar com número de telefone" do
+ * WhatsApp, pedido quando `conectar` recebe `numero`): ele também nasce da sessão nova do
+ * Baileys e também vence. Um código velho é pior que um QR velho — o dono digita oito
+ * caracteres à mão para o WhatsApp dizer que estão errados.
+ *
  * ⚠️ A ESPERA ENTRE APAGAR E CRIAR não é superstição. A Evolution devolve 200 no DELETE
  * antes de terminar de liberar o nome, e criar imediatamente falha com "instância já
  * existe" de forma intermitente — o tipo de bug que só aparece em produção e some quando
@@ -25,7 +30,7 @@
 import type { EstadoDoCanal, Pareamento } from "@/nucleo/dominio/canal";
 import type { ProvisionamentoDeCanal } from "@/nucleo/portas/saida/provisionamento-canal";
 import { numeroDeJid, statusDeEstadoEvolution } from "@/nucleo/dominio/canal";
-import { apagarInstancia, criarInstancia, instanciaPorNome } from "./cliente";
+import { apagarInstancia, criarInstancia, instanciaPorNome, pedirCodigoDePareamento } from "./cliente";
 import { evolutionFaltando } from "./config";
 
 /** Espera entre o DELETE e o CREATE. Ver o ⚠️ do cabeçalho. */
@@ -59,23 +64,40 @@ export const provisionamentoEvolution: ProvisionamentoDeCanal = {
     /* Já pareado: NÃO recria. Recriar aqui seria derrubar o WhatsApp de um cliente que
      * está atendendo, porque ele clicou num botão que dizia "conectar". */
     if (atual === "conectado") {
-      return { qrcode: null, status: "conectado", instancia: p.instancia };
+      return { qrcode: null, codigo: null, status: "conectado", instancia: p.instancia };
     }
 
     await apagarInstancia(p.instancia);
     await dormir(ESPERA_RECRIAR_MS);
 
-    const qrcode = await criarInstancia({
+    const emitido = await criarInstancia({
       instancia: p.instancia,
       urlWebhook: p.urlWebhook,
       segredo: p.segredo,
+      numero: p.numero,
     });
 
-    /* Sem QR e sem erro é um caso real: a Evolution às vezes cria a instância e devolve o
-     * corpo sem o código. Reportar `pareando` sem `qrcode` deixa a tela dizer "gerando,
-     * tente de novo" — melhor que um erro que sugere que a conexão falhou, porque a
-     * instância existe e o próximo clique resolve. */
-    return { qrcode, status: "pareando", instancia: p.instancia };
+    /* Pediram código e a criação não trouxe: tenta o endpoint dedicado antes de desistir.
+     * Ver `pedirCodigoDePareamento` para por que são dois caminhos e não um.
+     *
+     * ⚠️ SÓ ENTRA AQUI COM `numero`. Sem ele não há código a pedir, e chamar
+     * `/instance/connect` assim mesmo custaria uma ida à rede em TODO pareamento por QR —
+     * dentro de uma função que já gasta 3s dormindo e roda com `maxDuration` contado. */
+    const codigo =
+      p.numero && !emitido.codigo
+        ? await pedirCodigoDePareamento(p.instancia, p.numero)
+        : emitido.codigo;
+
+    /* Sem QR e sem código, e sem erro, é um caso real: a Evolution às vezes cria a
+     * instância e devolve o corpo sem nada. Reportar `pareando` vazio deixa a tela dizer
+     * "gerando, tente de novo" — melhor que um erro que sugere que a conexão falhou,
+     * porque a instância existe e o próximo clique resolve.
+     *
+     * O QR volta MESMO quando o código veio, e é de propósito: é o que permite à tela
+     * oferecer "prefiro ler o QR" sem uma segunda chamada, e é a rede de segurança para o
+     * pairing code que falha depois de emitido — o WhatsApp recusa o código em algumas
+     * versões, e nesse ponto o dono já está com a tela aberta esperando. */
+    return { qrcode: emitido.qrcode, codigo, status: "pareando", instancia: p.instancia };
   },
 
   async desconectar(instancia: string): Promise<void> {

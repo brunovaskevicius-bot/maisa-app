@@ -23,6 +23,8 @@ import type { ConectarCanal, DesconectarCanal, LerCanal } from "../portas/entrad
 import type { ProvisionamentoDeCanal } from "../portas/saida/provisionamento-canal";
 import type { RepositorioCanal } from "../portas/saida/repositorio-canal";
 import type { Canal } from "../dominio/canal";
+import { numeroParaPareamento } from "../dominio/canal";
+import { DadoInvalido } from "../dominio/erros";
 
 type Deps = {
   provisionamento: ProvisionamentoDeCanal;
@@ -79,12 +81,34 @@ export function criarLerCanal(deps: Deps): LerCanal {
 }
 
 export function criarConectarCanal(deps: Deps): ConectarCanal {
-  return async (t) => {
+  return async (t, p) => {
     const linha = await deps.canal.ler(t);
     const instancia = linha?.instancia || nomeNovo(t.tenantId);
 
+    /* ── O NÚMERO PARA O CÓDIGO DE PAREAMENTO ──
+     *
+     * Só chega aqui quando a tela pediu o caminho sem câmera (celular). Validar ANTES de
+     * falar com o provedor não é preferência de estilo: o passo seguinte APAGA a
+     * instância. Descobrir lá na frente que o telefone era inválido deixaria o cliente
+     * sem canal por causa de um dígito a menos — a mesma classe de incidente que o teste
+     * "falha de configuração acontece ANTES de tocar no provedor" congelou.
+     *
+     * String vazia é o mesmo que ausente: é o que um `<input>` em branco manda, e tratá-la
+     * como erro faria a tela recusar um clique em "conectar por QR". */
+    const cru = p?.numero?.trim() || null;
+    /* `?? undefined` e não `| null`: a porta declara `numero?: string`, e passar `null`
+     * explícito faria o adaptador testar `p.numero` contra um valor que o tipo diz não
+     * existir. Ausente é ausente. */
+    const numero = (cru ? numeroParaPareamento(cru) : null) ?? undefined;
+    if (cru && !numero) {
+      throw new DadoInvalido(
+        "Esse telefone não parece um WhatsApp válido. Digite com DDD, como (11) 99999-9999.",
+        "numero",
+      );
+    }
+
     const { url, segredo } = deps.webhook();
-    const r = await deps.provisionamento.conectar({ instancia, urlWebhook: url, segredo });
+    const r = await deps.provisionamento.conectar({ instancia, urlWebhook: url, segredo, numero });
 
     /* Grava ANTES de devolver o QR, e grava mesmo quando o status é `pareando`.
      *

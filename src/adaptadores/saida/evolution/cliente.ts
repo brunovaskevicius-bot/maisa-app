@@ -371,13 +371,64 @@ export async function instanciaPorNome(
  * exigir um segundo GET em `/instance/connect`. Um passo a menos é uma janela a menos
  * entre "instância criada" e "QR na tela" — e é nessa janela que o código expira.
  */
-export async function criarInstancia(p: { instancia: string; urlWebhook: string; segredo: string }): Promise<string | null> {
+export type Emissao = { qrcode: string | null; codigo: string | null };
+
+/** O QR de um corpo da Evolution, já normalizado para `data:` — ou `null`. */
+function qrDe(data: any): string | null {
+  /* A Evolution mudou o formato entre versões: umas devolvem `qrcode.base64`, outras
+   * `qrcode.code`, outras `base64` na raiz. Ler as três é mais barato que amarrar o
+   * produto a uma versão do servidor. */
+  const bruto = data?.qrcode?.base64 ?? data?.base64 ?? data?.qrcode?.code ?? null;
+  if (!bruto || typeof bruto !== "string") return null;
+  /* Normaliza para data-URL: algumas versões devolvem com o prefixo, outras sem, e a
+   * tela não pode ter um `if` para isso. */
+  return bruto.startsWith("data:") ? bruto : `data:image/png;base64,${bruto}`;
+}
+
+/**
+ * O código de pareamento de um corpo da Evolution — os 8 caracteres do WhatsApp.
+ *
+ * ⚠️ VALIDA O FORMATO, e não é frescura. A Evolution devolve `pairingCode: null` quando
+ * a versão do Baileys não suporta o recurso, e já foi vista devolvendo string vazia. Os
+ * dois passariam por um `?? null` e chegariam à tela como "seu código é: " — o dono
+ * ficaria olhando um campo vazio sem nada para digitar. Melhor `null`, que a tela sabe
+ * traduzir para "não consegui gerar o código, use o QR".
+ */
+function codigoDe(data: any): string | null {
+  const bruto = data?.qrcode?.pairingCode ?? data?.pairingCode ?? null;
+  if (typeof bruto !== "string") return null;
+  const limpo = bruto.trim().toUpperCase();
+  /* O WhatsApp emite 8 caracteres alfanuméricos. O hífen do meio ("WZYE-H1YY") aparece em
+   * algumas versões e é enfeite de exibição — quem decide como mostrar é a tela. */
+  const so = limpo.replace(/[^A-Z0-9]/g, "");
+  return so.length === 8 ? so : null;
+}
+
+/**
+ * Cria a instância e devolve o que serve para parear: o QR, ou o código de 8 caracteres.
+ *
+ * `qrcode: true` faz a Evolution já devolver o código no corpo da criação, em vez de
+ * exigir um segundo GET em `/instance/connect`. Um passo a menos é uma janela a menos
+ * entre "instância criada" e "QR na tela" — e é nessa janela que o código expira.
+ *
+ * ── `numero`, E POR QUE ELE NÃO DISPENSA O `qrcode: true` ──
+ *
+ * Com `number` no corpo, a Evolution pede ao Baileys um `pairingCode` em vez de esperar
+ * uma câmera. Mas mantemos `qrcode: true` de propósito: nas versões em que o pairing code
+ * falha (Baileys o suporta de forma desigual, e a falha é silenciosa — vem `null`), o QR
+ * do mesmo corpo é o que salva o pareamento. Pedir os dois custa uma chamada só; pedir só
+ * o código e receber `null` deixaria o dono sem nenhum caminho.
+ */
+export async function criarInstancia(p: {
+  instancia: string; urlWebhook: string; segredo: string; numero?: string;
+}): Promise<Emissao> {
   const data = await exigir(`/instance/create`, {
     chave: EVOLUTION.apiKeyGlobal,
     corpo: {
       instanceName: p.instancia,
       qrcode: true,
       integration: "WHATSAPP-BAILEYS",
+      ...(p.numero ? { number: p.numero } : {}),
       /* O webhook vai JUNTO da criação, e não numa chamada seguinte. Separar produz a
        * falha mais cara do produto: o cliente pareia, vê "conectado", manda "oi" e
        * ninguém responde — porque as mensagens estão indo para lugar nenhum. */
@@ -391,14 +442,34 @@ export async function criarInstancia(p: { instancia: string; urlWebhook: string;
     },
   });
 
-  /* A Evolution mudou o formato entre versões: umas devolvem `qrcode.base64`, outras
-   * `qrcode.code`, outras `base64` na raiz. Ler as três é mais barato que amarrar o
-   * produto a uma versão do servidor. */
-  const bruto = data?.qrcode?.base64 ?? data?.base64 ?? data?.qrcode?.code ?? null;
-  if (!bruto || typeof bruto !== "string") return null;
-  /* Normaliza para data-URL: algumas versões devolvem com o prefixo, outras sem, e a
-   * tela não pode ter um `if` para isso. */
-  return bruto.startsWith("data:") ? bruto : `data:image/png;base64,${bruto}`;
+  return { qrcode: qrDe(data), codigo: p.numero ? codigoDe(data) : null };
+}
+
+/**
+ * Segunda tentativa de código, pelo endpoint que existe só para isso.
+ *
+ * ⚠️ EXISTE PORQUE O `/instance/create` NÃO É CONFIÁVEL PARA O CÓDIGO. Medido contra a
+ * doc da v2: `number` no corpo da criação funciona em algumas versões e é ignorado em
+ * outras, que devolvem o QR e `pairingCode` ausente. `GET /instance/connect?number=` é o
+ * caminho documentado do recurso, e ele funciona sobre uma instância que já existe — por
+ * isso é o SEGUNDO passo, não o primeiro.
+ *
+ * Silencioso em qualquer falha, e isso é a decisão: quem chama já tem um QR válido na mão
+ * (ver `criarInstancia`). Transformar "não consegui o código" em exceção destruiria um
+ * pareamento que ia funcionar pelo outro caminho — trocaria uma inconveniência por um
+ * cliente sem WhatsApp.
+ */
+export async function pedirCodigoDePareamento(instancia: string, numero: string): Promise<string | null> {
+  try {
+    const { status, data } = await chamar(`/instance/connect/${enc(instancia)}?number=${encodeURIComponent(numero)}`, {
+      metodo: "GET",
+      chave: EVOLUTION.apiKeyGlobal,
+    });
+    if (status < 200 || status >= 300) return null;
+    return codigoDe(data);
+  } catch {
+    return null;
+  }
 }
 
 /** Apaga a instância. Silencioso se ela já não existe — apagar o que não há é sucesso. */

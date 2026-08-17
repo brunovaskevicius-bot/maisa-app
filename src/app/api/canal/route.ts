@@ -6,9 +6,12 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 // ─────────────────────────────────────────────────────────────────────────────
 // O CANAL DE WHATSAPP DO NEGÓCIO — conectar, consultar, desconectar.
 //
-// GET    /api/canal  →  { status, instancia, numero, conectadoEm }
-// POST   /api/canal  →  { pareamento: { qrcode, status, instancia } }  (cria/recria, devolve o QR)
-// DELETE /api/canal  →  { ok: true }
+// GET    /api/canal            →  { status, instancia, numero, conectadoEm }
+// POST   /api/canal  { numero? } →  { pareamento: { qrcode, codigo, status, instancia } }
+// DELETE /api/canal            →  { ok: true }
+//
+// No POST, `numero` presente pede o CÓDIGO de pareamento do WhatsApp em vez do QR — é o
+// caminho de quem está no próprio celular e não tem uma segunda câmera para apontar.
 //
 // ── POR QUE ESTA ROTA EXISTE, SE JÁ HÁ `/api/whatsapp/conexao` ──
 //
@@ -55,16 +58,32 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const porteiro = await exigirSessao();
   if (barrou(porteiro)) return porteiro.barrado;
 
   try {
-    /* Sem corpo de propósito: não há nada a escolher. O nome da instância é derivado do
-     * inquilino e o webhook vem da configuração do ambiente — se qualquer um dos dois
-     * viesse do request, seria um parâmetro por onde apontar o canal de um negócio para
-     * outro lugar. */
-    const pareamento = await app.conectarCanal(porteiro.tenant);
+    /* ── UM CAMPO SÓ, E POR QUE ELE NÃO REABRE O QUE ESTE COMENTÁRIO PROTEGIA ──
+     *
+     * Até 17/08/2026 esta rota não lia corpo nenhum, e a razão escrita aqui era boa: o
+     * nome da instância é derivado do inquilino e o webhook vem do ambiente — se qualquer
+     * um dos dois viesse do request, seria um parâmetro por onde apontar o canal de um
+     * negócio para outro lugar. Isso continua verdade, e continua valendo para os dois.
+     *
+     * `numero` é de outra natureza. Ele não escolhe instância, não escolhe destino de
+     * webhook e não é gravado: só diz em qual celular o WhatsApp deve mostrar a tela de
+     * "Conectar aparelho". Quem confirma lá é o dono do aparelho, dentro do app dele —
+     * mandar o número de um estranho não conecta o WhatsApp dele, gera um código que ele
+     * teria que digitar por vontade própria. O que ele compra é o cliente que abriu a
+     * MAISA no celular conseguir terminar o passo, o que com QR é impossível.
+     *
+     * ⚠️ `req.json()` LANÇA com corpo vazio, e corpo vazio é o caso mais comum aqui (todo
+     * pareamento por QR). Sem este `catch`, ligar o campo teria quebrado o caminho que já
+     * funcionava — a falha apareceria como "não foi possível gerar o QR code". */
+    const corpo = await req.json().catch(() => ({}) as Record<string, unknown>);
+    const numero = typeof corpo?.numero === "string" ? corpo.numero : undefined;
+
+    const pareamento = await app.conectarCanal(porteiro.tenant, { numero });
     /* ANINHADO, não espalhado. `Pareamento` tem um campo `status` (o do canal:
      * pareando/conectado) e a resposta tem outro (o contrato com o store: "ok",
      * "sem_negocio", "nao_configurado"). Espalhar sobrescreveria o segundo pelo primeiro,

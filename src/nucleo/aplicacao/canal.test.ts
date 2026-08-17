@@ -37,10 +37,19 @@ function montar(inicial: { linha?: Awaited<ReturnType<RepositorioCanal["ler"]>>;
       return estado;
     },
     async conectar(p): Promise<Pareamento> {
-      chamadas.push(`conectar(${p.instancia})`);
-      if (estado.status === "conectado") return { qrcode: null, status: "conectado", instancia: p.instancia };
+      chamadas.push(`conectar(${p.instancia},${p.numero ?? "sem-numero"})`);
+      if (estado.status === "conectado") {
+        return { qrcode: null, codigo: null, status: "conectado", instancia: p.instancia };
+      }
       estado = { status: "pareando", numero: null };
-      return { qrcode: "data:image/png;base64,QQ==", status: "pareando", instancia: p.instancia };
+      /* Espelha a Evolution: com `numero` vêm os dois (o QR é a rede de segurança para o
+       * pairing code que falha), sem `numero` vem só o QR. */
+      return {
+        qrcode: "data:image/png;base64,QQ==",
+        codigo: p.numero ? "WZYEH1YY" : null,
+        status: "pareando",
+        instancia: p.instancia,
+      };
     },
     async desconectar(instancia) {
       chamadas.push(`desconectar(${instancia})`);
@@ -209,6 +218,82 @@ describe("conectarCanal", () => {
     });
 
     await expect(conectar(t)).rejects.toThrow("MAISA_PUBLIC_URL");
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * PAREAMENTO POR CÓDIGO — o caminho de quem conecta pelo próprio celular.
+ *
+ * O QR pressupõe dois aparelhos, um mostrando e outro fotografando. Quem abre a MAISA no
+ * celular onde o WhatsApp do negócio está instalado não tem o segundo, e o passo não
+ * termina — sem nenhum sinal do lado de cá, porque é indistinguível de um QR que ninguém
+ * leu. Estes testes protegem a saída.
+ * ────────────────────────────────────────────────────────────────────────────── */
+describe("conectarCanal por código", () => {
+  it("com número, pede o código e devolve os dois caminhos", async () => {
+    const m = montar();
+
+    const p = await m.conectar(t, { numero: "(11) 99429-4906" });
+
+    expect(p.codigo).toBe("WZYEH1YY");
+    /* O QR volta junto de propósito: é a saída de quem tem um segundo aparelho quando o
+     * pairing code falha depois de emitido. Ver `provisionamento-evolution.ts`. */
+    expect(p.qrcode).toBeTruthy();
+  });
+
+  it("normaliza o que o dono digitou antes de mandar ao provedor", async () => {
+    const m = montar();
+
+    await m.conectar(t, { numero: "(11) 99429-4906" });
+
+    /* O provedor exige E.164 sem `+`. Mandar a máscara faria o WhatsApp emitir um código
+     * para um número que não existe — e o sintoma seria um código que nunca chega. */
+    expect(m.chamadas).toContain("conectar(tenant-uuid-1,5511994294906)");
+  });
+
+  it("sem número, segue pelo QR e não inventa código", async () => {
+    const m = montar();
+
+    const p = await m.conectar(t);
+
+    expect(p.codigo).toBeNull();
+    expect(m.chamadas).toContain("conectar(tenant-uuid-1,sem-numero)");
+  });
+
+  /* Um `<input>` em branco manda `""`. Tratá-lo como erro faria a tela recusar um clique
+   * em "conectar por QR" — o caminho que sempre funcionou. */
+  it("número em branco é o mesmo que não ter número", async () => {
+    const m = montar();
+
+    const p = await m.conectar(t, { numero: "   " });
+
+    expect(p.codigo).toBeNull();
+    expect(m.chamadas).toContain("conectar(tenant-uuid-1,sem-numero)");
+  });
+
+  /* ⚠️ MESMA CLASSE DO INCIDENTE DE 13/08/2026: o passo seguinte APAGA a instância.
+   * Validar depois de falar com o provedor deixaria o cliente sem canal por causa de um
+   * dígito a menos. */
+  it("número inválido falha ANTES de tocar no provedor", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "desconectado", numero: null, conectadoEm: null },
+    });
+
+    await expect(m.conectar(t, { numero: "99999" })).rejects.toThrow(/telefone/i);
+    expect(m.chamadas.some((c) => c.startsWith("conectar"))).toBe(false);
+    expect(m.chamadas.some((c) => c.startsWith("desconectar"))).toBe(false);
+  });
+
+  /* A regra que o pareamento por código NÃO pode revogar: quem escreve a coluna `numero`
+   * é o `ownerJid` do provedor. Gravar o digitado faria a tela mostrar para sempre um
+   * número que talvez nunca tenha pareado — o bug de 13/08/2026 pela porta oposta. */
+  it("o número DIGITADO não vira o número gravado", async () => {
+    const m = montar();
+
+    await m.conectar(t, { numero: "11994294906" });
+
+    expect(m.linha?.numero).toBeNull();
+    expect(m.chamadas).toContain("salvar(tenant-uuid-1,pareando,null)");
   });
 });
 

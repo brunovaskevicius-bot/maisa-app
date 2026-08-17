@@ -43,6 +43,8 @@ import { s, Icon, Toggle, toast, Toaster } from "@/ui/primitivos";
 import type { CategoriaServico, PassoDeAtivacao, Servico, Vertical } from "@/nucleo/dominio";
 import { sugestoes, type ExemploDoNegocio } from "./sugestoes";
 import { LigarNotaFiscal } from "@/ui/componentes/LigarNotaFiscal";
+import { CodigoPareamento, digitosDoTelefone, telefoneMascarado } from "@/ui/componentes/Pareamento";
+import { useIsMobile } from "@/ui/useIsMobile";
 
 /* ───────────────────────────── as etapas ───────────────────────────── */
 
@@ -51,7 +53,9 @@ type EtapaId = "negocio" | "catalogo" | "whatsapp" | "ver" | "fiscal";
 const ETAPAS: { id: EtapaId; titulo: string; sub: string }[] = [
   { id: "negocio", titulo: "Seu negócio", sub: "Como ele se chama e o que você faz" },
   { id: "catalogo", titulo: "O que você faz", sub: "Confira preços e quem atende" },
-  { id: "whatsapp", titulo: "Conectar o WhatsApp", sub: "Um QR code e a MAISA entra no ar" },
+  /* "Um código" e não "um QR code": no celular não há QR a ler, e prometer câmera na
+   * lista de etapas é começar a perder a pessoa antes de ela chegar no passo. */
+  { id: "whatsapp", titulo: "Conectar o WhatsApp", sub: "Um código e a MAISA entra no ar" },
   { id: "ver", titulo: "Ver funcionando", sub: "Fale com ela como se fosse seu cliente" },
   /* ★ ETAPA 5, e ela é uma PERGUNTA — não um formulário.
    *
@@ -440,34 +444,79 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
 
 function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
   const [qrcode, setQrcode] = useState<string | null>(null);
+  /** Os 8 caracteres do "Conectar com número de telefone". `null` = pareamento por QR. */
+  const [codigo, setCodigo] = useState<string | null>(null);
   const [status, setStatus] = useState<"parado" | "gerando" | "pareando" | "conectado">("parado");
   const [erro, setErro] = useState<string | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const tentativas = useRef(0);
 
+  /* ── ESTA É A ETAPA QUE MAIS PERDE GENTE, E A CÂMERA É O MOTIVO ──
+   *
+   * O wizard é a primeira coisa que um cliente novo vê, e uma boa parte o abre no celular
+   * — o MESMO aparelho onde o WhatsApp do negócio está instalado. Para essa pessoa o QR é
+   * impossível: a câmera não fotografa a própria tela. Ela não vê um erro, ela vê um
+   * quadrado que não serve para nada, e desiste. Do lado de cá é indistinguível de um QR
+   * que ninguém leu — nunca soubemos quantos foram embora aqui.
+   *
+   * Por isso o padrão vem do APARELHO. No celular, o caminho oferecido é o código; no
+   * computador, o QR, que é mais rápido para quem tem o celular na mão.
+   *
+   * ⚠️ A derivação é no render, e não `useState(noCelular)`: `useIsMobile` devolve `false`
+   * no primeiro render e só sincroniza depois do mount, então o estado nasceria "desktop"
+   * para todo mundo — justamente o público que esta mudança existe para atender. */
+  const noCelular = useIsMobile();
+  const [escolha, setEscolha] = useState<"qr" | "codigo" | null>(null);
+  const porCodigo = escolha ? escolha === "codigo" : noCelular;
+
+  const [telefone, setTelefone] = useState("");
+  /** Ver o QR mesmo tendo pedido código — a saída de quem tem um segundo aparelho. */
+  const [verQr, setVerQr] = useState(false);
+
+  const digitos = digitosDoTelefone(telefone);
+  const podePedirCodigo = digitos.length >= 10;
+  const mostrandoCodigo = !!codigo && !verQr;
+
   const parar = useCallback(() => {
     if (timer.current) { clearInterval(timer.current); timer.current = null; }
   }, []);
 
   /* ⚠️ O `clearInterval` no desmonte não é higiene, é conserto de vazamento: sem ele, sair
-   * do wizard com o QR na tela deixa um GET de 3 em 3 segundos rodando para sempre. */
+   * do wizard com o pareamento na tela deixa um GET de 3 em 3 segundos rodando para sempre. */
   useEffect(() => parar, [parar]);
 
-  const conectar = useCallback(async () => {
+  const conectar = useCallback(async (comNumero?: string) => {
     setErro(null);
     setStatus("gerando");
+    setVerQr(false);
     try {
-      const r = await fetch("/api/canal", { method: "POST" }).then((x) => x.json());
+      const r = await fetch("/api/canal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero: comNumero }),
+      }).then((x) => x.json());
       if (!r?.ok) {
         const falta = r?.faltando?.length ? ` Falta: ${r.faltando.join(", ")}.` : "";
-        setErro((r?.info ?? "Não foi possível gerar o QR code.") + falta);
+        setErro((r?.info ?? "Não foi possível abrir a conexão.") + falta);
         setStatus("parado");
         return;
       }
       setQrcode(r.pareamento?.qrcode ?? null);
+      setCodigo(r.pareamento?.codigo ?? null);
       if (r.pareamento?.status === "conectado") { setStatus("conectado"); return; }
       setStatus("pareando");
+
+      /* Pediu código e veio só QR: acontece: o pairing code depende da versão do Baileys do
+       * servidor e falha calado. Sem este aviso, o dono digita o telefone, vê um QR
+       * aparecer e conclui que o app ignorou o que ele pediu. */
+      const semCodigo = !!comNumero && !r.pareamento?.codigo;
+      if (semCodigo) {
+        setErro(
+          "Não consegui gerar o código de 8 dígitos agora. Dá para conectar lendo o QR de " +
+          "outro aparelho, ou tentar de novo.",
+        );
+      }
 
       tentativas.current = 0;
       parar();
@@ -477,7 +526,14 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
           parar();
           setStatus("parado");
           setQrcode(null);
-          setErro("O QR code venceu. Gere outro para tentar de novo.");
+          setCodigo(null);
+          /* A frase segue o caminho: "venceu sem ninguém escanear" manda procurar uma
+           * câmera, e é a última coisa que se deve dizer a quem está num aparelho só. */
+          setErro(
+            r.pareamento?.codigo
+              ? "O código venceu. Gere outro para tentar de novo."
+              : "O QR code venceu. Gere outro para tentar de novo.",
+          );
           return;
         }
         try {
@@ -486,6 +542,7 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
             parar();
             setNumero(c.canal.numero ?? null);
             setQrcode(null);
+            setCodigo(null);
             setStatus("conectado");
           }
         } catch { /* uma falha de rede no meio do polling não cancela o pareamento */ }
@@ -518,7 +575,14 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
         o número que seus clientes já conhecem. A MAISA responde por ele; você continua vendo tudo.
       </p>
 
-      {qrcode ? (
+      {status === "pareando" && mostrandoCodigo && codigo ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <CodigoPareamento codigo={codigo} />
+          <span style={s("font-size:var(--t-label);color:var(--muted);text-align:center")}>
+            Esperando você digitar o código no WhatsApp…
+          </span>
+        </div>
+      ) : status === "pareando" && qrcode ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 14, alignItems: "center" }}>
           {/* eslint-disable-next-line @next/next/no-img-element -- data-URI vinda da Evolution */}
           <img
@@ -532,12 +596,85 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
           </ol>
           <span style={s("font-size:var(--t-label);color:var(--muted)")}>Esperando você ler o código…</span>
         </div>
+      ) : porCodigo ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>
+              Número do WhatsApp do negócio
+            </span>
+            <input
+              value={telefoneMascarado(digitos)}
+              onChange={(e) => setTelefone(digitosDoTelefone(e.target.value))}
+              inputMode="tel" autoComplete="tel" placeholder="(11) 99999-9999"
+              className="m-focus" style={s(CAMPO)}
+              onKeyDown={(e) => { if (e.key === "Enter" && podePedirCodigo) void conectar(digitos); }}
+            />
+            {/* Diz o que o número FAZ e o que ele NÃO faz. Pedir telefone no meio de uma
+                conexão parece cadastro, e cadastro inesperado é onde a pessoa desconfia. */}
+            <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.45")}>
+              É para onde o WhatsApp manda o código de conexão. Ele não fica salvo aqui — quem
+              diz qual número conectou é o próprio WhatsApp, depois.
+            </span>
+          </label>
+
+          <Botao
+            onClick={() => { if (podePedirCodigo) void conectar(digitos); }}
+            ocupado={status === "gerando"} full
+          >
+            <Icon name="whatsapp" size={19} sw={2} stroke="var(--on-primary)" />
+            Receber código
+          </Botao>
+        </div>
       ) : (
         <Botao onClick={() => void conectar()} ocupado={status === "gerando"} full>
           <Icon name="whatsapp" size={19} sw={2} stroke="var(--on-primary)" />
           Gerar QR code
         </Botao>
       )}
+
+      {/* ── A SAÍDA, SEMPRE VISÍVEL ──
+          Ficar preso aqui é o pior desfecho do wizard, e há duas maneiras de acontecer: o
+          QR num aparelho só, e o pairing code que a versão do servidor não gera. Um toque
+          entre os dois caminhos é o que transforma "não funciona" em "usei o outro".
+
+          Sem guarda de `status`: o caso "conectado" já saiu por um `return` acima. */}
+      <button
+        onClick={() => {
+          /* Pareamento em curso COM código: o servidor mandou os dois, então trocar é só
+           * alternar o que se pinta. Nada de rede. */
+          if (status === "pareando" && codigo) { setVerQr((v) => !v); return; }
+
+          /* Pareamento em curso SEM código: só se chega aqui olhando um QR — seja porque
+           * foi ele que se pediu, seja porque o servidor não gerou o código. Nos dois
+           * casos o que a pessoa quer é o caminho sem câmera, então força "codigo" em vez
+           * de alternar. Cancela local e deixa o campo do telefone à mostra; a instância
+           * pendente morre no próximo `conectar`, que apaga e recria de qualquer jeito. */
+          if (status === "pareando") {
+            parar();
+            setStatus("parado");
+            setQrcode(null);
+            setErro(null);
+            setEscolha("codigo");
+            return;
+          }
+
+          setEscolha(porCodigo ? "qr" : "codigo");
+        }}
+        className="m-focus"
+        style={s(
+          "align-self:center;background:none;border:none;padding:4px;font-family:inherit;cursor:pointer;" +
+          "font-size:var(--t-sm);font-weight:var(--w-title);color:var(--primary);text-decoration:underline",
+        )}
+      >
+        {/* O rótulo segue o que está NA TELA, não o que foi pedido: quem pediu código e
+            recebeu só QR está olhando um QR, e oferecer "prefiro ler o QR" seria oferecer
+            o que ele já tem — no minuto em que ele está tentando desencalhar. */}
+        {status === "pareando" && codigo
+          ? mostrandoCodigo ? "Prefiro ler o QR code" : "Voltar para o código"
+          : status === "pareando" ? "Não consigo ler o QR — conectar com código"
+          : porCodigo ? "Prefiro ler o QR code"
+          : "Estou no celular — conectar com código"}
+      </button>
 
       {erro && (
         <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--danger);background:var(--danger-soft);padding:11px 13px;border-radius:10px;line-height:1.45")}>
@@ -1087,7 +1224,7 @@ function EtapaVerFuncionando({ feitos, aoVoltarParaWhatsApp, aoSeguir }: {
       <Falta
         icone="whatsapp"
         titulo="Falta o WhatsApp"
-        texto="É por ele que a MAISA atende — e é nele que a resposta dela vai chegar quando você testar. Leva um QR code."
+        texto="É por ele que a MAISA atende — e é nele que a resposta dela vai chegar quando você testar. Leva um minuto."
         acao={<Botao onClick={aoVoltarParaWhatsApp} full>Conectar o WhatsApp</Botao>}
         aoPainel={aoPainel}
       />

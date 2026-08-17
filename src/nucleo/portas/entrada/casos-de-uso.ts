@@ -311,11 +311,21 @@ export type ProvisionarNegocio = (
  */
 /* ───────────────────────────── o canal de WhatsApp ─────────────────────────────
  * O passo que faltava para o produto se vender sozinho: conectar o WhatsApp do cliente
- * sem ninguém criar instância na mão. `ConectarCanal` devolve um QR efêmero — a tela
- * pinta e recomeça o polling de `LerCanal` até virar "conectado".
+ * sem ninguém criar instância na mão. `ConectarCanal` devolve um pareamento efêmero — a
+ * tela pinta e recomeça o polling de `LerCanal` até virar "conectado".
+ *
+ * ⚠️ `numero` É O QUE FAZ O PRODUTO FUNCIONAR NO CELULAR, e por isso é opcional em vez de
+ * inexistente. Sem ele o pareamento é por QR — e QR pressupõe DOIS aparelhos, um
+ * mostrando e outro fotografando. Quem abre a MAISA no próprio celular não tem o segundo:
+ * a câmera não fotografa a própria tela, e o passo simplesmente não termina. Com `numero`,
+ * o `Pareamento` volta com `codigo` (o "Conectar com número de telefone" do WhatsApp) e o
+ * dono digita oito caracteres sem trocar de aparelho.
+ *
+ * O telefone digitado NÃO vira `integracoes_whatsapp.numero`: quem escreve essa coluna
+ * continua sendo o `ownerJid` do provedor. Ver `provisionamento-canal.ts`.
  */
 export type LerCanal = (t: ContextoTenant) => Promise<Canal>;
-export type ConectarCanal = (t: ContextoTenant) => Promise<Pareamento>;
+export type ConectarCanal = (t: ContextoTenant, p?: { numero?: string }) => Promise<Pareamento>;
 export type DesconectarCanal = (t: ContextoTenant) => Promise<void>;
 
 /* ────────────────────── o caderno de nomes, e quem ela atende ──────────────────────

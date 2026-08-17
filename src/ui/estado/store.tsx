@@ -721,10 +721,14 @@ export type StoreValue = {
   canalFaltando: string[];
   /** QR do pareamento em curso, pronto para `<img src>`. `null` = nenhum. */
   qrcode: string | null;
-  conectarCanal: () => Promise<void>;
+  /** Os 8 caracteres do "Conectar com número de telefone". `null` = pareamento por QR. */
+  codigo: string | null;
+  /** `numero` presente pede o CÓDIGO em vez do QR — o caminho de quem está no celular,
+   *  onde ler o QR é impossível porque a câmera não fotografa a própria tela. */
+  conectarCanal: (p?: { numero?: string }) => Promise<void>;
   desconectarCanal: () => Promise<void>;
-  /** Desconecta e já pede QR novo. Perde o número atual — confirme antes de chamar. */
-  trocarNumero: () => Promise<void>;
+  /** Desconecta e já pede pareamento novo. Perde o número atual — confirme antes de chamar. */
+  trocarNumero: (p?: { numero?: string }) => Promise<void>;
   /** O horário ANUNCIADO — o que a MAISA responde a "que horas vocês atendem?".
    *  Vem de `GET /api/horarios`; `semanaCarregada` diz se já é o do servidor. */
   semana: D.SemanaAnunciada;
@@ -1012,6 +1016,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
            * Agora existe `/comecar`, então a resposta certa é LEVAR PARA LÁ. O servidor já
            * diz isso no campo `acao` (`{ metodo: "POST", rota: "/api/negocio" }`, ver
            * `entrada/http/contexto.ts`); a tela só precisava obedecer.
+           *
+           * ⚠️ ESTE DESVIO DEIXOU DE SER O PRIMEIRO, em 17/08/2026. `app/page.tsx` faz a
+           * mesma pergunta no SERVIDOR e redireciona antes de sair HTML — porque chegar
+           * aqui já é tarde: o painel pintou, mostrou agenda e números de fixture, e só
+           * então saltou. Foi relatado assim: "entrei direto no painel e de repente voltei
+           * pro onboarding".
+           *
+           * O que sobrou para esta linha é o que aquele não alcança: a sessão que perde o
+           * negócio com o painel JÁ ABERTO, e a navegação de cliente que não repassa pelo
+           * servidor. Continua necessária, deixou de ser suficiente.
            *
            * `window.location` e não `router.push`: o store é montado acima do router em
            * `app/page.tsx`, e uma navegação de cliente aqui deixaria este provider vivo
@@ -2315,11 +2329,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [canalFaltando, setCanalFaltando] = useState<string[]>([]);
   /** O QR do pareamento em curso. `null` = não há pareamento na tela. */
   const [qrcode, setQrcode] = useState<string | null>(null);
+  /** Os 8 caracteres, quando o pareamento em curso é por código. */
+  const [codigo, setCodigo] = useState<string | null>(null);
   const pollCanal = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pararPolling = useCallback(() => {
     if (pollCanal.current) { clearInterval(pollCanal.current); pollCanal.current = null; }
   }, []);
+
+  /* Os dois somem SEMPRE JUNTOS, e é por isso que existe uma função em vez de duas
+   * chamadas soltas. Esquecer uma delas num dos cinco pontos de limpeza deixaria na tela
+   * um código morto ao lado de um QR vivo — e o dono digitaria o código. */
+  const limparPareamento = useCallback(() => { setQrcode(null); setCodigo(null); }, []);
 
   const buscarCanal = useCallback(async (): Promise<Canal | null> => {
     try {
@@ -2342,7 +2363,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { vivo = false; };
   }, [hidratado, buscarCanal]);
 
-  const iniciarPolling = useCallback(() => {
+  /* `porCodigo` só existe para a FRASE do fim do prazo: "expirou sem ninguém escanear" é
+   * instrução errada para quem nunca teve o que escanear, e mandar procurar a câmera é o
+   * jeito mais rápido de perder alguém que estava a um passo de conectar. */
+  const iniciarPolling = useCallback((porCodigo = false) => {
     pararPolling();
     let tentativas = 0;
     pollCanal.current = setInterval(() => {
@@ -2351,28 +2375,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const c = await buscarCanal();
         if (c?.status === "conectado") {
           pararPolling();
-          /* O QR some no instante em que conecta. Deixá-lo na tela convidaria a apontar a
-           * câmera de novo para um código morto — e o cliente concluiria que não funcionou. */
-          setQrcode(null);
+          /* Some no instante em que conecta. Deixar na tela convidaria a apontar a câmera
+           * (ou digitar) de novo para um código morto — e o cliente concluiria que não
+           * funcionou justo depois de ter funcionado. */
+          limparPareamento();
           toast("WhatsApp conectado");
         } else if (tentativas >= TENTATIVAS_PAREAMENTO) {
           pararPolling();
-          setQrcode(null);
-          setCanalErro("O QR expirou sem ninguém escanear. Clique em conectar para gerar outro.");
+          limparPareamento();
+          setCanalErro(
+            porCodigo
+              ? "O código expirou sem ninguém digitar. Clique em conectar para gerar outro."
+              : "O QR expirou sem ninguém escanear. Clique em conectar para gerar outro.",
+          );
         }
       })();
     }, INTERVALO_PAREAMENTO);
-  }, [buscarCanal, pararPolling, toast]);
+  }, [buscarCanal, limparPareamento, pararPolling, toast]);
 
   /* Sair da tela para o polling. Sem isto, um painel aberto numa aba esquecida continuaria
    * batendo na rota para sempre. */
   useEffect(() => () => pararPolling(), [pararPolling]);
 
-  const conectarCanal = useCallback(async () => {
+  const conectarCanal = useCallback(async (p?: { numero?: string }) => {
     setCanalOcupado(true);
     setCanalErro(null);
     try {
-      const r = await fetch("/api/canal", { method: "POST" }).then((x) => x.json());
+      const r = await fetch("/api/canal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        /* Manda o corpo sempre, mesmo vazio: a rota tolera os dois, e um único formato de
+         * chamada é uma variável a menos quando alguém for depurar por que o código não
+         * chegou. */
+        body: JSON.stringify({ numero: p?.numero ?? undefined }),
+      }).then((x) => x.json());
       if (!r?.ok) {
         setCanalErro(motivoCanal(r, MOTIVO_CANAL.conectar));
         /* Reaproveita a lista do erro como estado da tela: se conectar falhou por
@@ -2381,8 +2417,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setQrcode(r.pareamento?.qrcode ?? null);
+      setCodigo(r.pareamento?.codigo ?? null);
+
+      /* ⚠️ PEDIU CÓDIGO E VEIO SÓ QR. Acontece de verdade — o pairing code depende da
+       * versão do Baileys do servidor e falha calado. Sem este aviso, o dono digitaria o
+       * telefone, veria um QR aparecer e concluiria que o app ignorou o que ele pediu.
+       * A tela continua utilizável: o QR está ali, e quem tem um segundo aparelho segue. */
+      if (p?.numero && !r.pareamento?.codigo && r.pareamento?.status !== "conectado") {
+        setCanalErro(
+          "Este servidor não conseguiu gerar o código de 8 dígitos agora. " +
+            "Dá para conectar lendo o QR de outro aparelho, ou tentar de novo.",
+        );
+      }
+
       await buscarCanal();
-      if (r.pareamento?.status !== "conectado") iniciarPolling();
+      if (r.pareamento?.status !== "conectado") iniciarPolling(!!r.pareamento?.codigo);
     } catch {
       setCanalErro(MOTIVO_CANAL.conectar);
     } finally {
@@ -2394,7 +2443,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCanalOcupado(true);
     setCanalErro(null);
     pararPolling();
-    setQrcode(null);
+    limparPareamento();
     try {
       const r = await fetch("/api/canal", { method: "DELETE" }).then((x) => x.json());
       if (!r?.ok) { setCanalErro(motivoCanal(r, MOTIVO_CANAL.desconectar)); return; }
@@ -2405,7 +2454,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setCanalOcupado(false);
     }
-  }, [buscarCanal, pararPolling, toast]);
+  }, [buscarCanal, limparPareamento, pararPolling, toast]);
 
   /**
    * Desconecta e já pede o QR novo. Ver o cabeçalho para por que não é um botão só.
@@ -2420,7 +2469,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * instância é outro servidor. O que dá é NÃO COMEÇAR quando já se sabe que o segundo
    * passo não termina. É por isso que `GET /api/canal` devolve `faltando`.
    */
-  const trocarNumero = useCallback(async () => {
+  const trocarNumero = useCallback(async (p?: { numero?: string }) => {
     if (canalFaltando.length) {
       setCanalErro(
         `Não dá para trocar o número agora: o servidor não conseguiria reconectar. ` +
@@ -2429,7 +2478,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     await desconectarCanal();
-    await conectarCanal();
+    /* Repassa o `numero` — trocar de número no celular tem o MESMO problema de câmera que
+     * conectar pela primeira vez, e é onde ele mais dói: aqui o canal já foi derrubado.
+     * Perder o parâmetro no caminho deixaria o dono num QR ilegível com o WhatsApp do
+     * negócio já fora do ar. */
+    await conectarCanal(p);
   }, [canalFaltando, conectarCanal, desconectarCanal]);
 
   const abrirSecao = useCallback((id: string) => {
@@ -3068,7 +3121,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
-    canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, desconectarCanal, trocarNumero,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     cfg: ajustes.cfg, alternarCfg,
     salvo, salvar,
@@ -3097,7 +3150,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
-    canal, canalErro, canalOcupado, canalFaltando, qrcode, conectarCanal, desconectarCanal, trocarNumero,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, desconectarCanal, trocarNumero,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     ajustes.cfg, alternarCfg,
     salvo, salvar,

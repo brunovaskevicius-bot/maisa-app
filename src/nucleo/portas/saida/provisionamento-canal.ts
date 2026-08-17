@@ -32,14 +32,22 @@ export interface ProvisionamentoDeCanal {
    *
    * ⚠️ Devolve os dois juntos porque são a mesma pergunta, e separá-los reabriria o bug
    * que criou este comentário: a coluna `numero` ficou `null` por dias porque o caso de
-   * uso gravava o número que já tinha (nenhum) em vez de perguntar. O dono nunca digita
-   * o telefone — ele aponta a câmera para um QR. A única fonte do número é o provedor,
-   * então quem responde "está conectado?" tem que responder "com quem?" no mesmo ato.
+   * uso gravava o número que já tinha (nenhum) em vez de perguntar. A única fonte do
+   * número é o PROVEDOR, então quem responde "está conectado?" tem que responder "com
+   * quem?" no mesmo ato.
+   *
+   * ⚠️ Em 17/08/2026 este comentário dizia também *"o dono nunca digita o telefone — ele
+   * aponta a câmera para um QR"*, e a segunda metade deixou de ser verdade: o pareamento
+   * por código (ver `conectar`) obriga a perguntar o número. A primeira metade continua
+   * valendo, e é a que importa — o digitado é insumo, o `ownerJid` é o fato. Quem gravar
+   * o número digitado em `integracoes_whatsapp.numero` está reabrindo o mesmo bug pela
+   * porta oposta: em vez de nunca escrever, escreve cedo demais e mente quando o dono
+   * errar um dígito.
    */
   estado(instancia: string): Promise<EstadoDoCanal>;
 
   /**
-   * Garante a instância no provedor e devolve o QR para parear.
+   * Garante a instância no provedor e devolve o QR — ou o código — para parear.
    *
    * Idempotente por natureza, e é o que a torna segura de chamar de um botão: se a
    * instância existe e está `open`, devolve `conectado` sem QR e sem destruir nada; se
@@ -50,8 +58,31 @@ export interface ProvisionamentoDeCanal {
    * ato da criação. Deixar para um segundo passo produz a falha mais difícil de
    * diagnosticar do produto: o cliente pareia, vê "conectado", manda "oi" e ninguém
    * responde — porque as mensagens estão indo para lugar nenhum.
+   *
+   * ── `numero`: O QUE ELE MUDA, E O QUE ELE NÃO MUDA ──
+   *
+   * Presente, pede ao WhatsApp um código de 8 caracteres para AQUELE telefone, e o
+   * `Pareamento` volta com `codigo` em vez de `qrcode`. Ausente, é o caminho de sempre.
+   * A escolha é da tela porque só ela sabe em que aparelho a pessoa está — no celular o
+   * QR é impossível de ler, e no computador o código é trabalho a mais.
+   *
+   * ⚠️ ELE NÃO APONTA O CANAL PARA LUGAR NENHUM. É a pergunta que separa parâmetro
+   * inofensivo de buraco de segurança, e vale respondê-la aqui: o `numero` não escolhe
+   * instância (isso é `instancia`, derivada do inquilino), não escolhe destino de webhook
+   * (isso é `urlWebhook`, do ambiente) e não escreve no banco. Ele só diz em qual celular
+   * o WhatsApp deve mostrar a tela de confirmação — e quem confirma lá é o dono do
+   * aparelho. Digitar o número de outra pessoa não conecta o WhatsApp dela: gera um
+   * código que ela teria que digitar por vontade própria, dentro do app dela.
+   *
+   * Em E.164 sem `+` (`5511994294906`). Quem valida é `numeroParaPareamento`, no domínio.
    */
-  conectar(p: { instancia: string; urlWebhook: string; segredo: string }): Promise<Pareamento>;
+  conectar(p: {
+    instancia: string;
+    urlWebhook: string;
+    segredo: string;
+    /** Pedir código para este telefone em vez de QR. Ver o bloco acima. */
+    numero?: string;
+  }): Promise<Pareamento>;
 
   /** Apaga a instância no provedor. Silencioso se ela já não existe. */
   desconectar(instancia: string): Promise<void>;

@@ -127,12 +127,30 @@ não é falha de requisição, é o app dizendo ao dono o que falta. Ver
 |---|---|---|---|
 | `/api/whatsapp` | GET · POST | `SEGREDO` | **o webhook.** Recebe a mensagem do cliente e roda o agente |
 | `/api/whatsapp/conexao` | GET · POST | `SEGREDO` | pareamento da instância |
-| `/api/canal` | GET · POST · DELETE | `sessaoOuDemo` | `LerCanal` · `ConectarCanal` · `DesconectarCanal` — a visão do painel do mesmo canal |
+| `/api/canal` | GET · POST · DELETE | `exigirSessao` | `LerCanal` · `ConectarCanal` · `DesconectarCanal` — a visão do painel do mesmo canal |
 | `/api/rotinas/lembretes` | POST | `SEGREDO` | `EnviarLembretes` — disparado por `pg_cron` a cada 15 min |
 
 O webhook responde **200 mesmo quando descarta** a mensagem. Para o provedor, resposta de erro
 significa "tente de novo", e ele reentrega o mesmo evento em loop. O fluxo inteiro, com o que
 é descartado e por quê, está em [`fluxos/mensagem-whatsapp.md`](fluxos/mensagem-whatsapp.md).
+
+### `POST /api/canal` — os dois jeitos de parear
+
+`{}` (ou corpo vazio) devolve **QR**. `{"numero":"5511994294906"}` devolve o **código de 8
+caracteres** do "Conectar com número de telefone" do WhatsApp. A resposta traz os dois campos,
+`qrcode` e `codigo`, e o que veio `null` é o caminho que não foi pedido.
+
+O código existe porque **o QR pressupõe dois aparelhos** — um mostrando, outro fotografando — e
+metade dos clientes abre a MAISA no mesmo celular onde o WhatsApp do negócio está instalado. A
+câmera não fotografa a própria tela, e para essa pessoa o passo simplesmente não termina. Quem
+escolhe o caminho é a tela, pelo tamanho do viewport; a rota aceita os dois sempre.
+
+⚠️ **O `numero` do corpo não é gravado em lugar nenhum.** Ele só diz para qual celular o
+WhatsApp deve emitir o código. Quem escreve `integracoes_whatsapp.numero` continua sendo o
+`ownerJid` que o provedor devolve depois do pareamento — ver
+[`portas/saida/provisionamento-canal.ts`](../src/nucleo/portas/saida/provisionamento-canal.ts).
+É também por isso que ele não fere a regra do `tenantId`: `numero` não escolhe inquilino,
+instância nem destino de webhook.
 
 ## Conversar com a MAISA fora do WhatsApp
 

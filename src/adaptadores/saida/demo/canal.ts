@@ -23,6 +23,10 @@ const SEGUNDOS_ATE_PAREAR = 6;
 const QR_FALSO =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
+/** Oito caracteres, como os do WhatsApp — e legíveis como falsos, para não virarem
+ *  screenshot de venda. O formato importa: a tela quebra em dois blocos de quatro. */
+const CODIGO_FALSO = "MAISADEM";
+
 /** Quando cada instância terminou de "parear". Chave = nome da instância. */
 const pareiaEm = new Map<string, number>();
 
@@ -44,14 +48,23 @@ export const provisionamentoDemo: ProvisionamentoDeCanal = {
   async conectar(p): Promise<Pareamento> {
     const quando = pareiaEm.get(p.instancia);
     if (quando !== undefined && Date.now() >= quando) {
-      return { qrcode: null, status: "conectado", instancia: p.instancia };
+      return { qrcode: null, codigo: null, status: "conectado", instancia: p.instancia };
     }
     pareiaEm.set(p.instancia, Date.now() + SEGUNDOS_ATE_PAREAR * 1000);
     console.info(
-      `[demo/canal] instância "${p.instancia}" pareando — vira "conectado" em ${SEGUNDOS_ATE_PAREAR}s. ` +
-      `Webhook seria apontado para ${p.urlWebhook}`,
+      `[demo/canal] instância "${p.instancia}" pareando${p.numero ? ` por CÓDIGO (${p.numero})` : " por QR"} — ` +
+      `vira "conectado" em ${SEGUNDOS_ATE_PAREAR}s. Webhook seria apontado para ${p.urlWebhook}`,
     );
-    return { qrcode: QR_FALSO, status: "pareando", instancia: p.instancia };
+    /* Devolve os DOIS quando pediram código, igual à Evolution: é o que permite afinar na
+     * demonstração a tela que oferece "prefiro ler o QR" depois de já ter mostrado o
+     * código. Sem isso, esse botão só seria exercitável contra o servidor de verdade —
+     * que é exatamente o pareamento manual com o celular na mão que este arquivo evita. */
+    return {
+      qrcode: QR_FALSO,
+      codigo: p.numero ? CODIGO_FALSO : null,
+      status: "pareando",
+      instancia: p.instancia,
+    };
   },
 
   async desconectar(instancia: string): Promise<void> {
