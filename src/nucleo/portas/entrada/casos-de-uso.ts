@@ -21,6 +21,7 @@ import type { Janela } from "../../dominio/tempo";
 import type { Negocio, Vertical } from "../../dominio/negocio";
 import type { Profissional, Servico } from "../../dominio/catalogo";
 import type { Cliente } from "../../dominio/clientes";
+import type { Contato, ModoDoNumero } from "../../dominio/contatos";
 import type { Conversa, Msg } from "../../dominio/conversas";
 import type { Conexao } from "../saida/agenda-externa";
 /* Os rascunhos são reexportados da porta de SAÍDA, não redefinidos: o que a tela manda e
@@ -313,6 +314,44 @@ export type ProvisionarNegocio = (
 export type LerCanal = (t: ContextoTenant) => Promise<Canal>;
 export type ConectarCanal = (t: ContextoTenant) => Promise<Pareamento>;
 export type DesconectarCanal = (t: ContextoTenant) => Promise<void>;
+
+/* ────────────────────── o caderno de nomes, e quem ela atende ──────────────────────
+ * O número pareado quase sempre é o celular PESSOAL do dono — barbearia pequena não tem
+ * linha corporativa. Sem estes casos de uso, a MAISA oferece horário para o pai dele.
+ *
+ * `AvaliarAtendimento` é o único que roda no caminho quente: uma pergunta por mensagem
+ * recebida, antes do primeiro token. Os outros três são tela.
+ */
+
+/** A decisão, com o motivo e o nome — tudo que o agente precisa numa ida só. */
+export type Atendimento = {
+  pode: boolean;
+  /** `null` quando pode. Frase pronta, para o log e para a tela de Conversas. */
+  motivo: string | null;
+  /**
+   * Como o dono salvou esta pessoa no celular. `null` quando não está no caderno.
+   *
+   * Está aqui porque é o maior pedaço do valor do caderno e ele vale nos DOIS modos: com
+   * esse nome a MAISA diz "Oi, Fernanda!" em vez de "Oi!" para quem escreve pela primeira
+   * vez. Devolver junto com a decisão evita uma segunda consulta no caminho quente.
+   */
+  nome: string | null;
+};
+
+export type AvaliarAtendimento = (t: ContextoTenant, telefone: string) => Promise<Atendimento>;
+
+/** O caderno inteiro + de quem é o número, para a tela desenhar as duas coisas juntas. */
+export type LerContatos = (t: ContextoTenant) => Promise<{ contatos: Contato[]; modo: ModoDoNumero }>;
+
+/** Lê a agenda do provedor e grava o que serve. Devolve o que entrou, para a tela dizer. */
+export type ImportarContatos = (t: ContextoTenant) => Promise<{ novos: number; total: number; lidos: number }>;
+
+export type MarcarContato = (
+  t: ContextoTenant,
+  p: { telefone: string; nome?: string | null; cliente: boolean | null },
+) => Promise<void>;
+
+export type DefinirModoDoNumero = (t: ContextoTenant, modo: ModoDoNumero) => Promise<void>;
 
 export type LerAssistente = (t: ContextoTenant) => Promise<AjustesDaAssistente>;
 

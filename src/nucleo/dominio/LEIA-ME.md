@@ -17,6 +17,7 @@ do negócio, as regras de calendário e os dados de mentira. Os dados foram para
 | `expediente.ts` | `Expediente`, `atendeNoDia`, `podeComecarEm`, `fechado` | Quando o negócio abre, em dado estruturado — o número, não a frase. É o que o agente vai consultar antes de oferecer horário. |
 | `catalogo.ts` | `Profissional`, `Servico`, `CategoriaServico`, `primeiroNome` | Quem atende e o que se vende. |
 | `clientes.ts` | `Cliente`, `soDigitos` | Quem é atendido. O `telefone` vai virar a chave de identificação no WhatsApp. |
+| `contatos.ts` | `ModoDoNumero`, `Contato`, `podeResponder`, `chaveDe` | **Quem a MAISA atende.** O número pareado quase sempre é o celular pessoal do dono — sem esta regra ela oferece horário para o pai dele. Não é lista de permissão: lista de permissão ignora o cliente novo, que é quem traz dinheiro. |
 | `negocio.ts` | `Negocio`, `Prestador` | O assinante visto por dentro. Genérico: o mesmo tipo serve terapeuta e barbeiro. |
 | `fiscal.ts` | `Nota`, `StatusNota`, `Tomador`, `PedidoDeNota`, `ResultadoDeNota` | Os estados são NOSSOS, não da Focus. É o que permite trocar de emissor sem nenhuma tela perceber. |
 | `conversas.ts` | `Conversa`, `Msg`, `EstadoConversa`, `estadoDaConversa`, `ItemFila`, `Faq` | O WhatsApp de verdade. A identidade de uma conversa é o TELEFONE (não um id sorteado), e `estadoDaConversa` é a única definição de "quem está com a bola" no app. |

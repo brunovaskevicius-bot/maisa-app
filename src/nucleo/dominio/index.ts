@@ -10,6 +10,7 @@ export * from "./ativacao";
 export * from "./negocio";
 export * from "./catalogo";
 export * from "./clientes";
+export * from "./contatos";
 export * from "./agenda";
 export * from "./expediente";
 export * from "./fiscal";

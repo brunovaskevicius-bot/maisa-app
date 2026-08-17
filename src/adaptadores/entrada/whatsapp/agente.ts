@@ -29,7 +29,7 @@
  * (persona + catálogo) vai para o cache.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { LembrarCliente } from "@/nucleo/portas/entrada/casos-de-uso";
+import type { AvaliarAtendimento, LembrarCliente } from "@/nucleo/portas/entrada/casos-de-uso";
 import type { RepositorioConversas, RepositorioHistorico } from "@/nucleo/portas/saida/memoria-cliente";
 import type { CanalDeMensagens } from "@/nucleo/portas/saida/canal-mensagens";
 import type {
@@ -102,6 +102,14 @@ export type Dependencias = DepsFerramentas & {
   modelo: ModeloDeConversa;
   config: ResolvedorDeConfiguracao;
   lembrarCliente: LembrarCliente;
+  /**
+   * A MAISA pode falar com quem escreveu?
+   *
+   * O número pareado quase sempre é o celular PESSOAL do dono — barbearia pequena não tem
+   * linha corporativa. Sem esta pergunta, ela oferece horário para o pai dele. Ver
+   * `nucleo/dominio/contatos.ts` para a regra e o porquê de não ser lista de permissão.
+   */
+  avaliarAtendimento: AvaliarAtendimento;
   historico: RepositorioHistorico;
   /** Quem conduz a conversa. O agente LÊ e nunca escreve: assumir é gesto do dono. */
   conversas: RepositorioConversas;
@@ -238,6 +246,35 @@ export function criarAgente(deps: Dependencias) {
     if (posse.assumidaEm) {
       return vazia({ motivo: "conversa assumida pelo dono" });
     }
+
+    /* ── 1e. ESTA PESSOA É DA VIDA PESSOAL DO DONO ──
+     *
+     * O número pareado quase sempre é o celular dele: barbearia pequena e consultório de uma
+     * pessoa não têm linha corporativa. Sem este passo, a MAISA oferece horário para o pai
+     * dele — e essa é a primeira coisa que o dono conta para todo mundo sobre o produto.
+     *
+     * ⚠️ DEPOIS DO 1b DE PROPÓSITO. A fala do cliente já está na thread, então o dono VÊ na
+     * tela de Conversas que alguém escreveu e que a MAISA não respondeu. Silêncio sem
+     * registro seria o pior desfecho: ele descobriria só quando a pessoa reclamasse.
+     *
+     * ⚠️ E NÃO ESCALA. Escalar aqui mandaria um 🔔 no WhatsApp do dono a cada mensagem da
+     * mãe dele — o produto avisando sobre a vida pessoal de quem o comprou. A regra é
+     * "MAISA não fala"; quem fala é ele, quando quiser, como já fazia antes de ter MAISA.
+     *
+     * A decisão em si é `dominio/contatos.podeResponder`, pura e testada. Aqui só se obedece. */
+    const atendimento = await deps.avaliarAtendimento(t, perfil.telefone);
+    if (!atendimento.pode) {
+      console.info(`[whatsapp/agente] silêncio para ${perfil.telefone} no inquilino ${t.tenantId}: ${atendimento.motivo}`);
+      return vazia({ motivo: atendimento.motivo ?? "contato pessoal do dono" });
+    }
+
+    /* O nome que o dono salvou no celular, quando a memória ainda não tem um.
+     *
+     * É o maior pedaço do valor do caderno e ele vale nos dois modos: quem escreve pela
+     * primeira vez ouve "Oi, Fernanda!" em vez de "Oi!". A ordem importa — a memória ganha,
+     * porque lá está o nome que a PESSOA disse, e ele vale mais que a etiqueta que o dono
+     * escolheu ("Fernanda cabelo", "João pneu"). */
+    if (!perfil.nome && atendimento.nome) perfil.nome = atendimento.nome;
 
     const sistemaVolatil = parteDoCliente({ perfil, hojeISO: hojeISO() });
     const turnos: TurnoDeConversa[] = [...paraTurnos(anteriores), { papel: "cliente", texto }];

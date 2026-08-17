@@ -41,6 +41,19 @@ equipe vira `ativo: false`.
 | `/api/horarios` | GET · PUT | `sessaoOuDemo` | `LerHorarios` · `AjustarHorarios` — o expediente que a MAISA anuncia |
 | `/api/faqs` | GET · PUT · DELETE | `sessaoOuDemo` | `LerFaqs` · `AjustarFaq` · `RemoverFaq` — as respostas prontas. Não há rota de BUSCA: quem busca é o agente, pelo caso de uso `ResponderDuvida`, no mesmo processo |
 | `/api/conversas` | GET · POST | `sessaoOuDemo` | `ListarConversas` · `LerConversa` · `ResponderConversa` · `MudarPosseConversa` |
+| `/api/contatos` | GET · POST · PATCH | `exigirSessao` | `LerContatos` · `ImportarContatos` (lê a agenda do provedor) · `MarcarContato` · `DefinirModoDoNumero` |
+
+⚠️ **O `/api/contatos` decide QUEM A MAISA VAI IGNORAR**, e por isso é `exigirSessao` e não
+`sessaoOuDemo`: um inquilino de demonstração recebendo essa escrita significaria configurar o
+silêncio de um negócio que não existe. O `PATCH` tem duas formas de corpo — `{ modo }` troca de
+quem é o número, `{ telefone, cliente }` marca uma pessoa. São a mesma decisão de produto vista
+de dois ângulos; separá-las por URL seria fronteira sem conteúdo.
+
+O motivo de tudo isso existir: **o número pareado quase sempre é o celular pessoal do dono** —
+barbearia pequena não tem linha corporativa. Sem o modo, a MAISA oferece horário para o pai
+dele. A regra mora em [`nucleo/dominio/contatos.ts`](../src/nucleo/dominio/contatos.ts), é
+função pura, e explica por que **não** é uma lista de permissão (lista de permissão ignora
+justamente o cliente novo, que não está em contato nenhum).
 
 `MudarPosseConversa` é o "Assumir": enquanto o dono tem a posse, o agente **cala**. A posse é
 lida no banco antes do primeiro token — quando morava no `localStorage`, o botão prometia

@@ -13,6 +13,7 @@
 
 import React from "react";
 import { s, Btn, Icon, Toggle } from "@/ui/primitivos";
+import { DeQuemEEsseNumero } from "@/ui/componentes/DeQuemEEsseNumero";
 import { useIsMobile } from "@/ui/useIsMobile";
 import * as D from "@/adaptadores/saida/demo";
 import { useStore } from "@/ui/estado/store";
@@ -638,6 +639,7 @@ export default function AMaisa() {
             os ajustes abaixo fazem, então precisa estar visível sem rolar. */}
         <FaixaAssistente />
         <FaixaCanal />
+        <DeQuemEEsseNumero compacto />
         <div style={s("height:340px;display:flex")}><Preview /></div>
         {secoes}
       </div>
@@ -651,6 +653,7 @@ export default function AMaisa() {
       <div style={s("min-height:0;display:flex;flex-direction:column;gap:14px")}>
         <FaixaAssistente />
         <FaixaCanal />
+        <DeQuemEEsseNumero />
         <div style={s("min-height:0;overflow-y:auto;padding:2px 2px 6px 0")}>
           {secoes}
         </div>

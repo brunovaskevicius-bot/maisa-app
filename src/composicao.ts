@@ -81,6 +81,13 @@ import {
 } from "@/adaptadores/saida/supabase/memoria";
 import { agendaDemo, conexoesDemo } from "@/adaptadores/saida/demo/agenda";
 import { criarCanalEvolution } from "@/adaptadores/saida/evolution/canal-evolution";
+import { criarContatosEvolution } from "@/adaptadores/saida/evolution/contatos-evolution";
+import { contatosSupabase } from "@/adaptadores/saida/supabase/contatos";
+import { contatosDemo, contatosDoCanalDemo } from "@/adaptadores/saida/demo/contatos";
+import {
+  criarAvaliarAtendimento, criarDefinirModoDoNumero, criarImportarContatos,
+  criarLerContatos, criarMarcarContato,
+} from "@/nucleo/aplicacao/contatos";
 import { isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 
 /* As implementações escolhidas HOJE. Uma linha por decisão. */
@@ -266,6 +273,22 @@ const instanciaDoInquilino = async (t: ContextoTenant): Promise<string> => {
 
 const canal = isEvolutionConfigured ? criarCanalEvolution({ instanciaDe: instanciaDoInquilino }) : canalDemo;
 
+/**
+ * O CADERNO DE NOMES, e de quem é o número pareado.
+ *
+ * Duas linhas com critérios diferentes, pela mesma razão do canal logo acima: o repositório
+ * segue o Supabase (é cadastro), a leitura da agenda segue a Evolution (é o provedor que
+ * conhece os contatos). Um ambiente com banco e sem Evolution — o do desenvolvimento —
+ * precisa conseguir exercitar a decisão de quem a MAISA atende com um caderno de mentira.
+ *
+ * ⚠️ `instanciaDe` é a MESMA função que o canal recebe. Duas resoluções de "qual instância é
+ * deste inquilino" seriam a agenda de um negócio lida do WhatsApp de outro.
+ */
+const contatosRepo = isSupabaseConfigured ? contatosSupabase : contatosDemo;
+const contatosProvedor = isEvolutionConfigured
+  ? criarContatosEvolution({ instanciaDe: instanciaDoInquilino })
+  : contatosDoCanalDemo;
+
 /** Tudo que o app sabe fazer, já montado. */
 export const app = {
   agendarAtendimento: criarAgendarAtendimento({ agenda, negocio, registro }),
@@ -368,6 +391,24 @@ export const app = {
     }
     return faltam;
   },
+
+  /**
+   * QUEM A MAISA ATENDE — o guardrail que impede ela de falar com o pai do dono.
+   *
+   * `avaliarAtendimento` é o único deste grupo que roda no caminho quente: uma pergunta por
+   * mensagem recebida, antes do primeiro token. Ele vai para o agente logo abaixo, junto com
+   * `lembrarCliente` — as duas respondem "quem está falando", de ângulos diferentes.
+   *
+   * O `importarContatos` recebe as DUAS portas porque a operação atravessa as duas: lê do
+   * provedor, grava no nosso. Separadas porque falham por motivos independentes — a Evolution
+   * pode cair com o banco de pé, e é justamente aí que a MAISA precisa continuar decidindo
+   * quem atender com o caderno que já tem.
+   */
+  avaliarAtendimento: criarAvaliarAtendimento({ contatos: contatosRepo }),
+  lerContatos: criarLerContatos({ contatos: contatosRepo }),
+  importarContatos: criarImportarContatos({ contatos: contatosRepo, provedor: contatosProvedor }),
+  marcarContato: criarMarcarContato({ contatos: contatosRepo }),
+  definirModoDoNumero: criarDefinirModoDoNumero({ contatos: contatosRepo }),
 
   lerAssistente: criarLerAssistente({ assistente }),
   ajustarAssistente: criarAjustarAssistente({ assistente }),
@@ -566,6 +607,10 @@ export function agenteWhatsapp() {
       cancelarAtendimento: app.cancelarAtendimento,
       lerAgenda: app.lerAgenda,
       lembrarCliente: app.lembrarCliente,
+      /* O guardrail que impede a MAISA de falar com o pai do dono. Vai junto com
+       * `lembrarCliente` porque as duas respondem "quem está falando" — uma pela memória da
+       * conversa, a outra pela agenda de contatos do celular. */
+      avaliarAtendimento: app.avaliarAtendimento,
       anotarFato: app.anotarFato,
       responderDuvida: app.responderDuvida,
       historico,
