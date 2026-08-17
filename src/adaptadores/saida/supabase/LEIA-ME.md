@@ -60,6 +60,32 @@ Definidas em `sessao.ts`: `/login`, `/auth`, `/api` (cada rota faz a própria ch
 responde 401 em JSON), `/barbeiros`, `/terapeutas` (as landing pages são públicas por
 natureza).
 
+## Confirmação de e-mail — o que precisa estar certo no PAINEL
+
+⚠️ **`/auth/callback` tem que estar em Redirect URLs** (Authentication → URL Configuration).
+Fora da lista, o Supabase **ignora o `emailRedirectTo` em silêncio** e usa o *Site URL* do
+projeto. Nenhum erro aparece em lugar nenhum — nem log, nem tela.
+
+Os dois endereços que precisam estar lá:
+
+```
+https://maisa-app-sooty.vercel.app/auth/callback
+http://localhost:3100/auth/callback
+```
+
+**O sintoma de estar errado é uma tela de login LIMPA, sem mensagem nenhuma**, logo depois
+de a pessoa clicar no link de confirmação. A sequência: o Supabase devolve para o Site URL
+(`/`) em vez do callback → não há `?code=` para trocar por sessão → o middleware não acha
+cookie numa rota protegida → redireciona para `/login?next=/`, sem `?error=`, porque quem
+redirecionou foi ele e não o callback. Custou uma sessão de diagnóstico em 17/08/2026, e é
+indistinguível a olho nu de "a sessão não foi salva".
+
+O callback entende os três formatos que o Supabase pode mandar (`?code=`, `?token_hash=`,
+e o `#access_token=` do fluxo implícito, esse último recolhido no navegador por
+`app/auth/RecuperarSessaoDaUrl.tsx`, já que fragmento não chega ao servidor). **Isso é rede
+de segurança, não conserto** — com a lista errada, o `next=/comecar` do cadastro é perdido
+no caminho e a pessoa cai no painel em vez do onboarding.
+
 ## Schema
 
 `supabase/` na raiz do repositório, do `001` ao `009` — ver o

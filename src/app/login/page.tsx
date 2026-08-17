@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
 import { createClient } from "@/adaptadores/saida/supabase/client";
 import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/adaptadores/saida/supabase/config";
+import { RecuperarSessaoDaUrl } from "@/app/auth/RecuperarSessaoDaUrl";
 
 /* Motivos que /auth/callback devolve, em português de gente. Cada um diz o que
  * aconteceu E o que fazer — "tente de novo" só serve quando tentar de novo pode
@@ -13,7 +14,14 @@ const MOTIVO: Record<string, string> = {
   provedor_desligado: "O login com Google não está habilitado neste projeto. Entre com e-mail e senha.",
   permissao_negada: "Você não autorizou o acesso à sua conta Google.",
   sem_codigo: "O provedor não devolveu a autorização. Entre com e-mail e senha.",
-  troca_falhou: "A autorização expirou antes de virar sessão. Tente entrar de novo.",
+  /* ⚠️ DIZ A CAUSA REAL, e ela não é "expirou". O `code_verifier` do PKCE mora num cookie
+   * do navegador que COMEÇOU o cadastro — abrir o e-mail no celular tendo se cadastrado no
+   * computador falha na primeira tentativa e falharia em todas as seguintes. "Tente entrar
+   * de novo" mandava repetir o gesto que não pode dar certo; a conta, essa, já existe. */
+  outro_navegador: "Sua conta foi confirmada, mas o link foi aberto em outro navegador. Entre aqui com seu e-mail e senha.",
+  link_vencido: "Esse link de confirmação venceu ou já foi usado. Entre com seu e-mail e senha — sua conta já existe.",
+  tipo_invalido: "Esse link de confirmação não é válido. Entre com e-mail e senha.",
+  troca_falhou: "A autorização expirou antes de virar sessão. Tente entrar de novo.", // legado: links já enviados
   oauth: "Não foi possível concluir o login pelo provedor. Entre com e-mail e senha.",
   auth: "Não foi possível concluir o login. Tente de novo.", // legado: links antigos
 };
@@ -109,6 +117,13 @@ function LoginInner() {
 
         {/* card */}
         <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-card);padding:26px 24px;display:flex;flex-direction:column;gap:16px")}>
+          {/* ⚠️ ESTA TELA É ONDE CAI QUEM ACABOU DE CONFIRMAR A CONTA e teve a sessão
+              entregue no fragmento da URL — o middleware o mandou para cá porque não
+              achou cookie, e o `#access_token=` sobreviveu ao redirecionamento sem que
+              ninguém o lesse. O componente recolhe a sessão e sai daqui sozinho.
+              Ver o cabeçalho de `auth/RecuperarSessaoDaUrl.tsx`. */}
+          <RecuperarSessaoDaUrl />
+
           {!isSupabaseConfigured && (
             <div style={s("display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:var(--warm-soft);color:var(--warn);font-size:var(--t-label);line-height:1.45")}>
               <Icon name="sparkle" size={16} />

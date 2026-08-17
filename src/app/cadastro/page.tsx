@@ -120,10 +120,23 @@ function CadastroInner() {
       email: alvo,
       password: senha,
       options: {
-        /* Para onde o link do e-mail devolve. `/auth/callback` já troca o `code` por
-         * sessão — é o MESMO caminho do OAuth, e o comentário de lá diz isso. `next=/`
-         * cai no painel; quem ainda não tem negócio é tratado lá. */
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=%2F`,
+        /* Para onde o link do e-mail devolve. `/auth/callback` transforma o que veio na
+         * URL em sessão — é o MESMO caminho do OAuth, e o comentário de lá diz isso.
+         *
+         * ⚠️ `next=/comecar` E NÃO `next=/`. Quem acaba de confirmar o e-mail é, por
+         * definição, alguém que ainda não tem negócio: mandá-lo ao painel o fazia bater
+         * num 409 `sem_negocio` e ser reexpulso para `/comecar` pelo store. Funcionava por
+         * ricochete, e ricochete só funciona enquanto todo mundo no caminho concorda —
+         * bastava o painel demorar a montar para a pessoa ver uma tela quebrada no
+         * primeiro segundo de uso. Ir direto tira um salto e um estado intermediário.
+         *
+         * ⚠️ E ESTE ENDEREÇO PRECISA ESTAR EM **Redirect URLs** NO PAINEL DO SUPABASE.
+         * Fora da lista, o Supabase IGNORA o `emailRedirectTo` em silêncio e usa o Site
+         * URL do projeto — que não é `/auth/callback`, então não há `?code=` para trocar,
+         * e a pessoa cai numa tela de login limpa logo depois de confirmar a conta. É
+         * configuração, não código: `RecuperarSessaoDaUrl` é a rede de segurança, não o
+         * conserto. */
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=%2Fcomecar`,
       },
     });
 
@@ -171,7 +184,11 @@ function CadastroInner() {
      * Supabase cria a conta no primeiro acesso. Por isso não há um `signUp` social. */
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=%2F` },
+      /* Mesmo destino do cadastro por e-mail: quem entra pelo Google a partir da tela de
+       * CADASTRO também está começando, e o painel não é o lugar de quem não tem negócio.
+       * Quem já tem cai em `/comecar`, a retomada pergunta ao mundo e o wizard o manda
+       * adiante — nenhum passo se repete. */
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=%2Fcomecar` },
     });
     if (error) {
       setErro("Não foi possível continuar com o Google.");
