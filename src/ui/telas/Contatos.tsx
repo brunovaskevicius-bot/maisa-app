@@ -31,12 +31,20 @@
  * decidi" e "decidi que não" — e é essa distinção que diz ao dono quanto trabalho falta.
  * Por isso são dois botões e um filtro "falta decidir", em vez de um toggle.
  *
- * ⚠️ NÃO EXISTE "MARCAR TODOS". Com 1.840 entradas ele é irresistível e é a única ação
- * desta tela que não tem volta prática: marcar todo mundo como cliente transforma a agenda
- * inteira do celular pessoal em gente que a MAISA atende — inclusive a mãe do dono, que é
- * o erro que este produto inteiro tenta não cometer (ver o cabeçalho de
- * `DeQuemEEsseNumero`). A busca existe para ele achar quem importa; o resto pode ficar
- * calado, porque calado é o padrão que não machuca.
+ * ── "MARCAR TODOS" EXISTE, E TEM TRÊS TRAVAS ──
+ *
+ * Esta nota dizia que ele NÃO existiria: com 1.840 entradas ele é irresistível, e marcar a
+ * agenda inteira como cliente transforma o celular pessoal em gente que a MAISA atende —
+ * inclusive a mãe do dono, que é o erro que este produto tenta não cometer. Bruno pediu
+ * assim mesmo, em 17/08/2026, e é decisão dele. O que o argumento comprou foram os limites:
+ *
+ *   1. **Age sobre o que está FILTRADO, nunca sobre o caderno inteiro.** Com busca ativa,
+ *      "marcar todos" marca os 6 do "Silva" — que é o gesto útil. Sem busca e sem filtro,
+ *      ele avisa quantos são antes de agir. O botão nunca esconde o tamanho do estrago.
+ *   2. **Dois toques quando o lote é grande**, e o segundo diz o número em vez de "sim".
+ *   3. **Desfazer**, e é a trava que importa: guardamos o valor ANTERIOR de cada um e
+ *      devolvemos exatamente aquilo — não um "limpar tudo", que apagaria as marcações que
+ *      já existiam antes do clique.
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import React from "react";
@@ -125,6 +133,94 @@ export default function Contatos() {
     }
   }, []);
 
+  /** O que havia antes do último "marcar todos", para o Desfazer devolver o certo. */
+  const [desfazer, setDesfazer] = React.useState<{ antes: Contato[]; rotulo: string } | null>(null);
+  /** Confirmação em dois toques do lote grande. Guarda qual valor está sendo confirmado. */
+  const [confirmando, setConfirmando] = React.useState<boolean | null | undefined>(undefined);
+  const [emLote, setEmLote] = React.useState(false);
+
+  /**
+   * Grava um lote e devolve o que mudou — usada pelo "marcar todos" E pelo "desfazer".
+   *
+   * ⚠️ COMPARA `pedidos` COM `mudados`. A escrita pode ser recusada em silêncio (RLS volta
+   * sem erro e sem linha), e sem essa comparação a tela diria "1.840 marcados" depois de
+   * não ter marcado nenhum. O dono só descobriria no dia em que a MAISA calasse com um
+   * cliente — que é o modo de falha mais caro deste produto.
+   */
+  const gravarLote = React.useCallback(async (chaves: string[], cliente: boolean | null) => {
+    const r = await fetch("/api/contatos", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chaves, cliente }),
+    }).then((x) => x.json());
+
+    if (!r?.ok) throw new Error(r?.info ?? "recusado");
+    if (r.mudados < r.pedidos) {
+      toast(`Salvei ${r.mudados} de ${r.pedidos} — recarregue e confira o resto`);
+      await ler();
+    }
+    return r;
+  }, [ler]);
+
+  /** Aplica um valor a TODO o recorte visível (busca + filtro), com desfazer. */
+  const marcarLote = React.useCallback(async (cliente: boolean | null, alvos: Contato[]) => {
+    if (alvos.length === 0 || emLote) return;
+    setEmLote(true);
+    setConfirmando(undefined);
+
+    /* A foto do ANTES é tirada aqui, antes de qualquer escrita, e guarda o valor de cada
+     * um. Um "desfazer" que só limpasse tudo apagaria as marcações que já existiam — e
+     * seria um segundo estrago em cima do primeiro. */
+    const antes = alvos.map((c) => ({ ...c }));
+    const chaves = alvos.map((c) => c.chave);
+
+    setContatos((lista) =>
+      lista?.map((x) => (chaves.includes(x.chave) ? { ...x, cliente } : x)) ?? lista);
+
+    try {
+      await gravarLote(chaves, cliente);
+      const rotulo = cliente === true ? "atende" : cliente === false ? "não atende" : "sem resposta";
+      setDesfazer({ antes, rotulo: `${alvos.length} marcados como ${rotulo}` });
+    } catch {
+      setContatos((lista) =>
+        lista?.map((x) => antes.find((a) => a.chave === x.chave) ?? x) ?? lista);
+      toast("Não consegui salvar essas marcações");
+    } finally {
+      setEmLote(false);
+    }
+  }, [emLote, gravarLote]);
+
+  /** Devolve cada um ao valor que tinha — agrupado por valor, para ir em poucas chamadas. */
+  const aplicarDesfazer = React.useCallback(async () => {
+    if (!desfazer || emLote) return;
+    setEmLote(true);
+    const grupos = new Map<string, { cliente: boolean | null; chaves: string[] }>();
+    for (const c of desfazer.antes) {
+      const k = String(c.cliente);
+      if (!grupos.has(k)) grupos.set(k, { cliente: c.cliente, chaves: [] });
+      grupos.get(k)!.chaves.push(c.chave);
+    }
+
+    setContatos((lista) =>
+      lista?.map((x) => desfazer.antes.find((a) => a.chave === x.chave) ?? x) ?? lista);
+
+    try {
+      for (const g of grupos.values()) await gravarLote(g.chaves, g.cliente);
+      setDesfazer(null);
+      toast("Desfeito");
+    } catch {
+      toast("Não consegui desfazer — recarregue a tela");
+      await ler();
+    } finally {
+      setEmLote(false);
+    }
+  }, [desfazer, emLote, gravarLote, ler]);
+
+  /* O desfazer vale para o ÚLTIMO lote e some quando o recorte muda: oferecê-lo depois de
+   * o dono ter filtrado outra coisa devolveria gente que não está na tela, e ele não teria
+   * como ver o que aconteceu. */
+  React.useEffect(() => { setDesfazer(null); setConfirmando(undefined); }, [busca, filtro]);
+
   /* Reinicia a paginação quando o recorte muda. Sem isto, filtrar depois de ter carregado
    * 300 linhas mostraria 300 de um conjunto de 12 — e o botão "mostrar mais" sumiria sem
    * que nada tivesse acabado. */
@@ -197,6 +293,55 @@ export default function Contatos() {
                 onChange={(v) => setFiltro(FILTROS.find((f) => v.startsWith(f)) ?? "Todos")}
               />
             </div>
+
+            {/* ── MARCAR TODOS ──
+                Acima da lista e depois dos filtros de propósito: nessa ordem ele lê como
+                "isto age no que você está vendo", que é literalmente o que ele faz. Em cima
+                dos filtros leria como "isto age em tudo". */}
+            {filtrados.length > 0 && (
+              <div style={s("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 13px;margin-bottom:14px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border)")}>
+                <span style={s("font-size:var(--t-label);color:var(--muted);font-weight:var(--w-title)")}>
+                  {/* Diz o TAMANHO e o RECORTE. "Marcar todos" sem número é o botão que o
+                      dono clica achando que são 12 quando são 1.840. */}
+                  {busca.trim() || filtro !== "Todos"
+                    ? `Os ${filtrados.length} desta lista:`
+                    : `Seus ${filtrados.length} contatos:`}
+                </span>
+
+                {confirmando === undefined ? (
+                  <>
+                    <Escolha rotulo="Atende" ativo={false} cor="var(--success)" fundo="var(--success-soft)"
+                      onClick={() => (filtrados.length > 20 ? setConfirmando(true) : void marcarLote(true, filtrados))} />
+                    <Escolha rotulo="Não" ativo={false} cor="var(--muted)" fundo="var(--surface-2)"
+                      onClick={() => (filtrados.length > 20 ? setConfirmando(false) : void marcarLote(false, filtrados))} />
+                    <Escolha rotulo="Desmarcar" ativo={false} cor="var(--muted)" fundo="var(--surface-2)"
+                      onClick={() => (filtrados.length > 20 ? setConfirmando(null) : void marcarLote(null, filtrados))} />
+                  </>
+                ) : (
+                  /* O segundo toque REPETE O NÚMERO em vez de dizer "sim". Confirmação que
+                     não reapresenta o que está em jogo é só um clique a mais. */
+                  <>
+                    <Btn variant="danger" size="sm" onClick={() => void marcarLote(confirmando, filtrados)}>
+                      {emLote ? "Salvando…" : `Sim, marcar ${filtrados.length} como ${
+                        confirmando === true ? "atende" : confirmando === false ? "não atende" : "sem resposta"
+                      }`}
+                    </Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => setConfirmando(undefined)}>Cancelar</Btn>
+                  </>
+                )}
+
+                {/* A trava que realmente importa. Fica até o dono mudar o recorte — sem
+                    cronômetro, porque um desfazer que some sozinho não é desfazer. */}
+                {desfazer && confirmando === undefined && (
+                  <span style={s("display:flex;align-items:center;gap:8px;margin-left:auto;font-size:var(--t-label);color:var(--muted)")}>
+                    {desfazer.rotulo}
+                    <Btn variant="secondary" size="sm" onClick={() => void aplicarDesfazer()}>
+                      {emLote ? "…" : "Desfazer"}
+                    </Btn>
+                  </span>
+                )}
+              </div>
+            )}
 
             {filtrados.length === 0 ? (
               <EmptyState

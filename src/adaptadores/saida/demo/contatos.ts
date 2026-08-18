@@ -90,6 +90,21 @@ export const contatosDemo: RepositorioContatos = {
     });
   },
 
+  async marcarVarios(t: ContextoTenant, p) {
+    const c = caderno(t.tenantId);
+    let mudadas = 0;
+    for (const chave of p.chaves) {
+      const antes = c.get(chave);
+      /* Só conta o que EXISTE, espelhando o `update` do Supabase: lá uma chave inventada
+       * não casa linha nenhuma e não entra na contagem. Se aqui ela criasse contato, a
+       * demonstração passaria a validar um comportamento que a produção não tem. */
+      if (!antes) continue;
+      c.set(chave, { ...antes, cliente: p.cliente });
+      mudadas += 1;
+    }
+    return mudadas;
+  },
+
   async modo(t: ContextoTenant) {
     return MODOS.get(t.tenantId) ?? MODO_PADRAO;
   },

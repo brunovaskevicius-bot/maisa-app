@@ -151,6 +151,34 @@ export const contatosSupabase: RepositorioContatos = {
     if (!data?.length) throw new Error("A gravação do contato foi recusada (RLS ou papel insuficiente).");
   },
 
+  async marcarVarios(t: ContextoTenant, p: { chaves: string[]; cliente: boolean | null }): Promise<number> {
+    const supabase = clienteDoContexto(t);
+    let mudadas = 0;
+
+    /* ⚠️ EM FATIAS, E O TAMANHO NÃO É CHUTE. O `.in()` do PostgREST vai na QUERY STRING:
+     * 1.840 chaves de 8 dígitos passam de 17 KB de URL e batem no limite do proxy — que
+     * responde 414 ou corta calado, dependendo de quem está na frente. 200 por vez dá ~2 KB
+     * por requisição, com folga para qualquer intermediário. */
+    for (let i = 0; i < p.chaves.length; i += 200) {
+      const fatia = p.chaves.slice(i, i + 200);
+
+      const { data, error } = await supabase
+        .from(TABELA)
+        .update({ cliente: p.cliente, origem: "manual" })
+        /* O `.eq("tenant_id")` é obrigatório mesmo com RLS ligada: no caminho do agente o
+         * cliente é service role e a RLS sai de cena. Sem ele, uma chave que exista em dois
+         * inquilinos marcaria o contato do outro negócio. */
+        .eq("tenant_id", t.tenantId)
+        .in("telefone_chave", fatia)
+        .select("telefone_chave");
+
+      if (error) throw new Error(error.message);
+      mudadas += data?.length ?? 0;
+    }
+
+    return mudadas;
+  },
+
   async modo(t: ContextoTenant): Promise<ModoDoNumero | null> {
     const supabase = clienteDoContexto(t);
     const { data, error } = await supabase

@@ -8,7 +8,7 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 //
 // GET   /api/contatos  →  { contatos, modo }
 // POST  /api/contatos  →  { novos, total, lidos }   importa a agenda do provedor
-// PATCH /api/contatos  →  { ok }                    marca alguém como cliente (ou não), OU troca o modo
+// PATCH /api/contatos  →  { ok }                    marca alguém, marca uma LISTA, OU troca o modo
 //
 // ── POR QUE O MODO MORA AQUI E NÃO EM `/api/canal` ──
 //
@@ -76,6 +76,27 @@ export async function PATCH(request: Request) {
        * terceiro modo. */
       await app.definirModoDoNumero(porteiro.tenant, (corpo as { modo: never }).modo);
       return NextResponse.json({ ok: true, status: "ok" });
+    }
+
+    /* ── TERCEIRA FORMA: uma LISTA de chaves ──
+     *
+     * Discriminada por `chaves` ser array, como `modo` acima é discriminado por presença.
+     * Mora aqui e não numa rota nova pelo argumento do cabeçalho: continua sendo "quem a
+     * MAISA atende", só que para muita gente ao mesmo tempo.
+     *
+     * ⚠️ A LISTA VEM DO CLIENTE, e isso é seguro por um motivo específico que vale
+     * escrever: `marcarVarios` faz UPDATE filtrado por `tenant_id`, então uma chave de
+     * outro negócio não casa linha nenhuma. Ela não cria contato e não atravessa
+     * inquilino — o pior que uma chave inventada consegue é não fazer nada e aparecer na
+     * diferença entre `pedidos` e `mudados`. */
+    if (Array.isArray((corpo as { chaves?: unknown } | null)?.chaves)) {
+      const c = corpo as { chaves: unknown[]; cliente?: unknown };
+      const r = await app.marcarContatos(porteiro.tenant, {
+        chaves: c.chaves.map((x) => String(x)),
+        /* Mesmo ternário preservado do caminho singular: `null` é "nunca disse". */
+        cliente: c.cliente === null ? null : c.cliente === true ? true : c.cliente === false ? false : null,
+      });
+      return NextResponse.json({ ok: true, status: "ok", ...r });
     }
 
     const telefone = String((corpo as { telefone?: unknown } | null)?.telefone ?? "");

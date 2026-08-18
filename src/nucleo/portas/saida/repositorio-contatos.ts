@@ -73,6 +73,24 @@ export interface RepositorioContatos {
   marcar(t: ContextoTenant, p: { chave: string; nome?: string | null; telefone?: string | null; cliente: boolean | null }): Promise<void>;
 
   /**
+   * O mesmo que `marcar`, para uma lista — em UMA operação, não num laço.
+   *
+   * ⚠️ EXISTE POR CAUSA DA ESCALA, não por elegância. A agenda de WhatsApp de um dono tem
+   * milhares de entradas (1.840 medidas na do Bruno). Um "marcar todos" que chamasse
+   * `marcar` em laço seriam milhares de idas ao banco dentro de uma requisição: estoura o
+   * tempo da função, e estourar no meio deixa metade da agenda marcada — um estado que o
+   * dono não pediu e não consegue desfazer, porque ele não sabe onde parou.
+   *
+   * ATUALIZA, não faz upsert: diferente de `marcar`, aqui todas as linhas já existem (vêm
+   * de uma lista que o próprio app acabou de devolver). Criar linha em lote abriria a porta
+   * para uma chave inventada virar contato.
+   *
+   * Devolve quantas linhas mudaram de fato — e quem chama compara com o que pediu, porque
+   * RLS recusa em SILÊNCIO: sem erro e sem linha. Ver o ⚠️ de `marcar`.
+   */
+  marcarVarios(t: ContextoTenant, p: { chaves: string[]; cliente: boolean | null }): Promise<number>;
+
+  /**
    * De quem é o número pareado. `null` quando não há canal — e aí não há mensagem chegando.
    *
    * Mora nesta porta, e não em `RepositorioCanal`, porque quem pergunta é o mesmo lugar que

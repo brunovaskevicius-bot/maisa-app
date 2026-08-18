@@ -14,6 +14,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   criarAvaliarAtendimento, criarDefinirModoDoNumero, criarImportarContatos, criarMarcarContato,
+  criarMarcarContatos,
 } from "./contatos";
 import type { RepositorioContatos } from "../portas/saida/repositorio-contatos";
 import type { ContatosDoCanal } from "../portas/saida/contatos-do-canal";
@@ -29,6 +30,7 @@ function repo(over: Partial<RepositorioContatos> = {}): RepositorioContatos {
     listar: async () => [],
     salvarLote: async (_t, c) => ({ novos: c.length, total: c.length }),
     marcar: async () => {},
+    marcarVarios: async (_t, p) => p.chaves.length,
     modo: async () => "pessoal" as ModoDoNumero,
     definirModo: async () => {},
     ...over,
@@ -178,5 +180,71 @@ describe("marcar e trocar o modo", () => {
     await definir(t, "negocio");
     await definir(t, "pessoal");
     expect(vistos).toEqual(["negocio", "pessoal"]);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * MARCAR EM LOTE — a ação mais perigosa desta tela, e por isso a mais guardada.
+ *
+ * Ela muda o comportamento da MAISA com centenas de pessoas de uma vez. No modo pessoal
+ * isso é mil telefones da agenda do dono passando a receber resposta automática de uma
+ * barbearia — ou, no sentido contrário, o silêncio caindo sobre clientes de verdade.
+ * ────────────────────────────────────────────────────────────────────────────── */
+describe("marcarContatos", () => {
+  it("normaliza as chaves antes de mandar ao repositório", async () => {
+    let recebidas: string[] = [];
+    const marcar = criarMarcarContatos({
+      contatos: repo({ marcarVarios: async (_t, p) => { recebidas = p.chaves; return p.chaves.length; } }),
+    });
+
+    await marcar(t, { chaves: ["+55 (11) 99429-4906", "1194294906"], cliente: true });
+
+    /* Os dois viram os 8 últimos dígitos — que é a chave real. Sem normalizar, o `.in()`
+     * do banco não casaria linha nenhuma e a tela diria "0 marcados" sem explicar. */
+    expect(recebidas).toEqual(["94294906"]);
+  });
+
+  /* Repetido inflaria `pedidos` e faria a comparação com `mudados` acusar uma recusa que
+   * não houve — e a tela avisaria "parte não foi salva" sobre uma escrita perfeita. */
+  it("não conta a mesma pessoa duas vezes", async () => {
+    const marcar = criarMarcarContatos({ contatos: repo() });
+
+    const r = await marcar(t, { chaves: ["11994294906", "994294906", "94294906"], cliente: false });
+
+    expect(r.pedidos).toBe(1);
+  });
+
+  /* "0 marcados" depois de um clique parece botão quebrado, e o dono clica de novo. */
+  it("lista vazia é erro, não sucesso silencioso", async () => {
+    const marcar = criarMarcarContatos({ contatos: repo() });
+
+    await expect(marcar(t, { chaves: [], cliente: true })).rejects.toBeInstanceOf(DadoInvalido);
+  });
+
+  it("lista só de lixo também é erro", async () => {
+    const marcar = criarMarcarContatos({ contatos: repo() });
+
+    await expect(marcar(t, { chaves: ["abc", "12", ""], cliente: null })).rejects.toBeInstanceOf(DadoInvalido);
+  });
+
+  /* RLS recusa em SILÊNCIO: sem erro e sem linha. Devolver os dois números é o que permite
+   * à tela dizer a verdade quando a escrita não pegou. */
+  it("devolve pedidos e mudados separados, para a tela poder desconfiar", async () => {
+    const marcar = criarMarcarContatos({ contatos: repo({ marcarVarios: async () => 1 }) });
+
+    const r = await marcar(t, { chaves: ["11994294906", "11988887777"], cliente: true });
+
+    expect(r).toEqual({ pedidos: 2, mudados: 1 });
+  });
+
+  it("desmarcar em lote é `cliente: null`, e chega assim no repositório", async () => {
+    let recebido: boolean | null | undefined;
+    const marcar = criarMarcarContatos({
+      contatos: repo({ marcarVarios: async (_t, p) => { recebido = p.cliente; return 1; } }),
+    });
+
+    await marcar(t, { chaves: ["11994294906"], cliente: null });
+
+    expect(recebido).toBeNull();
   });
 });

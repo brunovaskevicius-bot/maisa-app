@@ -10,7 +10,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type {
-  AvaliarAtendimento, DefinirModoDoNumero, ImportarContatos, LerContatos, MarcarContato,
+  AvaliarAtendimento, DefinirModoDoNumero, ImportarContatos, LerContatos, MarcarContato, MarcarContatos,
 } from "../portas/entrada/casos-de-uso";
 import type { RepositorioContatos } from "../portas/saida/repositorio-contatos";
 import type { ContatosDoCanal } from "../portas/saida/contatos-do-canal";
@@ -125,6 +125,36 @@ export function criarMarcarContato(deps: { contatos: RepositorioContatos }): Mar
 
     const nome = temConteudo(p.nome) ? colapsarEspaco(p.nome) : null;
     await deps.contatos.marcar(t, { chave, nome, telefone: p.telefone, cliente: p.cliente });
+  };
+}
+
+/**
+ * O "marcar todos" da tela, com os limites que ele precisa ter.
+ *
+ * ── POR QUE ESTE CASO DE USO É QUASE SÓ VALIDAÇÃO ──
+ *
+ * Porque a operação em si é uma linha, e o que dá trabalho é impedir que ela vire um
+ * estrago. Marcar em massa é a única ação do produto que muda o comportamento da MAISA
+ * com centenas de pessoas de uma vez — e no modo pessoal isso significa mil telefones da
+ * agenda do dono passando a receber resposta automática de uma barbearia.
+ *
+ * Então: chave inválida não passa (`chaveDe` devolve `""` para o que não é telefone), e
+ * lista vazia é erro em vez de sucesso silencioso — "0 marcados" na tela depois de um
+ * clique parece que o botão não funcionou, e o dono clica de novo.
+ */
+export function criarMarcarContatos(deps: { contatos: RepositorioContatos }): MarcarContatos {
+  return async (t, p) => {
+    /* Normaliza e tira repetido: a tela manda o que está na lista dela, e mandar a mesma
+     * chave duas vezes inflaria a contagem de "pedidos" e faria a comparação com
+     * "mudados" acusar recusa que não houve. */
+    const chaves = [...new Set((p.chaves ?? []).map((c) => chaveDe(c)).filter(Boolean))];
+
+    if (chaves.length === 0) {
+      throw new DadoInvalido("Nenhum contato válido para marcar.", "chaves");
+    }
+
+    const mudados = await deps.contatos.marcarVarios(t, { chaves, cliente: p.cliente });
+    return { pedidos: chaves.length, mudados };
   };
 }
 

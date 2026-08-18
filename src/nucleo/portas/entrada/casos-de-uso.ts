@@ -377,6 +377,19 @@ export type MarcarContato = (
   p: { telefone: string; nome?: string | null; cliente: boolean | null },
 ) => Promise<void>;
 
+/**
+ * Marca uma LISTA de contatos de uma vez. Devolve quantos mudaram de fato.
+ *
+ * ⚠️ A CONTAGEM DE VOLTA NÃO É ENFEITE. A escrita pode ser recusada em silêncio (RLS
+ * devolve sem erro e sem linha), e sem comparar o pedido com o resultado a tela diria
+ * "1.840 marcados" depois de não ter marcado nenhum — e o dono só descobriria no dia em
+ * que a MAISA calasse com um cliente.
+ */
+export type MarcarContatos = (
+  t: ContextoTenant,
+  p: { chaves: string[]; cliente: boolean | null },
+) => Promise<{ pedidos: number; mudados: number }>;
+
 export type DefinirModoDoNumero = (t: ContextoTenant, modo: ModoDoNumero) => Promise<void>;
 
 export type LerAssistente = (t: ContextoTenant) => Promise<AjustesDaAssistente>;

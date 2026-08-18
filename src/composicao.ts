@@ -89,6 +89,7 @@ import { contatosDemo, contatosDoCanalDemo } from "@/adaptadores/saida/demo/cont
 import {
   criarAvaliarAtendimento, criarDefinirModoDoNumero, criarImportarContatos,
   criarLerContatos, criarMarcarContato,
+  criarMarcarContatos,
 } from "@/nucleo/aplicacao/contatos";
 import { isEvolutionConfigured } from "@/adaptadores/saida/evolution/config";
 import { cadastroFocus } from "@/adaptadores/saida/focus/cadastro-focus";
@@ -452,6 +453,7 @@ export const app = {
   lerContatos: criarLerContatos({ contatos: contatosRepo }),
   importarContatos: criarImportarContatos({ contatos: contatosRepo, provedor: contatosProvedor }),
   marcarContato: criarMarcarContato({ contatos: contatosRepo }),
+  marcarContatos: criarMarcarContatos({ contatos: contatosRepo }),
   definirModoDoNumero: criarDefinirModoDoNumero({ contatos: contatosRepo }),
 
   lerAssistente: criarLerAssistente({ assistente }),
