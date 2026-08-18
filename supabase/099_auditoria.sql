@@ -44,6 +44,19 @@ declare
     'assinaturas',
     'eventos_auditoria'
   ];
+  -- Funções `security definer` que o NAVEGADOR pode chamar de propósito. Todas filtram
+  -- por `auth.uid()` dentro do corpo — é isso que as torna seguras apesar de ignorarem
+  -- RLS. Entrar nesta lista é decisão consciente; ver a seção 6.
+  funcoes_do_navegador text[] := array[
+    'negocios_do_usuario',  -- base da própria RLS: devolve os negócios de auth.uid()
+    'tem_papel',            -- idem, checagem de papel do usuário logado
+    'competencia_atual',    -- leitura derivada, sem escrita
+    'hoje_local',           -- idem
+    'criar_negocio',        -- o dono cria o PRÓPRIO negócio; usa auth.uid() como dono
+    'trocar_negocio',       -- troca o negócio padrão de quem chamou
+    'meus_negocios',        -- lista os do usuário logado
+    'slugificar'            -- função pura de texto, não toca em tabela
+  ];
 begin
 
   -- ── 1 · RLS ligada em tudo ───────────────────────────────────────────────
@@ -150,6 +163,38 @@ begin
         r.relname);
     end loop;
   end if;
+
+  -- ── 6 · função `security definer` não é chamável pelo navegador ──────────
+  -- ⚠️ ESTA SEÇÃO NASCEU DE UM FURO QUE AS CINCO ACIMA NÃO PEGARAM. A seção 5 confere
+  -- privilégio de TABELA e VIEW; função ficou fora do alcance da régua. E função é
+  -- justamente o objeto que o Postgres cria ABERTO — `execute` vai para PUBLIC por
+  -- default, ao contrário de tabela.
+  --
+  -- Resultado: `limpar_mensagens_antigas` passou meses chamável por qualquer um com a
+  -- chave anônima, e ela apaga `mensagens_agente` de todos os inquilinos de uma vez (ver
+  -- `016_fechar_funcoes.sql`). A auditoria dizia "sem problemas" enquanto isso.
+  --
+  -- `security definer` roda ignorando RLS. Então toda função com essa marca ou filtra por
+  -- `auth.uid()` internamente (e aí pode ser chamada logada), ou é de servidor e só
+  -- `service_role` executa. Não há terceiro caso.
+  for r in
+    select p.proname, pg_get_function_identity_arguments(p.oid) as args, p.oid
+    from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.prosecdef
+      and not (p.proname = any (funcoes_do_navegador))
+    order by p.proname
+  loop
+    if (exists (select 1 from pg_roles where rolname = 'anon')
+        and has_function_privilege('anon', r.oid, 'execute'))
+       or (exists (select 1 from pg_roles where rolname = 'authenticated')
+           and has_function_privilege('authenticated', r.oid, 'execute'))
+    then
+      problemas := problemas || format(
+        'FUNÇÃO ABERTA: public.%s(%s) é security definer e o navegador consegue executar. '
+        'Se é de propósito, declare em `funcoes_do_navegador`.', r.proname, r.args);
+    end if;
+  end loop;
 
   -- ── veredito ─────────────────────────────────────────────────────────────
   if array_length(problemas, 1) > 0 then
