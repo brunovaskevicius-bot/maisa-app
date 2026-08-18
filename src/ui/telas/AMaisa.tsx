@@ -90,6 +90,83 @@ function FaixaAssistente() {
  * mais fácil e é pior — ele é bloqueante, alguns navegadores o suprimem, e ninguém lê.
  */
 
+/**
+ * O telefone de quem assume a conversa quando a MAISA desiste.
+ *
+ * ── POR QUE ISTO GANHOU UM CAMPO NA TELA (17/08/2026) ──
+ *
+ * Porque o destino da escalação era `MAISA_WHATSAPP_DONO`, uma variável de ambiente — UM
+ * número para todos os inquilinos. O aviso carrega o telefone do cliente final, então isso
+ * era o número do cliente da barbearia do Zé chegando no WhatsApp de outra pessoa. E o Zé
+ * nunca era avisado: toda conversa que a MAISA não resolvia morria com o cliente esperando
+ * e o dono sem saber que havia alguém esperando.
+ *
+ * Vazio é permitido e não é erro. O texto diz a CONSEQUÊNCIA de deixar em branco em vez de
+ * exigir preenchimento — um canal que atende vale mais que um canal que não sobe por falta
+ * de campo opcional, e o dono decide se quer ser incomodado.
+ */
+function DonoDoCanal() {
+  const st = useStore();
+  const gravado = st.canal?.telefoneDono ?? null;
+
+  const [valor, setValor] = React.useState("");
+  const [editando, setEditando] = React.useState(false);
+  const [salvando, setSalvando] = React.useState(false);
+
+  /* Sincroniza com o servidor só quando NÃO se está editando: sem essa guarda, o polling
+   * do pareamento (de 3 em 3 segundos) sobrescreveria o que o dono está digitando. */
+  React.useEffect(() => {
+    if (!editando) setValor(gravado ? telefoneMascarado(gravado) : "");
+  }, [gravado, editando]);
+
+  const salvar = async () => {
+    setSalvando(true);
+    const ok = await st.definirDonoDoCanal(digitosDoTelefone(valor));
+    setSalvando(false);
+    if (ok) setEditando(false);
+  };
+
+  return (
+    <div style={s("display:flex;flex-direction:column;gap:7px;padding-top:11px;border-top:1px solid var(--line)")}>
+      <span style={s("font-size:var(--t-label);font-weight:var(--w-title);color:var(--muted)")}>
+        Quem a MAISA chama quando precisa de ajuda
+      </span>
+
+      <div style={s("display:flex;gap:8px;align-items:center;flex-wrap:wrap")}>
+        <input
+          value={valor}
+          onChange={(e) => { setEditando(true); setValor(telefoneMascarado(digitosDoTelefone(e.target.value))); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && editando) void salvar(); }}
+          inputMode="tel"
+          autoComplete="tel"
+          placeholder="(11) 99999-9999"
+          aria-label="WhatsApp de quem recebe os avisos"
+          className="m-focus"
+          style={s(`${CAMPO};height:40px;max-width:220px`)}
+        />
+        {editando && (
+          <>
+            <Btn variant="primary" size="sm" onClick={salvando ? undefined : () => void salvar()}>
+              {salvando ? "Salvando…" : "Salvar"}
+            </Btn>
+            <Btn variant="ghost" size="sm" onClick={() => { setEditando(false); setValor(gravado ? telefoneMascarado(gravado) : ""); }}>
+              Cancelar
+            </Btn>
+          </>
+        )}
+      </div>
+
+      {/* Diz a CONSEQUÊNCIA de cada estado, não a regra. Vazio não é erro — é uma escolha
+          com um custo, e o custo é que ninguém sabe que um cliente ficou esperando. */}
+      <span style={s(`font-size:var(--t-label);line-height:1.5;color:${gravado ? "var(--muted)" : "var(--warn)"}`)}>
+        {gravado
+          ? "Ela manda um aviso com o telefone do cliente e um link para você assumir a conversa."
+          : "Em branco, quando ela não consegue resolver, ninguém é avisado — o cliente fica esperando e você não fica sabendo."}
+      </span>
+    </div>
+  );
+}
+
 function FaixaCanal() {
   const st = useStore();
   const noCelular = useIsMobile();
@@ -330,6 +407,12 @@ function FaixaCanal() {
           </span>
         </div>
       )}
+
+      {/* ── QUEM RECEBE O "PRECISO DE VOCÊ" ──
+          Mora na faixa do canal e não numa tela de ajustes porque é a mesma pergunta que o
+          pareamento responde: por onde a MAISA fala com o negócio. Só aparece com canal de
+          pé — pedir antes seria cobrar um dado para um WhatsApp que ainda não existe. */}
+      {(conectado || pareando) && !travado && <DonoDoCanal />}
 
       {st.canalErro && (
         <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>{st.canalErro}</span>

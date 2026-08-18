@@ -341,6 +341,14 @@ export type RenovarCodigo = (t: ContextoTenant, p: { numero: string }) => Promis
 
 export type DesconectarCanal = (t: ContextoTenant) => Promise<void>;
 
+/**
+ * Quem recebe o "preciso de você nessa conversa" deste negócio.
+ *
+ * `null` apaga e volta a "ninguém é avisado" — estado legítimo, e por isso não é erro. O
+ * telefone é validado e normalizado como o do pareamento: E.164 sem `+`.
+ */
+export type DefinirDonoDoCanal = (t: ContextoTenant, p: { telefone: string | null }) => Promise<void>;
+
 /* ────────────────────── o caderno de nomes, e quem ela atende ──────────────────────
  * O número pareado quase sempre é o celular PESSOAL do dono — barbearia pequena não tem
  * linha corporativa. Sem estes casos de uso, a MAISA oferece horário para o pai dele.

@@ -91,6 +91,12 @@ export const canalDemoRepo: RepositorioCanal = {
     return linhas.get(t.tenantId) ?? null;
   },
 
+  async definirDono(t, telefone): Promise<void> {
+    const atual = linhas.get(t.tenantId);
+    if (!atual) return;
+    linhas.set(t.tenantId, { ...atual, telefoneDono: telefone });
+  },
+
   async salvar(t, p): Promise<Canal> {
     const canal: Canal = {
       instancia: p.instancia,
@@ -100,6 +106,9 @@ export const canalDemoRepo: RepositorioCanal = {
        * do "—". */
       numero: p.status === "conectado" ? (p.numero ?? "5511999990000") : (p.numero ?? null),
       conectadoEm: p.status === "conectado" ? new Date().toISOString() : null,
+      /* Preserva o dono ao salvar: reconectar não pode apagar quem recebe o aviso — é o
+       * mesmo motivo de `definirDono` ser método próprio na porta. */
+      telefoneDono: linhas.get(t.tenantId)?.telefoneDono ?? null,
     };
     linhas.set(t.tenantId, canal);
     return canal;

@@ -8,6 +8,7 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 //
 // GET    /api/canal            →  { status, instancia, numero, conectadoEm }
 // POST   /api/canal  { numero? } →  { pareamento: { qrcode, codigo, status, instancia } }
+// PATCH  /api/canal  { telefoneDono } →  { ok: true }   quem recebe "preciso de você"
 // DELETE /api/canal            →  { ok: true }
 //
 // No POST, `numero` presente pede o CÓDIGO de pareamento do WhatsApp em vez do QR — é o
@@ -90,6 +91,26 @@ export async function POST(req: Request) {
      * e a tela passaria a receber `status: "pareando"` onde espera `"ok"` — tratando um
      * sucesso como erro desconhecido. */
     return NextResponse.json({ ok: true, status: "ok", pareamento });
+  } catch (e) {
+    return falha("canal", e);
+  }
+}
+
+export async function PATCH(req: Request) {
+  const porteiro = await exigirSessao();
+  if (barrou(porteiro)) return porteiro.barrado;
+
+  try {
+    const corpo = await req.json().catch(() => ({}) as Record<string, unknown>);
+
+    /* String vazia APAGA, e por isso o `null` não é tratado como ausência. É como o dono
+     * diz "não quero ser avisado" e, principalmente, como ele conserta um número trocado —
+     * sem isso, um telefone errado ficaria avisando o aparelho antigo para sempre. */
+    const bruto = corpo?.telefoneDono;
+    const telefone = typeof bruto === "string" ? bruto : null;
+
+    await app.definirDonoDoCanal(porteiro.tenant, { telefone });
+    return NextResponse.json({ ok: true, status: "ok" });
   } catch (e) {
     return falha("canal", e);
   }

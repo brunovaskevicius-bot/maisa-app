@@ -110,7 +110,11 @@ async function comSegundaChance<T>(acao: () => Promise<T>): Promise<T> {
 
 export type ResolvedorDeInstancia = (t: ContextoTenant) => Promise<string>;
 
-export function criarCanalEvolution(deps: { instanciaDe: ResolvedorDeInstancia }): CanalDeMensagens {
+export function criarCanalEvolution(deps: {
+  instanciaDe: ResolvedorDeInstancia;
+  /** Para quem escalar, NESTE inquilino. Ver o ⚠️ dentro de `escalar`. */
+  donoDe: (t: ContextoTenant) => Promise<string | null>;
+}): CanalDeMensagens {
   return {
   /**
    * Envia na ordem, uma bolha por chamada.
@@ -168,14 +172,36 @@ export function criarCanalEvolution(deps: { instanciaDe: ResolvedorDeInstancia }
       // Link tocável: o dono abre a conversa e assume, sem procurar o contato na lista.
       `Assumir: https://wa.me/${cliente || soDigitos(p.telefone)}`;
 
-    if (!EVOLUTION.dono) {
-      console.warn(`[evolution/escalar ${p.telefone}] ${p.motivo} — MAISA_WHATSAPP_DONO não configurado, ninguém avisado.`);
+    /* ── ⚠️ O DESTINO VEM DO INQUILINO, NUNCA MAIS DO AMBIENTE ──
+     *
+     * Até 17/08/2026 este aviso ia para `MAISA_WHATSAPP_DONO`, uma env global. Como ele
+     * carrega o TELEFONE DO CLIENTE FINAL e o motivo da conversa, isso significava
+     * entregar o número do cliente da barbearia do Zé no WhatsApp de outra pessoa — um
+     * vazamento entre inquilinos que nenhuma auditoria de RLS pegaria, porque o dado nunca
+     * passa pelo banco no caminho da entrega.
+     *
+     * E o Zé nunca era avisado: toda conversa que a MAISA não resolvesse morria com o
+     * cliente esperando e o dono sem saber que havia alguém esperando.
+     *
+     * A env sobrou como fallback SÓ FORA DE PRODUÇÃO, para o `curl` de desenvolvimento
+     * continuar exercitando o caminho sem precisar de linha no banco. Em produção ela é
+     * ignorada de propósito: um fallback global aqui é exatamente o defeito que este
+     * bloco existe para não ter. */
+    const doInquilino = await deps.donoDe(t).catch(() => null);
+    const emDesenvolvimento = process.env.NODE_ENV !== "production";
+    const destino = doInquilino || (emDesenvolvimento ? EVOLUTION.dono : "");
+
+    if (!destino) {
+      console.warn(
+        `[evolution/escalar ${p.telefone}] ${p.motivo} — este negócio não tem "WhatsApp do dono" ` +
+        `preenchido (integracoes_whatsapp.telefone_dono), ninguém avisado.`,
+      );
       return;
     }
 
-    const numeroDono = paraNumeroWhats(EVOLUTION.dono);
+    const numeroDono = paraNumeroWhats(destino);
     if (!numeroDono) {
-      console.warn(`[evolution/escalar] MAISA_WHATSAPP_DONO="${EVOLUTION.dono}" não é número válido. ${p.motivo}`);
+      console.warn(`[evolution/escalar] "${destino}" não é número válido. ${p.motivo}`);
       return;
     }
 

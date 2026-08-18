@@ -19,7 +19,9 @@
  * já tem nome mantém o dele. É a mesma escolha que o resto do repo faz com id legado.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { ConectarCanal, DesconectarCanal, LerCanal, RenovarCodigo } from "../portas/entrada/casos-de-uso";
+import type {
+  ConectarCanal, DefinirDonoDoCanal, DesconectarCanal, LerCanal, RenovarCodigo,
+} from "../portas/entrada/casos-de-uso";
 import type { ProvisionamentoDeCanal } from "../portas/saida/provisionamento-canal";
 import type { RepositorioCanal } from "../portas/saida/repositorio-canal";
 import type { Canal } from "../dominio/canal";
@@ -45,7 +47,7 @@ export function criarLerCanal(deps: Deps): LerCanal {
      * responde com 404 e o nosso cliente traduz para `PrecisaReconectar`. "Reconectar"
      * é a palavra errada para quem nunca conectou. */
     if (!linha) {
-      return { status: "desconectado", instancia: "", numero: null, conectadoEm: null };
+      return { status: "desconectado", instancia: "", numero: null, conectadoEm: null, telefoneDono: null };
     }
 
     /* A VERDADE DO PAREAMENTO É DO PROVEDOR, não nossa. A coluna `status` é cache: o
@@ -147,6 +149,32 @@ export function criarRenovarCodigo(deps: Deps): RenovarCodigo {
      * vindo do `ownerJid`, depois). Uma escrita aqui só teria como efeito reabrir a porta
      * para o digitado virar o gravado. */
     return deps.provisionamento.renovarCodigo({ instancia: linha.instancia, numero });
+  };
+}
+
+export function criarDefinirDonoDoCanal(deps: Deps): DefinirDonoDoCanal {
+  return async (t, p) => {
+    /* Vazio apaga. É a única forma de o dono dizer "não quero ser avisado" sem que a tela
+     * precise de um botão separado para isso — e apagar tem que ser possível, senão um
+     * número trocado fica avisando o telefone antigo para sempre. */
+    const cru = p.telefone?.trim() || null;
+    if (!cru) {
+      await deps.canal.definirDono(t, null);
+      return;
+    }
+
+    /* MESMA normalização do pareamento (`numeroParaPareamento`), e de propósito: são os
+     * dois lugares onde o dono digita um telefone, e dois formatos diferentes de "número
+     * válido" no mesmo produto produziriam um campo que aceita o que o outro recusa. */
+    const numero = numeroParaPareamento(cru);
+    if (!numero) {
+      throw new DadoInvalido(
+        "Esse telefone não parece um WhatsApp válido. Digite com DDD, como (11) 99999-9999.",
+        "telefone",
+      );
+    }
+
+    await deps.canal.definirDono(t, numero);
   };
 }
 

@@ -117,6 +117,26 @@ export type Canal = {
   /** O número que o cliente do negócio vê, em E.164. `null` até o pareamento terminar. */
   numero: string | null;
   conectadoEm: string | null;
+  /**
+   * Para quem a MAISA manda "preciso de você nessa conversa". Em E.164 sem `+`.
+   *
+   * ── POR QUE ISTO É POR INQUILINO, E NÃO UMA VARIÁVEL DE AMBIENTE ──
+   *
+   * Porque era uma env global (`MAISA_WHATSAPP_DONO`) até 17/08/2026, e isso significava
+   * que a escalação de QUALQUER negócio ia para o mesmo celular. O aviso carrega o
+   * telefone do cliente final e o motivo da conversa: com uma env, o cliente da barbearia
+   * do Zé teria o número dele entregue no WhatsApp de outra pessoa — vazamento entre
+   * inquilinos por configuração, não por bug de consulta.
+   *
+   * E o dono do Zé nunca seria avisado, então toda conversa que a MAISA não conseguisse
+   * resolver simplesmente morreria: o cliente esperando, e ninguém do outro lado sabendo
+   * que havia alguém esperando.
+   *
+   * `null` = ninguém é avisado, e a escalação fica só no log. É estado legítimo (o dono
+   * ainda não preencheu), e a tela pede — mas não bloqueia, porque um canal que atende é
+   * melhor que um canal que não sobe por falta de um campo opcional.
+   */
+  telefoneDono: string | null;
 };
 
 /**

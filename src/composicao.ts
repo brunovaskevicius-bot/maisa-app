@@ -40,7 +40,9 @@ import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
 import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
 import { criarAjustarHorarios, criarLerHorarios } from "@/nucleo/aplicacao/horarios";
 import { criarEnviarLembretes } from "@/nucleo/aplicacao/lembretes";
-import { criarConectarCanal, criarDesconectarCanal, criarLerCanal, criarRenovarCodigo } from "@/nucleo/aplicacao/canal";
+import {
+  criarConectarCanal, criarDefinirDonoDoCanal, criarDesconectarCanal, criarLerCanal, criarRenovarCodigo,
+} from "@/nucleo/aplicacao/canal";
 import { criarAnotarFato, criarLembrarCliente } from "@/nucleo/aplicacao/memoria";
 import {
   criarLerConversa, criarListarConversas, criarMudarPosseConversa, criarResponderConversa,
@@ -315,7 +317,23 @@ const instanciaDoInquilino = async (t: ContextoTenant): Promise<string> => {
   return c.instancia;
 };
 
-const canal = isEvolutionConfigured ? criarCanalEvolution({ instanciaDe: instanciaDoInquilino }) : canalDemo;
+/**
+ * PARA QUEM ESCALAR NESTE INQUILINO.
+ *
+ * Irmã de `instanciaDoInquilino`, e com a decisão oposta na falha: aqui devolve `null` em
+ * vez de lançar. Escalar acontece justamente quando o agente já falhou — transformar
+ * "ninguém preencheu o telefone do dono" numa exceção substituiria o problema original por
+ * um erro de notificação, e o cliente do outro lado continuaria sem ninguém. O adaptador
+ * registra no log e segue.
+ */
+const donoDoInquilino = async (t: ContextoTenant): Promise<string | null> => {
+  const c = await canalRepo.ler(t);
+  return c?.telefoneDono ?? null;
+};
+
+const canal = isEvolutionConfigured
+  ? criarCanalEvolution({ instanciaDe: instanciaDoInquilino, donoDe: donoDoInquilino })
+  : canalDemo;
 
 /**
  * O CADERNO DE NOMES, e de quem é o número pareado.
@@ -410,6 +428,7 @@ export const app = {
   conectarCanal: criarConectarCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
   desconectarCanal: criarDesconectarCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
   renovarCodigo: criarRenovarCodigo({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
+  definirDonoDoCanal: criarDefinirDonoDoCanal({ provisionamento, canal: canalRepo, webhook: webhookDoAgente }),
 
   /**
    * O QUE FALTA PARA CONECTAR — perguntado ANTES de oferecer o botão.

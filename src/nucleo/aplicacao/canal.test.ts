@@ -14,7 +14,9 @@ import type { EstadoDoCanal, Pareamento } from "@/nucleo/dominio/canal";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import type { ProvisionamentoDeCanal } from "@/nucleo/portas/saida/provisionamento-canal";
 import type { RepositorioCanal } from "@/nucleo/portas/saida/repositorio-canal";
-import { criarConectarCanal, criarDesconectarCanal, criarLerCanal, criarRenovarCodigo } from "./canal";
+import {
+  criarConectarCanal, criarDefinirDonoDoCanal, criarDesconectarCanal, criarLerCanal, criarRenovarCodigo,
+} from "./canal";
 
 const t: ContextoTenant = {
   tenantId: "tenant-uuid-1",
@@ -66,6 +68,10 @@ function montar(inicial: { linha?: Awaited<ReturnType<RepositorioCanal["ler"]>>;
 
   const canal: RepositorioCanal = {
     async ler() { return linha; },
+    async definirDono(_t, telefone) {
+      chamadas.push(`definirDono(${telefone ?? "null"})`);
+      if (linha) linha = { ...linha, telefoneDono: telefone };
+    },
     async salvar(_t, p) {
       chamadas.push(`salvar(${p.instancia},${p.status},${p.numero ?? "null"})`);
       linha = {
@@ -73,6 +79,8 @@ function montar(inicial: { linha?: Awaited<ReturnType<RepositorioCanal["ler"]>>;
         status: p.status,
         numero: p.numero ?? null,
         conectadoEm: p.status === "conectado" ? "2026-08-13T21:38:07Z" : null,
+        /* Preserva o dono: reconectar não apaga quem recebe o aviso. */
+        telefoneDono: linha?.telefoneDono ?? null,
       };
       return linha;
     },
@@ -87,6 +95,7 @@ function montar(inicial: { linha?: Awaited<ReturnType<RepositorioCanal["ler"]>>;
     conectar: criarConectarCanal(deps),
     desconectar: criarDesconectarCanal(deps),
     renovar: criarRenovarCodigo(deps),
+    definirDono: criarDefinirDonoDoCanal(deps),
     get linha() { return linha; },
     provedorCai: () => { quebrado = true; },
     provedorVolta: () => { quebrado = false; },
@@ -108,7 +117,7 @@ describe("lerCanal", () => {
 
   it("auto-conserta o cache quando o provedor discorda", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null, telefoneDono: null },
       estado: { status: "conectado", numero: "5511994294906" },
     });
 
@@ -123,7 +132,7 @@ describe("lerCanal", () => {
    * corrige — e a tela dizia "Número conectado" sem saber qual. */
   it("grava o número que veio do provedor, mesmo com o status igual", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "conectado", numero: null, conectadoEm: "ontem" },
+      linha: { instancia: "FAQ", status: "conectado", numero: null, conectadoEm: "ontem", telefoneDono: null },
       estado: { status: "conectado", numero: "5511994294906" },
     });
 
@@ -135,7 +144,7 @@ describe("lerCanal", () => {
 
   it("não grava nada quando provedor e cache já concordam", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem" },
+      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem", telefoneDono: null },
       estado: { status: "conectado", numero: "5511994294906" },
     });
 
@@ -146,7 +155,7 @@ describe("lerCanal", () => {
 
   it("provedor fora do ar devolve o último status conhecido, não um erro", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem" },
+      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem", telefoneDono: null },
     });
     m.provedorCai();
 
@@ -184,7 +193,7 @@ describe("conectarCanal", () => {
    * de um negócio que está atendendo. Nenhuma tela pode contorná-la. */
   it("já conectado NÃO recria — não devolve QR e não apaga nada", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem" },
+      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem", telefoneDono: null },
       estado: { status: "conectado", numero: "5511994294906" },
     });
 
@@ -199,7 +208,7 @@ describe("conectarCanal", () => {
    * deixaria a instância antiga órfã no servidor, com o webhook ainda apontado para nós. */
   it("nome de instância já gravado sempre ganha do nome novo", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "desconectado", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "desconectado", numero: null, conectadoEm: null, telefoneDono: null },
     });
 
     const p = await m.conectar(t);
@@ -213,7 +222,7 @@ describe("conectarCanal", () => {
    * antes de descobrirmos que não daria para recriá-la. */
   it("falha de configuração acontece ANTES de tocar no provedor", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "desconectado", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "desconectado", numero: null, conectadoEm: null, telefoneDono: null },
     });
     const conectar = criarConectarCanal({
       provisionamento: {
@@ -222,7 +231,11 @@ describe("conectarCanal", () => {
         conectar: vi.fn(),
         desconectar: vi.fn(),
       } as unknown as ProvisionamentoDeCanal,
-      canal: { async ler() { return m.linha; }, async salvar(_t, p) { return { ...p, numero: p.numero ?? null, conectadoEm: null }; } } as RepositorioCanal,
+      canal: {
+        async ler() { return m.linha; },
+        async definirDono() {},
+        async salvar(_t, p) { return { ...p, numero: p.numero ?? null, conectadoEm: null, telefoneDono: null }; },
+      } as RepositorioCanal,
       webhook: () => { throw new Error("falta MAISA_PUBLIC_URL"); },
     });
 
@@ -285,7 +298,7 @@ describe("conectarCanal por código", () => {
    * dígito a menos. */
   it("número inválido falha ANTES de tocar no provedor", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "desconectado", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "desconectado", numero: null, conectadoEm: null, telefoneDono: null },
     });
 
     await expect(m.conectar(t, { numero: "99999" })).rejects.toThrow(/telefone/i);
@@ -311,7 +324,7 @@ describe("desconectarCanal", () => {
 
   beforeEach(() => {
     m = montar({
-      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem" },
+      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem", telefoneDono: null },
       estado: { status: "conectado", numero: "5511994294906" },
     });
   });
@@ -351,7 +364,7 @@ describe("desconectarCanal", () => {
 describe("renovarCodigo", () => {
   it("emite outro código sem apagar nem recriar a instância", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null, telefoneDono: null },
     });
 
     const codigo = await m.renovar(t, { numero: "(11) 99429-4906" });
@@ -364,7 +377,7 @@ describe("renovarCodigo", () => {
 
   it("normaliza o telefone, como `conectar` faz", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null, telefoneDono: null },
     });
 
     await m.renovar(t, { numero: "(11) 99429-4906" });
@@ -377,7 +390,7 @@ describe("renovarCodigo", () => {
    * provedor a cada minuto, para sempre. */
   it("recusa telefone inválido sem chamar o provedor", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null, telefoneDono: null },
     });
 
     await expect(m.renovar(t, { numero: "" })).rejects.toThrow(/telefone/i);
@@ -398,7 +411,7 @@ describe("renovarCodigo", () => {
    * o QR, e a tela oferece gerar tudo de novo. Não pode virar exceção. */
   it("provedor sem código novo devolve null, e não erro", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null, telefoneDono: null },
     });
     m.provedorSemCodigoNovo();
 
@@ -408,12 +421,75 @@ describe("renovarCodigo", () => {
   /* A regra que atravessa este arquivo inteiro: o digitado é insumo, nunca o gravado. */
   it("não escreve nada no banco", async () => {
     const m = montar({
-      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null },
+      linha: { instancia: "FAQ", status: "pareando", numero: null, conectadoEm: null, telefoneDono: null },
     });
 
     await m.renovar(t, { numero: "11994294906" });
 
     expect(m.chamadas.filter((c) => c.startsWith("salvar"))).toEqual([]);
     expect(m.linha?.numero).toBeNull();
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * QUEM RECEBE A ESCALAÇÃO — o vazamento entre inquilinos que era configuração.
+ *
+ * O aviso "preciso de você nessa conversa" carrega o TELEFONE DO CLIENTE FINAL. Enquanto o
+ * destino foi uma env global, isso significava o número do cliente da barbearia do Zé
+ * chegando no WhatsApp de outra pessoa — e o Zé nunca sendo avisado.
+ * ────────────────────────────────────────────────────────────────────────────── */
+describe("definirDonoDoCanal", () => {
+  it("normaliza como o pareamento: máscara entra, E.164 é gravado", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "conectado", numero: "5511994294906", conectadoEm: "ontem", telefoneDono: null },
+    });
+
+    await m.definirDono(t, { telefone: "(11) 98888-7777" });
+
+    expect(m.chamadas).toContain("definirDono(5511988887777)");
+  });
+
+  /* Apagar tem que ser possível: sem isso, um número trocado fica avisando o aparelho
+   * antigo para sempre, e o dono não tem como consertar pela tela. */
+  it("vazio apaga, e não é erro", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "conectado", numero: null, conectadoEm: null, telefoneDono: "5511994294906" },
+    });
+
+    await m.definirDono(t, { telefone: "" });
+
+    expect(m.chamadas).toContain("definirDono(null)");
+  });
+
+  it("null também apaga", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "conectado", numero: null, conectadoEm: null, telefoneDono: "5511994294906" },
+    });
+
+    await m.definirDono(t, { telefone: null });
+
+    expect(m.chamadas).toContain("definirDono(null)");
+  });
+
+  it("telefone inválido não chega ao repositório", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "conectado", numero: null, conectadoEm: null, telefoneDono: null },
+    });
+
+    await expect(m.definirDono(t, { telefone: "99999" })).rejects.toThrow(/telefone/i);
+    expect(m.chamadas.some((c) => c.startsWith("definirDono"))).toBe(false);
+  });
+
+  /* Reconectar não pode apagar quem recebe o aviso — é o motivo de `definirDono` ser
+   * método próprio na porta em vez de campo opcional de `salvar`. O sintoma de errar aqui
+   * é a escalação parar de chegar dias depois, sem ninguém relacionar as duas coisas. */
+  it("reconectar o WhatsApp NÃO apaga o dono", async () => {
+    const m = montar({
+      linha: { instancia: "FAQ", status: "desconectado", numero: null, conectadoEm: null, telefoneDono: "5511988887777" },
+    });
+
+    await m.conectar(t);
+
+    expect(m.linha?.telefoneDono).toBe("5511988887777");
   });
 });

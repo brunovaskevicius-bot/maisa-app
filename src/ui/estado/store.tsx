@@ -741,6 +741,8 @@ export type StoreValue = {
   desconectarCanal: () => Promise<void>;
   /** Desconecta e já pede pareamento novo. Perde o número atual — confirme antes de chamar. */
   trocarNumero: (p?: { numero?: string }) => Promise<void>;
+  /** Quem recebe o "preciso de você nessa conversa". String vazia apaga. */
+  definirDonoDoCanal: (telefone: string) => Promise<boolean>;
   /** O horário ANUNCIADO — o que a MAISA responde a "que horas vocês atendem?".
    *  Vem de `GET /api/horarios`; `semanaCarregada` diz se já é o do servidor. */
   semana: D.SemanaAnunciada;
@@ -2552,6 +2554,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * instância é outro servidor. O que dá é NÃO COMEÇAR quando já se sabe que o segundo
    * passo não termina. É por isso que `GET /api/canal` devolve `faltando`.
    */
+  /**
+   * Grava quem recebe a escalação. Devolve se deu certo, para a tela poder confirmar.
+   *
+   * Sem `canalOcupado`: este campo é independente do pareamento, e travar os botões de
+   * conectar enquanto alguém digita um telefone faria a tela parecer quebrada.
+   */
+  const definirDonoDoCanal = useCallback(async (telefone: string): Promise<boolean> => {
+    setCanalErro(null);
+    try {
+      const r = await fetch("/api/canal", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telefoneDono: telefone }),
+      }).then((x) => x.json());
+
+      if (!r?.ok) {
+        setCanalErro(motivoCanal(r, "Não foi possível salvar o WhatsApp do dono."));
+        return false;
+      }
+      /* Relê para a faixa mostrar o número JÁ NORMALIZADO pelo núcleo — o dono digita com
+       * máscara e o que fica gravado é E.164. Sem a releitura a tela mostraria a máscara e
+       * o banco outra coisa, e a próxima abertura pareceria ter perdido a edição. */
+      await buscarCanal();
+      return true;
+    } catch {
+      setCanalErro("Sem conexão com o servidor para salvar o WhatsApp do dono.");
+      return false;
+    }
+  }, [buscarCanal]);
+
   const trocarNumero = useCallback(async (p?: { numero?: string }) => {
     if (canalFaltando.length) {
       setCanalErro(
@@ -3204,7 +3236,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
-    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero, definirDonoDoCanal,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     cfg: ajustes.cfg, alternarCfg,
     salvo, salvar,
@@ -3233,7 +3265,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
-    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero, definirDonoDoCanal,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     ajustes.cfg, alternarCfg,
     salvo, salvar,

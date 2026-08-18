@@ -127,7 +127,7 @@ não é falha de requisição, é o app dizendo ao dono o que falta. Ver
 |---|---|---|---|
 | `/api/whatsapp` | GET · POST | `SEGREDO` | **o webhook.** Recebe a mensagem do cliente e roda o agente |
 | `/api/whatsapp/conexao` | GET · POST | `SEGREDO` | pareamento da instância |
-| `/api/canal` | GET · POST · DELETE | `exigirSessao` | `LerCanal` · `ConectarCanal` · `DesconectarCanal` — a visão do painel do mesmo canal |
+| `/api/canal` | GET · POST · PATCH · DELETE | `exigirSessao` | `LerCanal` · `ConectarCanal` · `DesconectarCanal` — a visão do painel do mesmo canal |
 | `/api/canal/codigo` | POST | `exigirSessao` | `RenovarCodigo` — outro código de pareamento, **sem** derrubar a instância |
 | `/api/rotinas/lembretes` | POST | `SEGREDO` | `EnviarLembretes` — disparado por `pg_cron` a cada 15 min |
 
@@ -152,6 +152,16 @@ WhatsApp deve emitir o código. Quem escreve `integracoes_whatsapp.numero` conti
 [`portas/saida/provisionamento-canal.ts`](../src/nucleo/portas/saida/provisionamento-canal.ts).
 É também por isso que ele não fere a regra do `tenantId`: `numero` não escolhe inquilino,
 instância nem destino de webhook.
+
+### `PATCH /api/canal` — quem recebe "preciso de você nessa conversa"
+
+`{"telefoneDono":"11994294906"}` grava; `{"telefoneDono":""}` apaga. Era a env global
+`MAISA_WHATSAPP_DONO`, e virou coluna por inquilino em `017_dono_por_inquilino.sql`.
+
+O motivo é vazamento: o aviso de escalação carrega o **telefone do cliente final** e o
+motivo da conversa. Com uma env, o cliente da barbearia do Zé tinha o número dele entregue
+no WhatsApp de outra pessoa — e o Zé nunca era avisado, então toda conversa que a MAISA não
+resolvia morria com o cliente esperando.
 
 ### `POST /api/canal/codigo` — o código vence, e a tela troca sozinha
 

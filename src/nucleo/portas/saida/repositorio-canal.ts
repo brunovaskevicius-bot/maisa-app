@@ -32,4 +32,19 @@ export interface RepositorioCanal {
     status: StatusDoCanal;
     numero?: string | null;
   }): Promise<Canal>;
+
+  /**
+   * Quem recebe a escalação deste canal. `null` apaga (volta a "ninguém é avisado").
+   *
+   * ── POR QUE NÃO É UM CAMPO DE `salvar` ──
+   *
+   * Porque `salvar` é chamado no caminho de CONECTAR e DESCONECTAR, com os campos daquele
+   * momento. Um `telefoneDono` opcional ali seria apagado toda vez que alguém reconectasse
+   * o WhatsApp sem passar o valor — e o sintoma seria a escalação parar de chegar dias
+   * depois, sem ninguém relacionar as duas coisas.
+   *
+   * Método próprio torna impossível apagar por omissão: só apaga quem passar `null` de
+   * propósito.
+   */
+  definirDono(t: ContextoTenant, telefone: string | null): Promise<void>;
 }
