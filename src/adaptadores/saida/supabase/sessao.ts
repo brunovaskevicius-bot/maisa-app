@@ -33,6 +33,13 @@ const PUBLIC_PREFIXES = [
    * formulário de senha: reprovação, e a fila leva semanas para tentar de novo.
    * Também são as URLs que o rodapé do produto aponta para o próprio cliente. */
   "/privacidade", "/termos",
+  /* ⚠️ `/esqueci` é PÚBLICA pela razão mais óbvia possível: ela atende exatamente quem
+   * NÃO consegue fazer login. Atrás do middleware, ela mandaria a pessoa para o login —
+   * que é o lugar de onde ela veio e onde ela não entra. O laço perfeito.
+   *
+   * `/nova-senha` NÃO entra aqui de propósito: só faz sentido com sessão, e o link de
+   * recuperação já cria uma ao passar pelo `/auth/callback`. */
+  "/esqueci",
 ];
 
 /* Exportada para o teste. É a única função deste arquivo que decide quem entra, e o

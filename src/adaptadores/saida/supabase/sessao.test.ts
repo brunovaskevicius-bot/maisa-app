@@ -121,3 +121,29 @@ describe("as páginas que o Google precisa abrir sem login", () => {
     expect(isPublic("/comecar")).toBe(false);
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * RECUPERAR SENHA — a rota que atende justamente quem não consegue entrar.
+ *
+ * `/esqueci` atrás do middleware seria o laço perfeito: ela manda para `/login` a pessoa
+ * que veio de `/login` porque não consegue passar dali. Antes de 17/08/2026 não havia
+ * recuperação nenhuma no produto — a saída era o cliente mandar e-mail para o Bruno trocar
+ * a senha à mão no painel do Supabase, o que não escala nem no primeiro cliente.
+ * ────────────────────────────────────────────────────────────────────────────── */
+describe("recuperação de senha", () => {
+  it("/esqueci é pública — ela atende quem não consegue logar", () => {
+    expect(isPublic("/esqueci")).toBe(true);
+  });
+
+  /* ⚠️ E `/nova-senha` NÃO é, de propósito: ela só faz sentido com sessão, e o link do
+   * e-mail já cria uma ao passar pelo `/auth/callback`. Deixá-la pública permitiria abrir
+   * a tela de trocar senha sem nenhuma prova de identidade — o `updateUser` recusaria,
+   * mas a tela existiria, e tela que não pode funcionar é pior que tela nenhuma. */
+  it("/nova-senha exige sessão", () => {
+    expect(isPublic("/nova-senha")).toBe(false);
+  });
+
+  it("não abre vizinho por prefixo", () => {
+    expect(isPublic("/esqueci-tudo")).toBe(false);
+  });
+});

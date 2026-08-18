@@ -106,9 +106,13 @@ function CadastroInner() {
     }
     /* A confirmação existe por causa de um beco sem saída, não por formalidade: a conta
      * só nasce depois de a pessoa sair do app e clicar no e-mail. Com a senha digitada
-     * errado, ela confirma o e-mail, volta, não consegue entrar — e este produto AINDA
-     * NÃO TEM tela de recuperar senha. O erro só apareceria minutos depois, longe do
-     * campo que o causou. */
+     * errado, ela confirma o e-mail, volta e não consegue entrar. O erro só apareceria
+     * minutos depois, longe do campo que o causou.
+     *
+     * ⚠️ Este comentário dizia "e este produto AINDA NÃO TEM tela de recuperar senha".
+     * Passou a ter em 17/08/2026 (`/esqueci`), então o beco deixou de ser sem saída — mas
+     * a confirmação FICA: descobrir o erro aqui, no campo que o causou, continua sendo
+     * muito melhor que descobrir dez minutos depois e ter que pedir outro e-mail. */
     if (senha !== confirma) {
       setErro("As duas senhas não são iguais.");
       return;

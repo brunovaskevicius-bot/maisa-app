@@ -143,6 +143,17 @@ function LoginInner() {
 
             {erro && <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--danger);background:var(--danger-soft);padding:10px 12px;border-radius:10px")}>{erro}</div>}
 
+            {/* ⚠️ O LINK VEM ANTES DO BOTÃO DE ENTRAR, e não no rodapé. Quem precisa dele
+                já tentou a senha e falhou — é o próximo passo natural do olho, não uma
+                nota de rodapé. Até 17/08/2026 não havia recuperação nenhuma: a saída era
+                mandar e-mail para o Bruno trocar a senha à mão no Supabase. */}
+            <Link
+              href="/esqueci"
+              style={s("font-size:var(--t-label);color:var(--muted);text-align:right;text-decoration:underline")}
+            >
+              Esqueci a senha
+            </Link>
+
             <button type="submit" disabled={!isSupabaseConfigured || carregando} className="m-hov-primary m-press m-focus" style={s(`display:flex;align-items:center;justify-content:center;gap:9px;height:48px;border:none;border-radius:12px;background:var(--primary);color:var(--on-primary);font-weight:var(--w-title);font-size:var(--t-body);cursor:${!isSupabaseConfigured || carregando ? "not-allowed" : "pointer"};opacity:${!isSupabaseConfigured || carregando ? ".6" : "1"}`)}>
               {carregando ? <span style={{ ...s("width:17px;height:17px;border:2px solid rgba(255,255,255,.4);border-top-color:var(--on-primary);border-radius:50%"), animation: "mspin .7s linear infinite" }} /> : <Icon name="lock" size={17} sw={2} stroke="var(--on-primary)" />}
               Entrar
