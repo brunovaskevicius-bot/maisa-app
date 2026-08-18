@@ -13,7 +13,16 @@ export type Nivel = "topo" | "meio" | "base";
 export const WHATSAPP_NUMERO = "5511994294906";
 
 /* E-mail de contato secundário (canal alternativo ao WhatsApp). Ponto único —
- * >>> TROCAR pelo endereço real antes de publicar <<< */
+ * >>> TROCAR pelo endereço real antes de publicar <<<
+ *
+ * ⚠️ NÃO É ESTE QUE ESTÁ PUBLICADO, e a diferença é deliberada. O endereço que o
+ * visitante vê hoje é o `CONTATO` de `_lib/Juridico.tsx` — o mesmo da política de
+ * privacidade e dos termos, porque o Google cruza o canal de contato do site com o da
+ * política ao verificar o app, e endereço divergente entre os dois é ruído no pior
+ * momento possível. Este aqui só aparece no <Footer>, que nenhuma página renderiza.
+ *
+ * Quando o endereço de marca existir de verdade, o conserto é trocá-lo NO Juridico.tsx e
+ * apagar esta constante — não o contrário. */
 export const CONTATO_EMAIL = "contato@maisa.app";
 
 /** Monta o link wa.me com mensagem pré-preenchida (já codificada). */

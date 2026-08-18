@@ -17,5 +17,7 @@ export { StickyMobileCta } from "./StickyMobileCta";
 /* Montado pelo <World>, como a StickyMobileCta. Exportado aqui só para simetria do
    índice — nenhuma página precisa importá-lo à mão. */
 export { EntrarNoApp } from "./EntrarNoApp";
+/* Idem — montado pelo <World>. Exigência externa, não escolha de design: ver o cabeçalho. */
+export { RodapeLegal } from "./RodapeLegal";
 export { Footer } from "./Footer";
 export { CTASection } from "./CTASection";

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ICPS, type ICP } from "./icp";
 import { StickyMobileCta } from "./StickyMobileCta";
 import { EntrarNoApp } from "./EntrarNoApp";
+import { RodapeLegal } from "./RodapeLegal";
 
 /* ----------------------------------------------------------------------------
  * <World> — wrapper que cada page.tsx usa em volta de TODO o conteúdo (nav +
@@ -15,6 +16,11 @@ import { EntrarNoApp } from "./EntrarNoApp";
  *     as páginas devem marcar seu <main id="conteudo" tabIndex={-1}>.
  *   • a barra de CTA fixa do mobile (StickyMobileCta), ao alcance do polegar.
  *   • o link "Entrar" no canto (EntrarNoApp), para quem já é cliente.
+ *   • a tira legal do rodapé (RodapeLegal) — privacidade, termos e contato. Ela está
+ *     aqui pelo mesmo motivo das outras duas, e por um a mais: é EXIGÊNCIA EXTERNA (o
+ *     Google confere que a página pública do app linka a política antes de verificar o
+ *     escopo `calendar.events`). Pendurada no <World>, uma LP nova não pode nascer sem
+ *     ela — e foi exatamente assim que `/barbeiros` e `/barbeiro` passaram meses sem.
  *
  * ⚠️ O "de graça" acima é o motivo de o "Entrar" morar AQUI e não numa nav: nem a
  * <MarketingNav> nem o <Footer> são renderizados por página nenhuma de barbearia —
@@ -37,6 +43,7 @@ export function World({
       </a>
       <EntrarNoApp />
       {children}
+      <RodapeLegal />
       <StickyMobileCta icp={icp} />
     </div>
   );

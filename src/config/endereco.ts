@@ -72,6 +72,12 @@ export const HOST_CANONICO: string = CANONICA_ANALISADA?.hostname.toLowerCase() 
  * "/barbeiros"` do projeto resolve contra `localhost:3000` no build — o que publica uma
  * tag canônica apontando para a máquina de quem compilou. O aviso do Next para isso é uma
  * linha no meio de centenas.
+ *
+ * ⚠️ ISTO É ASSADO NO BUILD, e o 301 não. Medido em 18/08/2026: `/barbeiros`, `/barbeiro`,
+ * `/privacidade` e `/termos` são páginas ESTÁTICAS (`○` no relatório do build), então a tag
+ * canônica delas sai gravada no HTML no momento em que o build roda. Trocar
+ * `MAISA_PUBLIC_URL` no painel da Vercel muda o 301 na hora (o middleware é dinâmico) e
+ * NÃO muda a tag canônica até o próximo deploy. Depois de trocar a variável, publique.
  */
 export const BASE_DE_METADATA: URL = CANONICA_ANALISADA ?? new URL("http://localhost:3000");
 
