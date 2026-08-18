@@ -21,6 +21,25 @@ import { clienteDoContexto } from "./contexto-cliente";
 
 const COLS = "instancia, numero, status, conectado_em, telefone_dono";
 
+/* ⚠️ AS COLUNAS SEM `telefone_dono`, PARA O CASO DE A 017 AINDA NÃO TER RODADO.
+ *
+ * Isto não é paranoia: código e migração são publicados por caminhos DIFERENTES. O push na
+ * `main` sobe para a Vercel em segundos; o SQL é alguém abrindo o Supabase e colando.
+ * Entre uma coisa e outra existe uma janela, e nela o PostgREST responde 42703 ("column
+ * does not exist") para o SELECT inteiro — não devolve a linha sem a coluna, FALHA.
+ *
+ * O estrago dessa janela é máximo, e é o que obriga o fallback: `instanciaDoInquilino`
+ * (`composicao.ts`) resolve a instância chamando este `ler`. Se ele lança, o agente não
+ * descobre por qual WhatsApp responder — e a MAISA fica muda para TODO MUNDO até alguém
+ * rodar o SQL. Um deploy que derruba o produto até a migração ser aplicada à mão é
+ * exatamente o tipo de acoplamento que não se deve aceitar em troca de uma coluna nova.
+ */
+const COLS_SEM_DONO = "instancia, numero, status, conectado_em";
+
+/** 42703 = undefined_column. É o único erro que este fallback deve engolir: qualquer outro
+ *  (permissão, rede, tabela ausente) precisa continuar subindo com a mensagem original. */
+const COLUNA_INEXISTENTE = "42703";
+
 type Linha = {
   instancia: string;
   numero: string | null;
@@ -49,7 +68,27 @@ export const canalSupabase: RepositorioCanal = {
       .eq("tenant_id", t.tenantId)
       .maybeSingle<Linha>();
 
-    if (error) throw new FalhaDoProvedor(`Não foi possível ler o canal: ${error.message}`);
+    if (error) {
+      /* Ver o bloco de `COLS_SEM_DONO`: a 017 ainda não rodou. Relê sem a coluna para o
+       * canal continuar de pé, e AVISA ALTO — porque isto é um estado a consertar, não um
+       * modo de operação. Sem o log, a única pista seria o campo "quem a MAISA chama"
+       * aparecer vazio para sempre, e ninguém relacionaria isso a uma migração pendente. */
+      if ((error as { code?: string }).code === COLUNA_INEXISTENTE) {
+        console.warn(
+          "[supabase/canal] `telefone_dono` não existe: rode supabase/017_dono_por_inquilino.sql. " +
+          "Até lá a escalação não tem para quem ir.",
+        );
+        const r = await supabase
+          .from("integracoes_whatsapp")
+          .select(COLS_SEM_DONO)
+          .eq("tenant_id", t.tenantId)
+          .maybeSingle<Omit<Linha, "telefone_dono">>();
+
+        if (r.error) throw new FalhaDoProvedor(`Não foi possível ler o canal: ${r.error.message}`);
+        return r.data ? paraCanal({ ...r.data, telefone_dono: null }) : null;
+      }
+      throw new FalhaDoProvedor(`Não foi possível ler o canal: ${error.message}`);
+    }
     return data ? paraCanal(data) : null;
   },
 
@@ -100,6 +139,17 @@ export const canalSupabase: RepositorioCanal = {
       .maybeSingle<Linha>();
 
     if (error) {
+      /* Mesma janela de deploy do `ler`: sem a 017, o `select` de volta falha e o
+       * pareamento inteiro quebraria — o cliente clicaria em "Conectar WhatsApp" e receberia
+       * erro com a instância JÁ criada do lado da Evolution. */
+      if ((error as { code?: string }).code === COLUNA_INEXISTENTE) {
+        const r = await supabase
+          .from("integracoes_whatsapp")
+          .select(COLS_SEM_DONO)
+          .eq("tenant_id", t.tenantId)
+          .maybeSingle<Omit<Linha, "telefone_dono">>();
+        if (r.data) return paraCanal({ ...r.data, telefone_dono: null });
+      }
       /* 23505 = unique_violation, e aqui ela tem UM significado: o nome de instância já
        * pertence a outro inquilino. Vale uma frase própria porque a mensagem crua do
        * Postgres ("duplicate key value violates unique constraint") manda procurar bug de
