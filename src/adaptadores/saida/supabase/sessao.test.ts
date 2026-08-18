@@ -88,3 +88,36 @@ describe("o painel não é público", () => {
     expect(isPublic("/cadastros")).toBe(false);
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * AS PÁGINAS JURÍDICAS SÃO PÚBLICAS — e isso é requisito do GOOGLE, não estética.
+ *
+ * Para verificar um app que pede escopo sensível (`calendar.events` é), o Google abre as
+ * URLs de política de privacidade e de termos. Se elas estiverem atrás do login, o revisor
+ * encontra um formulário de senha onde deveria estar a política, e reprova. A fila leva
+ * semanas — errar aqui custa um ciclo inteiro de submissão.
+ *
+ * Sem verificação, a tela de consentimento mostra "app não verificado" e trava em 100
+ * usuários. Na prática: nenhum cliente da MAISA liga a agenda, e dois dos seis passos do
+ * onboarding ficam impossíveis.
+ * ────────────────────────────────────────────────────────────────────────────── */
+describe("as páginas que o Google precisa abrir sem login", () => {
+  it.each(["/privacidade", "/termos"])("%s é pública", (rota) => {
+    expect(isPublic(rota)).toBe(true);
+  });
+
+  /* A checagem é por SEGMENTO: `/privacidade-interna` não deve herdar nada de
+   * `/privacidade`. Sem isto, um prefixo novo abriria rotas que ninguém pretendia abrir. */
+  it("não abre vizinho por prefixo de string", () => {
+    expect(isPublic("/privacidadezinha")).toBe(false);
+    expect(isPublic("/termos-internos")).toBe(false);
+  });
+
+  /* O painel continua fechado. O teste existe para o dia em que alguém, resolvendo outro
+   * problema, acrescentar "/" à lista — o sintoma seria o app inteiro aberto, e nenhuma
+   * tela reclamaria. */
+  it("o painel segue exigindo login", () => {
+    expect(isPublic("/")).toBe(false);
+    expect(isPublic("/comecar")).toBe(false);
+  });
+});

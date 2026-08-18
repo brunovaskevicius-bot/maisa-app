@@ -27,6 +27,12 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured } from "./config"
 // `/lp` acima, e a mesma consequência: zero venda.
 const PUBLIC_PREFIXES = [
   "/login", "/cadastro", "/auth", "/api", "/lp", "/barbeiro", "/barbeiros", "/terapeutas",
+  /* ⚠️ JURÍDICAS SÃO PÚBLICAS POR EXIGÊNCIA EXTERNA, não por conveniência. O Google
+   * confere as URLs de privacidade e termos ao verificar um app que pede escopo sensível —
+   * e `calendar.events` é sensível. Atrás do login, o revisor abre a política e vê um
+   * formulário de senha: reprovação, e a fila leva semanas para tentar de novo.
+   * Também são as URLs que o rodapé do produto aponta para o próprio cliente. */
+  "/privacidade", "/termos",
 ];
 
 /* Exportada para o teste. É a única função deste arquivo que decide quem entra, e o
