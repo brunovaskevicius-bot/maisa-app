@@ -130,14 +130,47 @@ function mesmoNumero(a: string, b: string): boolean {
  *
  * Para não virar fail-open silencioso, o modo aparece em `/api/whatsapp/conexao`
  * (`permitidos: "todos"` ou a lista) — dá para OLHAR e ver em que modo está.
+ *
+ * ── ⚠️ ELA VALE PARA UM INQUILINO SÓ, DESDE 17/08/2026 ──
+ *
+ * Até esta data a lista era GLOBAL: uma env, aplicada a toda mensagem que chegasse, de
+ * qualquer inquilino. Isso funcionava enquanto existia um inquilino só — e virava uma
+ * armadilha no minuto seguinte ao primeiro cliente parear o WhatsApp dele.
+ *
+ * O cenário, exato: a barbearia pareia, o cliente dela manda "tem horário amanhã?", o
+ * número dele não está numa env que fala do celular do BRUNO, e a mensagem morre num
+ * `return` com HTTP 200. Nada é gravado, nada é respondido. O dono abre a tela de
+ * Conversas, vê vazio, e conclui que comprou um produto que não funciona. Do lado de cá
+ * não há erro nenhum para investigar — o descarte é o comportamento pedido.
+ *
+ * Agora a lista só se aplica ao inquilino nomeado em `MAISA_TENANT_DE_TESTE`. Sem essa
+ * variável, ela **não vale para ninguém** — e isso é deliberado: um filtro de teste que
+ * cala cliente pagante é pior que filtro nenhum. O guardrail do número pessoal do Bruno
+ * não sumiu, mudou de lugar e ficou melhor: quem faz esse trabalho no produto é o par
+ * `modo` + caderno de contatos (`dominio/contatos.ts`), que é por inquilino, fica no
+ * banco e tem tela.
  */
 const PERMITIDOS = (process.env.MAISA_WHATSAPP_PERMITIDOS ?? "")
   .split(/[,;\s]+/)
   .map((n) => digitos(n).slice(-8))
   .filter((n) => n.length === 8);
 
-/** Para o diagnóstico mostrar em que modo está, sem expor número inteiro. */
-export const modoDaLista = () => (PERMITIDOS.length === 0 ? "todos" : PERMITIDOS.map((n) => `…${n.slice(-4)}`));
+/** O inquilino a que a lista se aplica. Vazio = a lista não vale para ninguém. */
+const TENANT_DE_TESTE = (process.env.MAISA_TENANT_DE_TESTE ?? "").trim();
+
+/**
+ * Para o diagnóstico mostrar em que modo está, sem expor número inteiro.
+ *
+ * ⚠️ DIZ O ESTADO PERIGOSO POR EXTENSO. "lista configurada e sem inquilino de teste" é
+ * exatamente a combinação que faria alguém achar que está filtrando quando não está — e o
+ * contrário do incidente que a lista por inquilino veio consertar. Um diagnóstico que
+ * responde só `["…4906"]` deixa quem lê concluir errado nos dois sentidos.
+ */
+export const modoDaLista = () => {
+  if (PERMITIDOS.length === 0) return "todos";
+  if (!TENANT_DE_TESTE) return "inerte (MAISA_WHATSAPP_PERMITIDOS existe, mas falta MAISA_TENANT_DE_TESTE)";
+  return { tenantDeTeste: TENANT_DE_TESTE, numeros: PERMITIDOS.map((n) => `…${n.slice(-4)}`) };
+};
 
 /** Idem para o flag de responder a si mesmo — é um modo de teste, e modo de teste
  *  ligado em produção sem ninguém ver é como ele fica ligado para sempre. */
@@ -147,8 +180,17 @@ export const respondeASiMesmo = () => RESPONDER_A_SI_MESMO;
  * Este número pode conversar? Compara pelos 8 últimos dígitos, igual a `mesmoNumero`:
  * o provedor manda `5511988887777` e no env costuma-se escrever `(11) 98888-7777`.
  */
-export function numeroPermitido(telefone: string): boolean {
+export function numeroPermitido(telefone: string, tenantId?: string): boolean {
   if (PERMITIDOS.length === 0) return true;
+
+  /* Sem inquilino de teste declarado, a lista é inerte. Ver o ⚠️ do bloco acima: o modo
+   * de falha que isto evita é silencioso e indistinguível de "o produto não funciona". */
+  if (!TENANT_DE_TESTE) return true;
+
+  /* Inquilino diferente do de teste passa direto — a lista fala do celular do Bruno, e
+   * não tem nada a dizer sobre os clientes de uma barbearia. */
+  if (tenantId !== TENANT_DE_TESTE) return true;
+
   return PERMITIDOS.includes(digitos(telefone).slice(-8));
 }
 

@@ -110,7 +110,12 @@ export async function POST(request: Request) {
    * SILÊNCIO, não recusa. Responder "você não está autorizado" seria a MAISA falando com
    * um estranho, e entregaria que aquele número é um robô. Quem não está na lista fica
    * sem resposta, como se ninguém tivesse lido. */
-  if (!numeroPermitido(envelope.de)) {
+  /* ⚠️ PASSA O INQUILINO, e é isso que impede a lista de calar cliente alheio. Até
+   * 17/08/2026 esta chamada não recebia tenant e a lista valia para todo mundo: no dia em
+   * que a primeira barbearia pareasse, todo cliente dela morreria neste `return` — HTTP
+   * 200, nada gravado, nada respondido, e o dono vendo a tela de Conversas vazia. Ver o
+   * bloco da lista em `contexto.ts`. */
+  if (!numeroPermitido(envelope.de, resolucao.tenant.tenantId)) {
     console.warn(`[api/whatsapp] ${envelope.de} não está em MAISA_WHATSAPP_PERMITIDOS — ignorado sem gastar token.`);
     return NextResponse.json({ ok: true, ignorado: true, motivo: "numero_nao_liberado" });
   }
