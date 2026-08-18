@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Mono, Plus_Jakarta_Sans, Alegreya_Sans } from "next/font/google";
 import "./globals.css";
+import { BASE_DE_METADATA } from "@/config/endereco";
 
 // A face de UI. Escolhida por métrica, não por gosto: os dez dígitos da IBM Plex Sans têm o MESMO
 // avanço (600/1000) e os da Plex Mono também — então um valor alinha em coluna no cartão, na
@@ -48,6 +49,17 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
+  /* ⚠️ SEM ISTO, TODO `canonical` DO PROJETO APONTA PARA A MÁQUINA DE QUEM COMPILOU.
+   *
+   * `/barbeiros`, `/barbeiro`, `/privacidade` e `/termos` declaram `alternates.canonical`
+   * com caminho RELATIVO. O Next resolve caminho relativo contra o `metadataBase`, e sem
+   * ele o padrão é `http://localhost:3000` — a tag ia publicada assim, dizendo ao buscador
+   * que a versão oficial daquela página mora no localhost. O único aviso é uma linha no
+   * meio do log do build.
+   *
+   * Vale duplo agora que o app responde em dois endereços: é o `metadataBase` que faz cada
+   * página do host antigo apontar para a do domínio próprio. Ver `config/endereco.ts`. */
+  metadataBase: BASE_DE_METADATA,
   applicationName: "MAISA",
   title: "MAISA — atendimento no WhatsApp, no automático",
   description: "Agendamento e atendimento por WhatsApp, no automático — por MAISA",

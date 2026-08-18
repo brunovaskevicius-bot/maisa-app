@@ -53,6 +53,7 @@ code/
 ├── scripts/                    ← espelha-lp, vendor-ds, captura de telas
 └── src/
     ├── composicao.ts           ★ RAIZ DE COMPOSIÇÃO — portas encontram adaptadores
+    ├── config/                 ← configuração LIDA NO EDGE (o middleware não roda em Node)
     │
     ├── nucleo/                 ● O HEXÁGONO — zero import de framework
     │   ├── dominio/            ..... tipos e regras puras (o que a MAISA é)

@@ -53,6 +53,7 @@ import {
 
 import { agendaGoogle, conexoesGoogle } from "@/adaptadores/saida/google/agenda-google";
 import { isGoogleConfigured } from "@/adaptadores/saida/google/config";
+import { HOST_CANONICO, URL_CANONICA } from "@/config/endereco";
 import { emissorFocus } from "@/adaptadores/saida/focus/emissor-focus";
 import { repositorioDemo } from "@/adaptadores/saida/demo/repositorio";
 import { repositorioSupabase } from "@/adaptadores/saida/supabase/repositorio";
@@ -227,28 +228,29 @@ const provisionamento = isEvolutionConfigured ? provisionamentoEvolution : provi
  * por um domínio alternativo apontaria o webhook do canal dele para lá.
  */
 function webhookDoAgente(): { url: string; segredo: string } {
-  /* ⚠️ O fallback é `VERCEL_PROJECT_PRODUCTION_URL`, NÃO `VERCEL_URL`.
-   *
-   * `VERCEL_URL` é o endereço do DEPLOY (`maisa-app-a1b2c3.vercel.app`) e muda a cada
-   * publicação. Um webhook apontado para ele fica preso ao deploy que estava no ar no dia
-   * em que o cliente pareou — e para de receber mensagem no próximo `git push`, sem nada
-   * quebrar visivelmente. `VERCEL_PROJECT_PRODUCTION_URL` é o domínio estável do projeto.
-   *
-   * Mesmo assim, `MAISA_PUBLIC_URL` vem primeiro: quando houver domínio próprio, é ele
-   * que deve estar no webhook, e não o `.vercel.app`. */
-  const base = (
-    process.env.MAISA_PUBLIC_URL ||
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "")
-  ).trim();
+  /* A escolha da base (env própria primeiro, domínio de produção do projeto como
+   * fallback, e por que NUNCA `VERCEL_URL`) mora em `config/endereco.ts` desde 18/08/2026.
+   * Saiu daqui porque o middleware precisa da mesma decisão para o 301 de domínio, e
+   * `composicao.ts` não pode ser importado do Edge — ele instancia o app inteiro. */
+  const base = URL_CANONICA;
   const faltando: string[] = [];
   if (!base) faltando.push("MAISA_PUBLIC_URL (a URL pública deste deploy, ex: https://app.maisa.com.br)");
   if (!WHATSAPP_SEGREDO) faltando.push("WHATSAPP_WEBHOOK_SECRET");
+  /* ⚠️ ENV TORTA FALHA AQUI, não lá na Evolution. `HOST_CANONICO` é `""` quando o valor
+   * não é uma URL analisável — colar `app.maisa.com.br` sem o `https://` é o erro de
+   * painel mais fácil de cometer. Sem esta linha, o webhook seria montado com a string
+   * torta, a Evolution aceitaria a configuração, tentaria entregar e falharia do lado
+   * dela; daqui pareceria ter dado certo. É a falha que o cabeçalho desta função chama de
+   * "a mais cara de diagnosticar do produto". */
+  if (base && !HOST_CANONICO) {
+    faltando.push(`MAISA_PUBLIC_URL (valor não é uma URL: ${base} — falta o https:// ?)`);
+  }
   if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(base)) {
     faltando.push("MAISA_PUBLIC_URL (a Evolution não alcança localhost — use um túnel ou o domínio do deploy)");
   }
   if (faltando.length) throw new NaoConfigurado(faltando);
 
-  return { url: `${base.replace(/\/+$/, "")}/api/whatsapp`, segredo: WHATSAPP_SEGREDO };
+  return { url: `${base}/api/whatsapp`, segredo: WHATSAPP_SEGREDO };
 }
 /**
  * O ESPELHO do que a MAISA marcou — a tabela `atendimentos`.

@@ -12,13 +12,14 @@ Mapa geral e as regras da arquitetura: [`../ARQUITETURA.md`](../ARQUITETURA.md).
 | `app/` | Roteamento do Next: páginas, LPs e route handlers | tudo |
 | `ui/` | O painel em React — adaptador de entrada humano | núcleo, `saida/demo` (dívida), `ds` |
 | `ds/` | Design system vendorado (CSS + ícones) | nada |
+| `config/` | Configuração que o **middleware** precisa ler. Existe separada de `composicao.ts` por uma restrição de runtime, não por gosto: o middleware do Next roda no Edge, e importar a raiz de composição de lá derruba o build (ela instancia Anthropic, Supabase, Evolution). Hoje: `endereco.ts` — a URL canônica do produto e o 301 do host antigo. | nada |
 
 ## Arquivos na raiz
 
 | Arquivo | O que é |
 |---|---|
 | `composicao.ts` | **Raiz de composição.** Escolhe qual adaptador cumpre cada porta e monta o objeto `app` com todos os casos de uso prontos. Um lugar só para trocar Google→Outlook, fixtures→Supabase, real→dublê de teste. ⚠️ Só servidor. |
-| `middleware.ts` | Porta de entrada de toda requisição: renova a sessão do Supabase e barra quem não está logado. Delega para `adaptadores/saida/supabase/sessao.ts`. |
+| `middleware.ts` | Porta de entrada de toda requisição. Duas coisas, nesta ordem: resolve o host canônico (301 do endereço antigo, via `config/endereco.ts`) e renova a sessão do Supabase, barrando quem não está logado (via `adaptadores/saida/supabase/sessao.ts`). A ordem importa — 301 antes da sessão não gasta chamada de rede num host que a pessoa vai abandonar. ⚠️ Roda no **Edge**: nada de `node:` nem de `composicao.ts` aqui dentro. |
 
 ## Onde NÃO existe mais
 

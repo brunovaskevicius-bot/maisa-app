@@ -22,7 +22,13 @@ const nextConfig = {
    * `.gitignore` cobre `/.next*`, então qualquer nome com esse prefixo já nasce ignorado.
    *
    * Sem a variável, nada muda — `.next` continua sendo o padrão para o `dev`, para o CI e
-   * para a Vercel. Aviso em prosa depende de alguém lembrar; isto não. */
+   * para a Vercel. Aviso em prosa depende de alguém lembrar; isto não.
+   *
+   * ⚠️ EFEITO COLATERAL, descoberto em 18/08/2026: o `next build` REESCREVE o
+   * `tsconfig.json` sozinho — reformata o arquivo inteiro e acrescenta
+   * `.next-verificacao/types/**` ao `include`. Não é opcional e não há flag para desligar.
+   * Depois de verificar um build assim, `git checkout tsconfig.json` antes de commitar; o
+   * diff parece uma decisão de estilo de alguém e não é de ninguém. */
   distDir: process.env.MAISA_DIST_DIR || ".next",
 
   async rewrites() {
