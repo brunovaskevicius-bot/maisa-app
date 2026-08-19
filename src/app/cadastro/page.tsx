@@ -27,10 +27,11 @@
  * checagem é por SEGMENTO, então `/cadastro` não herda nada de outro prefixo. Há teste.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
+import { CampoSenha } from "@/ui/componentes/CampoSenha";
 import { createClient } from "@/adaptadores/saida/supabase/client";
 import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/adaptadores/saida/supabase/config";
 
@@ -92,6 +93,112 @@ function CadastroInner() {
       .catch(() => vivo && setGoogleLigado(false));
     return () => { vivo = false; };
   }, []);
+
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * A ABA QUE FICOU PARA TRÁS.
+   *
+   * Relato de quem fez o onboarding em 18/08/2026: *"quando confirma o e-mail pelo Supabase,
+   * a tela não atualiza na aba de origem — é chato digitar e-mail + senha que você acabou de
+   * digitar para ter a conta."*
+   *
+   * O link do e-mail abre uma aba NOVA (quem decide isso é o cliente de e-mail, não nós), e é
+   * lá que a sessão nasce. A aba de origem — justamente a que tem o e-mail e a senha na
+   * memória — fica em "confira sua caixa de entrada" para sempre. O caminho de saída era
+   * fechar, ir ao login e redigitar o que tinha sido digitado um minuto antes.
+   *
+   * Duas verificações, de custos deliberadamente diferentes:
+   *
+   *  • `getSession()` a cada 2s — **não é rede.** O cliente do `@supabase/ssr` guarda a
+   *    sessão em cookie, e cookie é compartilhado entre abas do mesmo navegador. Confirmou na
+   *    aba ao lado ⇒ esta aba percebe em no máximo dois segundos. É exatamente o caso do relato.
+   *
+   *  • `signInWithPassword` a cada 15s, com o que esta aba já tem em mãos. Cobre o caso em
+   *    que o link foi aberto em OUTRO aparelho — o e-mail chega no celular e o cadastro estava
+   *    no computador — onde não existe cookie para compartilhar e nenhuma checagem local pode
+   *    funcionar.
+   *
+   * ⚠️ 15s E NÃO 2s NO SEGUNDO, e a diferença é o ponto: `signInWithPassword` tem limite de
+   * tentativas no Supabase. Poll agressivo gastaria a cota, e o sintoma seria a pessoa
+   * trancada FORA da conta que acabou de criar — o oposto do que este bloco existe para
+   * resolver. Antes da confirmação essa chamada falha com "email not confirmed", e isso é o
+   * esperado: não vira mensagem na tela.
+   *
+   * ⚠️ O RELÓGIO PARA em `ESPERA_MAX_MS`. Uma aba esquecida aberta o dia inteiro não pode
+   * ficar batendo em rota de autenticação — e depois desse tempo o link provavelmente já
+   * venceu. O botão manual continua ali, então parar o relógio não fecha nenhuma porta.
+   * ───────────────────────────────────────────────────────────────────────────── */
+  const [entrando, setEntrando] = useState(false);
+  const espera = useRef<{ inicio: number; ultimoLogin: number }>({ inicio: 0, ultimoLogin: 0 });
+
+  const ESPERA_MAX_MS = 10 * 60 * 1000;
+  const INTERVALO_LOGIN_MS = 15_000;
+
+  /* Navegação DURA, não `router.push`. Acabou de nascer uma sessão em cookie, e o que precisa
+   * enxergá-la é o middleware, no servidor. Recarregar do zero é a garantia de que a próxima
+   * tela já monta autenticada — em vez de depender de a navegação de cliente carregar o
+   * cookie novo na mesma batida. */
+  const irParaComecar = () => { window.location.replace("/comecar"); };
+
+  const conferirSePodeEntrar = useCallback(async (manual: boolean) => {
+    if (!isSupabaseConfigured) return false;
+    const supabase = createClient();
+
+    /* Barato primeiro: já existe sessão neste navegador? */
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) { irParaComecar(); return true; }
+
+    const agora = Date.now();
+    const cedoDemais = !manual && agora - espera.current.ultimoLogin < INTERVALO_LOGIN_MS;
+    if (cedoDemais || !senha) return false;
+    espera.current.ultimoLogin = agora;
+
+    if (manual) setEntrando(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: enviadoPara ?? email.trim(),
+      password: senha,
+    });
+    if (!error) { irParaComecar(); return true; }
+
+    /* Só o clique manual merece resposta na tela. No automático, "e-mail não confirmado" é o
+     * estado normal da espera — dizê-lo a cada 15s seria transformar o funcionamento correto
+     * em alarme. */
+    if (manual) {
+      const m = error.message.toLowerCase();
+      setErro(
+        /confirm/.test(m)
+          ? "Ainda não vi a confirmação. Abra o link do e-mail e volte para esta aba."
+          : "Não consegui entrar automaticamente. Use a tela de login.",
+      );
+      setEntrando(false);
+    }
+    return false;
+  }, [email, enviadoPara, senha]);
+
+  useEffect(() => {
+    if (!enviadoPara || !isSupabaseConfigured) return;
+    let vivo = true;
+    espera.current = { inicio: Date.now(), ultimoLogin: Date.now() };
+
+    const bater = () => {
+      if (!vivo) return;
+      if (Date.now() - espera.current.inicio > ESPERA_MAX_MS) return;
+      void conferirSePodeEntrar(false);
+    };
+
+    const id = setInterval(bater, 2000);
+    /* O instante em que a pessoa VOLTA para esta aba é o momento mais provável de a
+     * confirmação já ter acontecido — mais rápido que qualquer relógio. */
+    const aoVoltar = () => { if (document.visibilityState === "visible") bater(); };
+    document.addEventListener("visibilitychange", aoVoltar);
+    window.addEventListener("focus", aoVoltar);
+
+    return () => {
+      vivo = false;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", aoVoltar);
+      window.removeEventListener("focus", aoVoltar);
+    };
+  }, [enviadoPara, conferirSePodeEntrar]);
 
   const criar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -242,8 +349,40 @@ function CadastroInner() {
                 alguns minutos, <strong style={s("font-weight:var(--w-title);color:var(--ink)")}>olhe o spam</strong> — é
                 onde e-mail de confirmação costuma cair.
               </p>
+              {/* ── "PODE DEIXAR ABERTA" É PROMESSA, E O CÓDIGO CUMPRE ──
+                  Ver o bloco `A ABA QUE FICOU PARA TRÁS`, acima. Esta frase existe para a
+                  pessoa NÃO fechar a aba: fechar é o que a obrigava a redigitar tudo. O
+                  ponto pulsando é o sinal de que algo está acontecendo — sem ele, "eu entro
+                  sozinho" é uma afirmação que a tela não sustenta. */}
+              <div style={s("display:flex;align-items:center;justify-content:center;gap:9px;font-size:var(--t-label);color:var(--muted);line-height:1.5;text-align:center")}>
+                <span
+                  aria-hidden
+                  style={{ ...s("width:7px;height:7px;border-radius:999px;background:var(--primary);flex-shrink:0"), animation: "mpulse 1.6s ease-in-out infinite" }}
+                />
+                <span>Pode deixar esta aba aberta — assim que você confirmar, eu entro sozinho.</span>
+              </div>
+
+              {erro && (
+                <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--warn);background:var(--warn-soft);padding:10px 12px;border-radius:10px;line-height:1.45")}>
+                  {erro}
+                </div>
+              )}
+
+              {/* O caminho manual existe desde o primeiro segundo, e não como resgate depois
+                  de o relógio parar: quem confirmou em outro aparelho e voltou não deveria
+                  esperar 15s para descobrir que já podia entrar. */}
               <button
-                onClick={() => { setEnviadoPara(null); setSenha(""); setConfirma(""); }}
+                onClick={() => void conferirSePodeEntrar(true)}
+                disabled={entrando}
+                className="m-hov-primary m-press m-focus"
+                style={s(`display:flex;align-items:center;justify-content:center;gap:9px;height:46px;border:none;border-radius:12px;background:var(--primary);color:var(--on-primary);font-weight:var(--w-title);font-size:var(--t-sm);cursor:${entrando ? "not-allowed" : "pointer"};opacity:${entrando ? ".6" : "1"};font-family:inherit`)}
+              >
+                {entrando && <span style={{ ...s("width:15px;height:15px;border:2px solid rgba(255,255,255,.4);border-top-color:var(--on-primary);border-radius:50%"), animation: "mspin .7s linear infinite" }} />}
+                Já confirmei — entrar
+              </button>
+
+              <button
+                onClick={() => { setEnviadoPara(null); setSenha(""); setConfirma(""); setErro(null); }}
                 className="m-hov-bg m-press m-focus"
                 style={s("height:44px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:var(--w-title);font-size:var(--t-sm);cursor:pointer;font-family:inherit")}
               >
@@ -271,14 +410,19 @@ function CadastroInner() {
                   <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>E-mail</span>
                   <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@exemplo.com" className="m-focus" style={s(inputCss)} disabled={travado} />
                 </label>
-                <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>Senha</span>
-                  <input type="password" required autoComplete="new-password" minLength={SENHA_MIN} value={senha} onChange={(e) => setSenha(e.target.value)} placeholder={`Pelo menos ${SENHA_MIN} caracteres`} className="m-focus" style={s(inputCss)} disabled={travado} />
-                </label>
-                <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>Repita a senha</span>
-                  <input type="password" required autoComplete="new-password" value={confirma} onChange={(e) => setConfirma(e.target.value)} placeholder="••••••••" className="m-focus" style={s(inputCss)} disabled={travado} />
-                </label>
+                <CampoSenha
+                  rotulo="Senha" valor={senha} aoMudar={setSenha}
+                  autoComplete="new-password" minLength={SENHA_MIN}
+                  placeholder={`Pelo menos ${SENHA_MIN} caracteres`} desabilitado={travado}
+                />
+                {/* ⚠️ NÃO usa o placeholder de bolinhas que estava aqui. Com o olho ao lado,
+                    `••••••••` passou a parecer um campo JÁ PREENCHIDO cuja senha bastava
+                    revelar — e a pessoa clica no olho, não vê nada e conclui que quebrou. */}
+                <CampoSenha
+                  rotulo="Repita a senha" valor={confirma} aoMudar={setConfirma}
+                  autoComplete="new-password" desabilitado={travado}
+                  placeholder="Digite a senha de novo"
+                />
 
                 {erro && <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--danger);background:var(--danger-soft);padding:10px 12px;border-radius:10px;line-height:1.45")}>{erro}</div>}
 

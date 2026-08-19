@@ -24,15 +24,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
+import { CampoSenha } from "@/ui/componentes/CampoSenha";
 import { createClient } from "@/adaptadores/saida/supabase/client";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
 
 /** O mesmo piso do cadastro. Dois números diferentes no mesmo produto produziriam uma
  *  tela que aceita a senha que a outra recusa. */
 const SENHA_MIN = 8;
-
-const inputCss =
-  "width:100%;border:1px solid var(--border);border-radius:12px;padding:13px 14px;font-size:var(--t-body);background:var(--surface);color:var(--ink);outline:none;font-family:inherit";
 
 export default function NovaSenha() {
   const router = useRouter();
@@ -128,22 +126,14 @@ export default function NovaSenha() {
             </div>
           ) : (
             <form onSubmit={salvar} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>Senha nova</span>
-                <input
-                  type="password" required autoFocus autoComplete="new-password"
-                  value={senha} onChange={(e) => setSenha(e.target.value)}
-                  placeholder="pelo menos 8 caracteres" className="m-focus" style={s(inputCss)}
-                />
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>Repita a senha</span>
-                <input
-                  type="password" required autoComplete="new-password"
-                  value={confirma} onChange={(e) => setConfirma(e.target.value)}
-                  placeholder="••••••••" className="m-focus" style={s(inputCss)}
-                />
-              </label>
+              <CampoSenha
+                rotulo="Senha nova" valor={senha} aoMudar={setSenha}
+                autoComplete="new-password" autoFocus placeholder="pelo menos 8 caracteres"
+              />
+              <CampoSenha
+                rotulo="Repita a senha" valor={confirma} aoMudar={setConfirma}
+                autoComplete="new-password" placeholder="Digite a senha de novo"
+              />
 
               {erro && (
                 <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--danger);background:var(--danger-soft);padding:10px 12px;border-radius:10px")}>

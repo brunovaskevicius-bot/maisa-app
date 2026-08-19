@@ -732,6 +732,15 @@ export type StoreValue = {
   qrcode: string | null;
   /** Os 8 caracteres do "Conectar com número de telefone". `null` = pareamento por QR. */
   codigo: string | null;
+  /**
+   * O telefone PARA ONDE o código foi mandado, enquanto o pareamento está em curso.
+   *
+   * Existe porque não existia: até 18/08/2026 este valor vivia só num `useRef`, com um
+   * comentário dizendo que nenhuma tela o desenhava. Quem digitou um dígito errado não tinha
+   * onde perceber — o campo sai da tela no instante em que o código entra. Ver
+   * `componentes/Pareamento.tsx`.
+   */
+  numeroPareando: string | null;
   /** `numero` presente pede o CÓDIGO em vez do QR — o caminho de quem está no celular,
    *  onde ler o QR é impossível porque a câmera não fotografa a própria tela. */
   conectarCanal: (p?: { numero?: string }) => Promise<void>;
@@ -2361,6 +2370,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const renovacoes = useRef(0);
   const pollCanal = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  /** O mesmo valor do `ref` acima, desenhável. Os dois mudam juntos — ver `limparPareamento`. */
+  const [numeroPareando, setNumeroPareando] = useState<string | null>(null);
+
+  /* ── AS DUAS TRAVAS DO POLLING, E O RELATO QUE AS CRIOU (18/08/2026) ──
+   *
+   * *"Quando conectou o WhatsApp, veio mil mensagens de que ele conectou."*
+   *
+   * Não era o toast sendo chamado num laço: era o `setInterval` de 3s abrindo requisições
+   * mais rápido do que elas voltam. `GET /api/canal` pergunta o estado AO PROVEDOR — é o
+   * `lerCanal` fazendo a tela não mentir — e essa ida à Evolution passa de 3s sem esforço.
+   * Resultado: dez, vinte chamadas em voo ao mesmo tempo. No instante em que o WhatsApp
+   * conecta, TODAS voltam com `conectado`, e cada uma executa o mesmo bloco de sucesso.
+   *
+   * `pararPolling()` não salva: ele cancela os tiques FUTUROS e não tem como cancelar o que
+   * já está no ar.
+   *
+   * `pollEmVoo` impede o empilhamento (uma requisição por vez, sempre). `jaAvisou` garante
+   * que o aviso de sucesso é único mesmo que algo volte a se empilhar por outro caminho —
+   * duas travas porque o custo de errar aqui é a primeira impressão do cliente, e a segunda
+   * é uma linha. */
+  const pollEmVoo = useRef(false);
+  const jaAvisou = useRef(false);
+
   const pararPolling = useCallback(() => {
     if (pollCanal.current) { clearInterval(pollCanal.current); pollCanal.current = null; }
   }, []);
@@ -2372,6 +2404,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setQrcode(null);
     setCodigo(null);
     numeroDoPareamento.current = null;
+    setNumeroPareando(null);
     renovacoes.current = 0;
   }, []);
 
@@ -2402,17 +2435,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const iniciarPolling = useCallback((porCodigo = false) => {
     pararPolling();
     let tentativas = 0;
+    /* Pareamento novo, aviso novo. Sem isto, um segundo pareamento na mesma sessão de painel
+     * conectaria em silêncio. */
+    jaAvisou.current = false;
     pollCanal.current = setInterval(() => {
+      /* Ver o cabeçalho das travas: sem esta linha as chamadas se empilham e o sucesso é
+       * executado uma vez por chamada em voo. */
+      if (pollEmVoo.current) return;
       tentativas++;
       void (async () => {
-        const c = await buscarCanal();
+        pollEmVoo.current = true;
+        const c = await buscarCanal().finally(() => { pollEmVoo.current = false; });
         if (c?.status === "conectado") {
           pararPolling();
           /* Some no instante em que conecta. Deixar na tela convidaria a apontar a câmera
            * (ou digitar) de novo para um código morto — e o cliente concluiria que não
            * funcionou justo depois de ter funcionado. */
           limparPareamento();
-          toast("WhatsApp conectado");
+          if (!jaAvisou.current) { jaAvisou.current = true; toast("WhatsApp conectado"); }
         } else if (tentativas >= TENTATIVAS_PAREAMENTO) {
           pararPolling();
           limparPareamento();
@@ -2454,6 +2494,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       /* Guarda o número DESTE pareamento para conseguir renovar sem redigitar. Zera as
        * renovações junto: começou pareamento novo, começou orçamento novo. */
       numeroDoPareamento.current = p?.numero?.trim() || null;
+      setNumeroPareando(numeroDoPareamento.current);
       renovacoes.current = 0;
 
       /* ⚠️ PEDIU CÓDIGO E VEIO SÓ QR. Acontece de verdade — o pairing code depende da
@@ -3236,7 +3277,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     assistente: ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
-    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero, definirDonoDoCanal,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, numeroPareando, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero, definirDonoDoCanal,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     cfg: ajustes.cfg, alternarCfg,
     salvo, salvar,
@@ -3265,7 +3306,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     secAtiva, abrirSecao,
     ajustes.assistente, setAssistente, ajustesErro, ajustesCarregados, setNomeDoNegocio,
     faqs, faqsErro, faqsOcupado, salvarFaq, removerFaq,
-    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero, definirDonoDoCanal,
+    canal, canalErro, canalOcupado, canalFaltando, qrcode, codigo, numeroPareando, conectarCanal, renovarCodigo, desconectarCanal, trocarNumero, definirDonoDoCanal,
     semana, semanaErro, semanaCarregada, alternarDia, setHorario,
     ajustes.cfg, alternarCfg,
     salvo, salvar,

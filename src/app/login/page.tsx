@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
+import { CampoSenha } from "@/ui/componentes/CampoSenha";
 import { createClient } from "@/adaptadores/saida/supabase/client";
 import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/adaptadores/saida/supabase/config";
 import { RecuperarSessaoDaUrl } from "@/app/auth/RecuperarSessaoDaUrl";
@@ -136,10 +137,13 @@ function LoginInner() {
               <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>E-mail</span>
               <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@exemplo.com" className="m-focus" style={s(inputCss)} disabled={!isSupabaseConfigured || carregando} />
             </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>Senha</span>
-              <input type="password" required autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••••" className="m-focus" style={s(inputCss)} disabled={!isSupabaseConfigured || carregando} />
-            </label>
+            <CampoSenha
+              rotulo="Senha"
+              valor={senha}
+              aoMudar={setSenha}
+              autoComplete="current-password"
+              desabilitado={!isSupabaseConfigured || carregando}
+            />
 
             {erro && <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--danger);background:var(--danger-soft);padding:10px 12px;border-radius:10px")}>{erro}</div>}
 

@@ -22,6 +22,8 @@ componentes perto do `app/`. Conceitualmente é irmão do `http/` e do futuro `w
 | `Paleta.tsx` | Busca/comando (⌘K). |
 | `Cartao.tsx` | O cartão genérico das grades. |
 | `UserMenu.tsx` | Conta e sair. |
+| `CampoSenha.tsx` | O campo de senha com o olho, usado nas cinco entradas de senha do produto (`/cadastro` ×2, `/login`, `/nova-senha` ×2). |
+| `Pareamento.tsx` | As peças do "Conectar com número de telefone": o código de 8 caracteres, a conferência do número antes de enviar e a etiqueta que mantém o número na tela. Compartilhado entre o wizard e o painel porque o conteúdo de valor é a INSTRUÇÃO — os nomes exatos do menu do WhatsApp. |
 
 ## `telas/` — as cinco telas
 

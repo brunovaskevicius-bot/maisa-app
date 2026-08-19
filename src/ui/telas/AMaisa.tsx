@@ -14,7 +14,10 @@
 import React from "react";
 import { s, Btn, Icon, Toggle } from "@/ui/primitivos";
 import { DeQuemEEsseNumero } from "@/ui/componentes/DeQuemEEsseNumero";
-import { CodigoPareamento, digitosDoTelefone, telefoneMascarado } from "@/ui/componentes/Pareamento";
+import {
+  CodigoPareamento, ConferirNumero, NumeroDoPareamento,
+  digitosDoTelefone, telefoneMascarado, telefoneParaConferir,
+} from "@/ui/componentes/Pareamento";
 import { useIsMobile } from "@/ui/useIsMobile";
 import * as D from "@/adaptadores/saida/demo";
 import { useStore } from "@/ui/estado/store";
@@ -189,6 +192,8 @@ function FaixaCanal() {
   /* Mostrar o QR mesmo tendo pedido código. O servidor devolve os dois, e este botão é a
    * saída de quem tem um segundo aparelho quando o código não funciona. */
   const [verQr, setVerQr] = React.useState(false);
+  /** A parada antes de mandar o código para um número digitado. Ver `ConferirNumero`. */
+  const [conferindo, setConferindo] = React.useState(false);
 
   const status = st.canal?.status ?? "desconectado";
   const conectado = status === "conectado";
@@ -242,7 +247,11 @@ function FaixaCanal() {
             <Btn
               variant="whats"
               size="sm"
-              onClick={ocupado || faltaTelefone ? undefined : () => void st.conectarCanal(argumentos())}
+              onClick={ocupado || faltaTelefone
+                ? undefined
+                /* Por código, o número foi DIGITADO e pode estar errado — confere antes.
+                 * Por QR não há o que conferir: quem aponta a câmera é o dono do aparelho. */
+                : porCodigo ? () => setConferindo(true) : () => void st.conectarCanal(argumentos())}
             >
               {/* O rótulo carrega o estado, seguindo a convenção da faixa (ver `ocupado`
                   acima): um botão que não faz nada e não diz por quê é o jeito mais rápido
@@ -302,13 +311,28 @@ function FaixaCanal() {
         </span>
       )}
 
+      {/* ⚠️ `--warn` E NÃO `--danger`, desde 18/08/2026. Vermelho aqui dizia "algo deu
+          errado" para uma frase que descreve uma CONSEQUÊNCIA de algo que ainda não
+          aconteceu. O vermelho fica no botão que executa — que é o que de fato destrói. O
+          relato que mudou isto foi sobre o wizard; a mesma confusão vivia aqui. */}
       {confirmando !== null && (
-        <span style={s("font-size:var(--t-label);color:var(--danger);line-height:1.5")}>
+        <span style={s("font-size:var(--t-label);color:var(--warn);line-height:1.5")}>
           {confirmando === "trocar"
             ? porCodigo
               ? "O número atual será desconectado. Digite o número novo abaixo — o código de conexão vai para ele."
               : "O número atual será desconectado e você terá que parear o novo lendo um QR."
             : "A MAISA para de responder no WhatsApp até você conectar de novo."}
+        </span>
+      )}
+
+      {/* Na troca, o número novo aparece inteiro antes de o canal antigo cair: aqui errar um
+          dígito custa o WhatsApp que estava funcionando. */}
+      {confirmando === "trocar" && porCodigo && !faltaTelefone && (
+        <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+          O código vai para{" "}
+          <b style={s("color:var(--ink);font-variant-numeric:tabular-nums")}>
+            {telefoneParaConferir(digitosDoTelefone(telefone))}
+          </b>
         </span>
       )}
 
@@ -389,8 +413,34 @@ function FaixaCanal() {
       {/* Os dois são EFÊMEROS: a Evolution troca o QR a cada poucos segundos, o código do
           WhatsApp vale cerca de um minuto, e o polling do store remove os dois no instante
           em que conecta. Nunca guardamos isto em lugar nenhum. */}
+      {conferindo && !pareando && !conectado && (
+        <ConferirNumero
+          digitos={digitosDoTelefone(telefone)}
+          ocupado={ocupado}
+          aoCorrigir={() => setConferindo(false)}
+          aoConfirmar={() => { setConferindo(false); void st.conectarCanal(argumentos()); }}
+        />
+      )}
+
       {mostrandoCodigo && st.codigo && (
         <CodigoPareamento codigo={st.codigo} aoRenovar={st.renovarCodigo} />
+      )}
+
+      {/* O número para onde o código foi, enquanto ele está na tela. Ver o cabeçalho de
+          `NumeroDoPareamento`: sem isto, um dígito errado é indistinguível de "o produto não
+          funciona" — o código sai, ninguém digita, e o prazo vence. */}
+      {pareando && st.numeroPareando && (
+        <NumeroDoPareamento
+          digitos={st.numeroPareando}
+          aoCorrigir={() => {
+            const volta = st.numeroPareando ?? "";
+            void st.desconectarCanal();
+            setTelefone(volta);
+            setEscolha("codigo");
+            setVerQr(false);
+            setConferindo(false);
+          }}
+        />
       )}
 
       {!mostrandoCodigo && st.qrcode && (

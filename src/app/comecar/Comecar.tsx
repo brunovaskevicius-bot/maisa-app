@@ -43,7 +43,9 @@ import { s, Icon, Toggle, toast, Toaster } from "@/ui/primitivos";
 import type { CategoriaServico, PassoDeAtivacao, Servico, Vertical } from "@/nucleo/dominio";
 import { sugestoes, type ExemploDoNegocio } from "./sugestoes";
 import { LigarNotaFiscal } from "@/ui/componentes/LigarNotaFiscal";
-import { CodigoPareamento, digitosDoTelefone, telefoneMascarado } from "@/ui/componentes/Pareamento";
+import {
+  CodigoPareamento, ConferirNumero, NumeroDoPareamento, digitosDoTelefone, telefoneMascarado,
+} from "@/ui/componentes/Pareamento";
 import { useIsMobile } from "@/ui/useIsMobile";
 
 /* ───────────────────────────── as etapas ───────────────────────────── */
@@ -119,6 +121,62 @@ function Trilha({ atual }: { atual: EtapaId }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * O RECADO — E POR QUE ELE TEM TOM.
+ *
+ * ── O RELATO (18/08/2026) ──
+ *
+ * *"Às vezes aparecem algumas coisas vermelhas no wizard que dão a sensação de que algo deu
+ * errado, sendo que é só o fluxo natural."*
+ *
+ * Estava certo, e a causa era um canal só para três naturezas diferentes. Todo aviso desta
+ * tela passava por `setErro` e saía em `--danger` sobre `--danger-soft`:
+ *
+ *   • "Não foi possível criar seu negócio" ....... falha de verdade, precisa de vermelho
+ *   • "O código venceu, gere outro" .............. prazo cumprindo o prazo, é o normal
+ *   • "Este servidor não gerou o código de 8 dígitos, use o QR" ... caminho alternativo,
+ *     com a saída escrita na própria frase
+ *
+ * Os dois últimos são o produto funcionando. Pintá-los de vermelho no meio do onboarding —
+ * o momento em que a pessoa está decidindo se comprou algo que presta — é dizer "quebrou"
+ * quando não quebrou. Vermelho que aparece no caminho certo é vermelho que ninguém lê mais
+ * quando o caminho errado acontecer.
+ *
+ * `aviso` usa os tokens `--warn`, que o `CodigoPareamento` ao lado já usa para o contador
+ * chegando ao fim: o mesmo fato, a mesma cor.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+export type Tom = "erro" | "aviso";
+export type Recado = { tom: Tom; txt: string } | null;
+
+/** Atalhos: o tom vira parte da chamada, não uma decisão a mais em cada `setX`. */
+export const falhou = (txt: string): Recado => ({ tom: "erro", txt });
+export const avisa = (txt: string): Recado => ({ tom: "aviso", txt });
+
+function Aviso({ recado }: { recado: Recado }) {
+  if (!recado) return null;
+  const erro = recado.tom === "erro";
+  return (
+    <div
+      role={erro ? "alert" : "status"}
+      style={s(
+        "display:flex;gap:9px;align-items:flex-start;font-size:var(--t-sm);font-weight:var(--w-title);" +
+        "padding:11px 13px;border-radius:10px;line-height:1.45;" +
+        (erro
+          ? "color:var(--danger);background:var(--danger-soft)"
+          : "color:var(--warn);background:var(--warn-soft)"),
+      )}
+    >
+      <Icon
+        name={erro ? "alert" : "clock"} size={16} sw={2}
+        stroke={erro ? "var(--danger)" : "var(--warn)"}
+        style={{ flexShrink: 0, marginTop: 1 }}
+      />
+      <span>{recado.txt}</span>
+    </div>
+  );
+}
+
 function Botao({
   children, onClick, ocupado, variante = "primary", full,
 }: {
@@ -154,12 +212,12 @@ function Botao({
 function EtapaNegocio({ aoCriar }: { aoCriar: () => void }) {
   const [nome, setNome] = useState("");
   const [vertical, setVertical] = useState<Vertical | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [recado, setRecado] = useState<Recado>(null);
   const [ocupado, setOcupado] = useState(false);
 
   const criar = useCallback(async () => {
-    if (!vertical) { setErro("Escolha o tipo do seu negócio."); return; }
-    setErro(null);
+    if (!vertical) { setRecado(falhou("Escolha o tipo do seu negócio.")); return; }
+    setRecado(null);
     setOcupado(true);
     try {
       const r = await fetch("/api/negocio", {
@@ -172,13 +230,13 @@ function EtapaNegocio({ aoCriar }: { aoCriar: () => void }) {
         /* A frase do SERVIDOR: "O nome precisa ter pelo menos uma letra ou número" é o
          * que diz o que corrigir. O caso de uso `provisionar.ts` tem uma para cada
          * recusa, inclusive o teto de negócios por conta. */
-        setErro(r?.info ?? "Não foi possível criar seu negócio.");
+        setRecado(falhou(r?.info ?? "Não foi possível criar seu negócio."));
         setOcupado(false);
         return;
       }
       aoCriar();
     } catch {
-      setErro("Sem conexão com o servidor. Tente de novo.");
+      setRecado(falhou("Sem conexão com o servidor. Tente de novo."));
       setOcupado(false);
     }
   }, [nome, vertical, aoCriar]);
@@ -213,7 +271,7 @@ function EtapaNegocio({ aoCriar }: { aoCriar: () => void }) {
           const on = vertical === v.id;
           return (
             <button
-              key={v.id} onClick={() => { setVertical(v.id); setErro(null); }}
+              key={v.id} onClick={() => { setVertical(v.id); setRecado(null); }}
               className="m-press m-focus"
               style={s(`display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;cursor:pointer;text-align:left;font-family:inherit;border:1.5px solid ${on ? "var(--primary)" : "var(--border)"};background:${on ? "var(--primary-soft)" : "var(--surface)"}`)}
             >
@@ -228,11 +286,7 @@ function EtapaNegocio({ aoCriar }: { aoCriar: () => void }) {
         })}
       </div>
 
-      {erro && (
-        <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--danger);background:var(--danger-soft);padding:11px 13px;border-radius:10px;line-height:1.45")}>
-          {erro}
-        </div>
-      )}
+      <Aviso recado={recado} />
 
       <Botao onClick={() => void criar()} ocupado={ocupado} full>
         Criar meu negócio
@@ -312,7 +366,7 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
   const [profissional, setProfissional] = useState<{ id: string; nome: string } | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [ocupado, setOcupado] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
+  const [recado, setRecado] = useState<Recado>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -355,7 +409,7 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
    */
   const salvar = useCallback(async () => {
     setOcupado(true);
-    setErro(null);
+    setRecado(null);
     try {
       const mudados = servicos.filter((sv) => {
         const antes = original.current.find((o) => o.id === sv.id);
@@ -373,7 +427,7 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
         }).then((x) => x.json());
 
         if (!r?.ok) {
-          setErro(`“${sv.nome}”: ${r?.info ?? "não foi possível salvar."}`);
+          setRecado(falhou(`“${sv.nome}”: ${r?.info ?? "não foi possível salvar."}`));
           setOcupado(false);
           return;
         }
@@ -387,12 +441,12 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: profissional.id, nome: profissional.nome }),
         }).then((x) => x.json());
-        if (!r?.ok) { setErro(r?.info ?? "Não foi possível salvar quem atende."); setOcupado(false); return; }
+        if (!r?.ok) { setRecado(falhou(r?.info ?? "Não foi possível salvar quem atende.")); setOcupado(false); return; }
       }
 
       aoSeguir();
     } catch {
-      setErro("Sem conexão com o servidor. Tente de novo.");
+      setRecado(falhou("Sem conexão com o servidor. Tente de novo."));
       setOcupado(false);
     }
   }, [servicos, profissional, aoSeguir]);
@@ -430,11 +484,7 @@ function EtapaCatalogo({ aoSeguir }: { aoSeguir: () => void }) {
         ))}
       </div>
 
-      {erro && (
-        <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--danger);background:var(--danger-soft);padding:11px 13px;border-radius:10px;line-height:1.45")}>
-          {erro}
-        </div>
-      )}
+      <Aviso recado={recado} />
 
       <Botao onClick={() => void salvar()} ocupado={ocupado} full>
         Salvar e continuar
@@ -450,14 +500,35 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
   /** Os 8 caracteres do "Conectar com número de telefone". `null` = pareamento por QR. */
   const [codigo, setCodigo] = useState<string | null>(null);
   const [status, setStatus] = useState<"parado" | "gerando" | "pareando" | "conectado">("parado");
-  const [erro, setErro] = useState<string | null>(null);
+  const [recado, setRecado] = useState<Recado>(null);
   const [numero, setNumero] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const tentativas = useRef(0);
+  /** Trava de reentrância do polling. Ver o ⚠️ dentro do `setInterval`. */
+  const emVoo = useRef(false);
   /** O telefone deste pareamento e quantas vezes o código já trocou. Em memória, nunca em
    *  disco — ver o comentário equivalente no `store.tsx`. */
   const numeroDoPareamento = useRef<string | null>(null);
   const renovacoes = useRef(0);
+
+  /**
+   * O MESMO número do `ref` acima, só que desenhável.
+   *
+   * ⚠️ ISTO ERA SÓ O `ref`, DE PROPÓSITO — e a decisão estava errada. O comentário gêmeo no
+   * `store.tsx` dizia *"`ref` e não `state`: nenhuma tela desenha isto"*, e era verdade:
+   * ninguém desenhava. Foi exatamente essa a falha relatada em 18/08/2026 — o colega do
+   * Bruno digitou o número errado e não tinha onde conferir, porque no instante em que o
+   * código aparece o campo de telefone sai da tela.
+   *
+   * Os dois andam juntos e só mudam em dois lugares (`conectar` e a correção). O `ref`
+   * continua existindo porque `renovar` precisa do valor sem entrar na lista de dependências
+   * do efeito que dispara a renovação — ali, uma identidade nova a cada render pediria código
+   * novo em laço.
+   */
+  const [numeroNaTela, setNumeroNaTela] = useState<string | null>(null);
+
+  /** A parada antes de mandar o código. Ver `ConferirNumero`, em `componentes/Pareamento`. */
+  const [conferindo, setConferindo] = useState(false);
 
   /* ── ESTA É A ETAPA QUE MAIS PERDE GENTE, E A CÂMERA É O MOTIVO ──
    *
@@ -494,7 +565,7 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
   useEffect(() => parar, [parar]);
 
   const conectar = useCallback(async (comNumero?: string) => {
-    setErro(null);
+    setRecado(null);
     setStatus("gerando");
     setVerQr(false);
     try {
@@ -505,13 +576,14 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
       }).then((x) => x.json());
       if (!r?.ok) {
         const falta = r?.faltando?.length ? ` Falta: ${r.faltando.join(", ")}.` : "";
-        setErro((r?.info ?? "Não foi possível abrir a conexão.") + falta);
+        setRecado(falhou((r?.info ?? "Não foi possível abrir a conexão.") + falta));
         setStatus("parado");
         return;
       }
       setQrcode(r.pareamento?.qrcode ?? null);
       setCodigo(r.pareamento?.codigo ?? null);
       numeroDoPareamento.current = comNumero ?? null;
+      setNumeroNaTela(comNumero ?? null);
       renovacoes.current = 0;
       if (r.pareamento?.status === "conectado") { setStatus("conectado"); return; }
       setStatus("pareando");
@@ -521,10 +593,12 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
        * aparecer e conclui que o app ignorou o que ele pediu. */
       const semCodigo = !!comNumero && !r.pareamento?.codigo;
       if (semCodigo) {
-        setErro(
+        /* Caminho ALTERNATIVO, não falha: o pairing code depende da versão do Baileys do
+         * servidor, e a saída está escrita na própria frase. Ver o cabeçalho do `Aviso`. */
+        setRecado(avisa(
           "Não consegui gerar o código de 8 dígitos agora. Dá para conectar lendo o QR de " +
           "outro aparelho, ou tentar de novo.",
-        );
+        ));
       }
 
       tentativas.current = 0;
@@ -538,13 +612,23 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
           setCodigo(null);
           /* A frase segue o caminho: "venceu sem ninguém escanear" manda procurar uma
            * câmera, e é a última coisa que se deve dizer a quem está num aparelho só. */
-          setErro(
+          /* Prazo cumprindo o prazo. Vermelho aqui é o produto se acusando de um defeito
+           * que não tem — e o próximo passo está na frase. */
+          setRecado(avisa(
             r.pareamento?.codigo
               ? "O código venceu. Gere outro para tentar de novo."
               : "O QR code venceu. Gere outro para tentar de novo.",
-          );
+          ));
           return;
         }
+        /* ⚠️ UMA POR VEZ. `GET /api/canal` pergunta o estado ao provedor (é `lerCanal` quem
+         * faz isso, para a tela não mentir), e essa ida à Evolution passa dos 3s deste
+         * intervalo com facilidade. Sem esta guarda, as chamadas se empilham: cada tique
+         * abre outra, todas voltam juntas, e o efeito colateral disso no painel foi o
+         * relato "veio mil mensagens de que ele conectou". Aqui não há toast, mas o
+         * empilhamento é o mesmo — e cada requisição extra bate no servidor de terceiro. */
+        if (emVoo.current) return;
+        emVoo.current = true;
         try {
           const c = await fetch("/api/canal").then((x) => x.json());
           if (c?.ok && c.canal?.status === "conectado") {
@@ -555,9 +639,10 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
             setStatus("conectado");
           }
         } catch { /* uma falha de rede no meio do polling não cancela o pareamento */ }
+        finally { emVoo.current = false; }
       }, INTERVALO_PAREAMENTO);
     } catch {
-      setErro("Sem conexão com o servidor.");
+      setRecado(falhou("Sem conexão com o servidor."));
       setStatus("parado");
     }
   }, [parar]);
@@ -579,7 +664,7 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
       setStatus("parado");
       setCodigo(null);
       setQrcode(null);
-      setErro("Passou do tempo de conectar. Peça um código novo para tentar de novo.");
+      setRecado(avisa("Passou do tempo de conectar. Peça um código novo para tentar de novo."));
       return;
     }
     renovacoes.current += 1;
@@ -592,17 +677,17 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
       }).then((x) => x.json());
 
       if (!r?.ok || !r.codigo) {
-        setErro("Não consegui gerar um código novo. Leia o QR de outro aparelho, ou peça outro código.");
+        setRecado(falhou("Não consegui gerar um código novo. Leia o QR de outro aparelho, ou peça outro código."));
         return;
       }
       setCodigo(r.codigo);
-      setErro(null);
+      setRecado(null);
       /* O polling continua de onde estava, só com o relógio zerado: sem isto ele morreria
        * em 2 min enquanto o código segue se renovando, e a tela deixaria de perceber a
        * conexão no instante em que ela finalmente acontece. */
       tentativas.current = 0;
     } catch {
-      setErro("Sem conexão com o servidor para renovar o código.");
+      setRecado(falhou("Sem conexão com o servidor para renovar o código."));
     }
   }, [parar]);
 
@@ -631,6 +716,30 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
       {status === "pareando" && mostrandoCodigo && codigo ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <CodigoPareamento codigo={codigo} aoRenovar={renovar} />
+          {/* ── PARA QUEM DIGITOU ERRADO, ESTA É A ÚNICA CHANCE ──
+              O código na tela é a prova de que o pedido saiu, e não de que ele saiu para o
+              número certo. Um dígito errado manda o pareamento para outra pessoa e produz
+              exatamente esta tela — "esperando você digitar o código" até vencer, sem erro
+              nenhum de nenhum lado. Ver o cabeçalho de `NumeroDoPareamento`. */}
+          {numeroNaTela && (
+            <NumeroDoPareamento
+              digitos={numeroNaTela}
+              aoCorrigir={() => {
+                /* Volta ao campo com o número que estava lá, para editar em vez de redigitar.
+                 * O pareamento pendente na Evolution morre no próximo `conectar`, que apaga e
+                 * recria a instância de qualquer forma. */
+                parar();
+                setStatus("parado");
+                setCodigo(null);
+                setQrcode(null);
+                setRecado(null);
+                setNumeroNaTela(null);
+                setTelefone(numeroNaTela);
+                setEscolha("codigo");
+                setConferindo(false);
+              }}
+            />
+          )}
           <span style={s("font-size:var(--t-label);color:var(--muted);text-align:center")}>
             Esperando você digitar o código no WhatsApp…
           </span>
@@ -660,7 +769,7 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
               onChange={(e) => setTelefone(digitosDoTelefone(e.target.value))}
               inputMode="tel" autoComplete="tel" placeholder="(11) 99999-9999"
               className="m-focus" style={s(CAMPO)}
-              onKeyDown={(e) => { if (e.key === "Enter" && podePedirCodigo) void conectar(digitos); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && podePedirCodigo) setConferindo(true); }}
             />
             {/* Diz o que o número FAZ e o que ele NÃO faz. Pedir telefone no meio de uma
                 conexão parece cadastro, e cadastro inesperado é onde a pessoa desconfia. */}
@@ -670,13 +779,24 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
             </span>
           </label>
 
-          <Botao
-            onClick={() => { if (podePedirCodigo) void conectar(digitos); }}
-            ocupado={status === "gerando"} full
-          >
-            <Icon name="whatsapp" size={19} sw={2} stroke="var(--on-primary)" />
-            Receber código
-          </Botao>
+          {/* Um passo, e ele não é formalidade: é o único lugar do fluxo em que o número
+              aparece inteiro, com DDI, do jeito que vai ser usado. Ver `ConferirNumero`. */}
+          {conferindo ? (
+            <ConferirNumero
+              digitos={digitos}
+              ocupado={status === "gerando"}
+              aoCorrigir={() => setConferindo(false)}
+              aoConfirmar={() => { setConferindo(false); void conectar(digitos); }}
+            />
+          ) : (
+            <Botao
+              onClick={() => { if (podePedirCodigo) setConferindo(true); }}
+              ocupado={status === "gerando"} full
+            >
+              <Icon name="whatsapp" size={19} sw={2} stroke="var(--on-primary)" />
+              Receber código
+            </Botao>
+          )}
         </div>
       ) : (
         <Botao onClick={() => void conectar()} ocupado={status === "gerando"} full>
@@ -706,7 +826,7 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
             parar();
             setStatus("parado");
             setQrcode(null);
-            setErro(null);
+            setRecado(null);
             setEscolha("codigo");
             return;
           }
@@ -729,11 +849,7 @@ function EtapaWhatsApp({ aoSeguir }: { aoSeguir: () => void }) {
           : "Estou no celular — conectar com código"}
       </button>
 
-      {erro && (
-        <div style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--danger);background:var(--danger-soft);padding:11px 13px;border-radius:10px;line-height:1.45")}>
-          {erro}
-        </div>
-      )}
+      <Aviso recado={recado} />
     </div>
   );
 }

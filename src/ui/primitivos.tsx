@@ -109,6 +109,11 @@ const ICONS: Record<string, React.ReactNode> = {
   heart: (<path d="M12 20.3s-6.8-4.1-6.8-9.1A3.7 3.7 0 0 1 12 8.3a3.7 3.7 0 0 1 6.8 2.9c0 5-6.8 9.1-6.8 9.1Z" />),
   tooth: (<path d="M8 3.5c-2 0-3.3 1.5-3.3 3.7 0 1.3.4 2.3.8 3.8.5 2 .5 6 1.9 6 1.2 0 1.1-3.4 2.3-3.4s1.1 3.4 2.3 3.4c1.4 0 1.4-4 1.9-6 .4-1.5.8-2.5.8-3.8C16.3 5 15 3.5 13 3.5c-1 0-1.5.6-2.5.6S9 3.5 8 3.5Z" />),
   stethoscope: (<><path d="M6 3.5v4.3a3.8 3.8 0 0 0 7.6 0V3.5" /><path d="M9.8 15.4a5 5 0 0 0 5 5 3.9 3.9 0 0 0 3.9-3.9v-1.7" /><circle cx="18.7" cy="12.7" r="2" /></>),
+  /* O olho do campo de senha (`ui/componentes/CampoSenha.tsx`). O par existe porque um
+     ícone só, mudando de cor, não diz se a senha está visível AGORA ou se o clique vai
+     revelá-la — e é a única informação que esse botão precisa passar. */
+  eye: (<><path d="M2.5 12S6 5.6 12 5.6 21.5 12 21.5 12 18 18.4 12 18.4 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="3" /></>),
+  "eye-off": (<><path d="M10.7 6.2A7.9 7.9 0 0 1 12 6.1c6 0 9.5 5.9 9.5 5.9a17.6 17.6 0 0 1-2.5 3.3" /><path d="M6.7 7.7A16.8 16.8 0 0 0 2.5 12S6 17.9 12 17.9a8.7 8.7 0 0 0 3.4-.7" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /><path d="M3.5 3.5l17 17" /></>),
 };
 
 export function Icon({ name, size = 20, sw = 1.8, stroke = "currentColor", style }: { name: string; size?: number; sw?: number; stroke?: string; style?: React.CSSProperties }) {

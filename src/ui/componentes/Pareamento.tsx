@@ -26,6 +26,7 @@
 import React from "react";
 import { s, Icon, toast } from "@/ui/primitivos";
 import { telefoneBonito } from "@/nucleo/dominio/clientes";
+import { numeroParaPareamento } from "@/nucleo/dominio/canal";
 
 /**
  * O telefone do jeito que se digita: dígitos no estado, máscara na tela.
@@ -60,6 +61,161 @@ export const telefoneMascarado = (digitos: string) => (digitos ? telefoneBonito(
  * 1/I são o erro mais comum. Fonte de largura fixa não resolve sozinha, mas é o que
  * separa os caracteres o bastante para a pessoa conferir o que digitou.
  */
+/* ─────────────────────────────────────────────────────────────────────────────
+ * O NÚMERO, NA TELA — E A CONFERÊNCIA ANTES DE MANDAR.
+ *
+ * ── O RELATO QUE CRIOU ESTAS DUAS PEÇAS (18/08/2026) ──
+ *
+ * *"Meu colega digitou o número errado, e não tinha como ele ver que tinha feito isso. É
+ * legal gerar um alerta para ver se o número tá certo, e sempre deixar o número digitado
+ * escrito em algum lugar."*
+ *
+ * Ele estava certo, e o defeito era estrutural: o telefone existia só no campo de entrada.
+ * No instante em que o código de pareamento aparecia, o campo saía da tela e o número ia
+ * viver num `useRef` — com um comentário, no `store.tsx`, dizendo *"`ref` e não `state`:
+ * nenhuma tela desenha isto"*. Ou seja: a decisão de esconder era deliberada, tomada quando
+ * o único usuário era quem tinha escrito o código e sabia o próprio número de cor.
+ *
+ * O sintoma de errar um dígito é caro e mudo: o WhatsApp manda o código de pareamento para
+ * OUTRA pessoa, aqui não chega erro nenhum (o número é válido, existe, só não é o dele), e a
+ * tela fica em "esperando você digitar o código" até o prazo vencer. A conclusão de quem
+ * está do lado de cá é "o produto não funciona".
+ *
+ * Por isso duas peças, com papéis diferentes:
+ *
+ *   • `ConferirNumero` — a parada antes de mandar. Não é um `confirm()` de formalidade: é o
+ *     único ponto do fluxo em que o número aparece INTEIRO, com DDI, do jeito que vai ser
+ *     usado. É onde um dígito a mais salta aos olhos.
+ *
+ *   • `NumeroDoPareamento` — a etiqueta que fica. Enquanto o código está na tela, o número
+ *     fica ao lado dele. Sem isso, "confere se está certo" é um pedido que a tela não
+ *     permite atender depois do primeiro segundo.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * O número do jeito que ele vai ser USADO, não do jeito que foi digitado: com DDI, porque é
+ * o que sai daqui para o provedor.
+ *
+ * Passa pelo `numeroParaPareamento` do domínio de propósito — é a MESMA função que decide se
+ * o número é aceitável na hora de conectar. Formatar por conta própria abriria a porta para a
+ * tela mostrar bonito um número que o domínio recusa, que é o pior tipo de conferência: a que
+ * dá confiança errada.
+ */
+export function telefoneParaConferir(digitos: string): string | null {
+  const e164 = numeroParaPareamento(digitos);
+  if (!e164) return null;
+  /* Brasil é o caso de todo mundo hoje, e o formato nacional é o que a pessoa reconhece.
+   * Estrangeiro cai no cru com `+` — melhor um número sem máscara que uma máscara errada. */
+  if (e164.startsWith("55") && (e164.length === 12 || e164.length === 13)) {
+    return `+55 ${telefoneBonito(e164)}`;
+  }
+  return `+${e164}`;
+}
+
+/** A etiqueta que acompanha o pareamento. `aoCorrigir` some quando não há para onde voltar. */
+export function NumeroDoPareamento(
+  { digitos, aoCorrigir }: { digitos: string; aoCorrigir?: () => void },
+) {
+  const bonito = telefoneParaConferir(digitos);
+  if (!bonito) return null;
+
+  return (
+    <div style={s(
+      "display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-radius:11px;" +
+      "background:var(--surface-2);line-height:1.45",
+    )}>
+      <Icon name="phone" size={15} sw={2} stroke="var(--muted)" />
+      <span style={s("font-size:var(--t-label);color:var(--muted)")}>
+        Código enviado para{" "}
+        <b style={s("color:var(--ink);font-variant-numeric:tabular-nums")}>{bonito}</b>
+      </span>
+      {aoCorrigir && (
+        <button
+          onClick={aoCorrigir}
+          className="m-focus"
+          style={s(
+            "margin-left:auto;background:none;border:none;padding:2px 0;font-family:inherit;cursor:pointer;" +
+            "font-size:var(--t-label);font-weight:var(--w-title);color:var(--primary);text-decoration:underline",
+          )}
+        >
+          Não é esse número
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A conferência. Some do caminho de quem acertou em um clique, e para quem errou é a única
+ * chance de perceber.
+ *
+ * ⚠️ O NÚMERO É O ELEMENTO MAIOR DO BLOCO, e isso é o conteúdo. Uma confirmação em que a
+ * pergunta é grande e o dado é pequeno é a confirmação que todo mundo aceita sem ler — e aí
+ * ela custa um clique e não entrega nada.
+ */
+export function ConferirNumero(
+  { digitos, aoConfirmar, aoCorrigir, ocupado }: {
+    digitos: string;
+    aoConfirmar: () => void;
+    aoCorrigir: () => void;
+    ocupado?: boolean;
+  },
+) {
+  const bonito = telefoneParaConferir(digitos);
+
+  return (
+    <div style={s(
+      "display:flex;flex-direction:column;gap:12px;padding:14px;border-radius:12px;" +
+      "background:var(--warn-soft);border:1px solid var(--warn-line)",
+    )}>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <Icon name="alert" size={17} sw={2} stroke="var(--warn)" style={{ flexShrink: 0, marginTop: 2 }} />
+        <div>
+          <p style={s("font-size:var(--t-label);color:var(--warn);font-weight:var(--w-title);margin:0")}>
+            Confira antes de enviar
+          </p>
+          <p style={s("font-size:var(--t-label);color:var(--muted);margin:3px 0 0;line-height:1.5")}>
+            O WhatsApp manda o código de conexão para este número. Se ele estiver errado, o
+            código vai para outra pessoa e nada acontece aqui.
+          </p>
+        </div>
+      </div>
+
+      <p style={s(
+        "margin:0;font-size:var(--t-data);font-weight:var(--w-title);color:var(--ink);" +
+        "font-variant-numeric:tabular-nums;text-align:center;line-height:1.2",
+      )}>
+        {bonito ?? "número incompleto"}
+      </p>
+
+      <div style={{ display: "flex", gap: 9 }}>
+        <button
+          onClick={aoCorrigir}
+          className="m-hov-bg m-press m-focus"
+          style={s(
+            "flex:1;height:42px;border:1px solid var(--border);border-radius:11px;background:var(--surface);" +
+            "color:var(--ink);font-family:inherit;font-size:var(--t-label);font-weight:var(--w-title);cursor:pointer",
+          )}
+        >
+          Corrigir
+        </button>
+        <button
+          onClick={aoConfirmar}
+          disabled={ocupado || !bonito}
+          className="m-hov-primary m-press m-focus"
+          style={s(
+            "flex:1.4;height:42px;border:none;border-radius:11px;background:var(--primary);" +
+            "color:var(--on-primary);font-family:inherit;font-size:var(--t-label);font-weight:var(--w-title);" +
+            `cursor:${ocupado || !bonito ? "not-allowed" : "pointer"};opacity:${ocupado || !bonito ? ".6" : "1"}`,
+          )}
+        >
+          É esse número, enviar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Quanto tempo a tela dá ao código antes de pedir outro.
  *
