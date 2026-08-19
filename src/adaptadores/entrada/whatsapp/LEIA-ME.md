@@ -60,7 +60,7 @@ Tudo devolve `null` e a rota responde **200**: para o provedor, resposta de erro
 
 | Caso | Por quê |
 |---|---|
-| `fromMe: true` | **A Evolution devolve o que NÓS mandamos** como `messages.upsert`, no mesmo evento das recebidas. Sem o descarte a MAISA responde a si mesma, num loop caro e visível para o cliente. |
+| `fromMe: true` | **A Evolution devolve o que NÓS mandamos** como `messages.upsert`, no mesmo evento das recebidas. Sem o descarte a MAISA responde a si mesma, num loop caro e visível para o cliente. ⚠️ **ACONTECEU EM 18/08/2026.** `MAISA_RESPONDER_A_SI_MESMO=1` estava em produção — a válvula que troca a regra absoluta pelo campo `source` do provedor — e a MAISA entrou em loop consigo mesma no número do dono, até as instâncias serem apagadas na mão. A env var saiu da produção no mesmo dia. **`source` não é garantia**; enquanto o conserto de verdade não existir (rastrear os ids que enviamos em `mensagens_agente.provedor_id`, o índice único já está criado), o descarte de todo `fromMe` é a única defesa que vale. |
 | `@g.us` / `@broadcast` | Grupo não é atendimento. A MAISA num grupo responderia a cada mensagem de cada participante — e o dono descobre pelo grupo da família. |
 | `@lid` sem telefone | Desde 2025 o WhatsApp entrega alguns contatos por id opaco (`69385314111689@lid`). Tratá-lo como número põe um "cliente" de telefone falso no cadastro **e** o `sendText` de volta falha com `exists: false`: a conversa roda inteira, gasta token, e a resposta não chega em ninguém. Quando vem `remoteJidAlt`/`senderPn`, usamos o telefone de lá. |
 | evento ≠ `messages.upsert` | `messages.update` (recibo de leitura) também tem `data.key`. |
