@@ -276,6 +276,7 @@ Honestidade sobre o estado real, para ninguém achar que está mais pronto do qu
 | `src/adaptadores/saida/google/` | [.../saida/google/LEIA-ME.md](src/adaptadores/saida/google/LEIA-ME.md) |
 | `src/adaptadores/saida/focus/` | [.../saida/focus/LEIA-ME.md](src/adaptadores/saida/focus/LEIA-ME.md) |
 | `src/adaptadores/saida/evolution/` | [.../saida/evolution/LEIA-ME.md](src/adaptadores/saida/evolution/LEIA-ME.md) |
+| `src/adaptadores/saida/rebots/` | [.../saida/rebots/LEIA-ME.md](src/adaptadores/saida/rebots/LEIA-ME.md) |
 | `src/adaptadores/saida/gemini/` | [.../saida/gemini/LEIA-ME.md](src/adaptadores/saida/gemini/LEIA-ME.md) |
 | `src/adaptadores/saida/anthropic/` | [.../saida/anthropic/LEIA-ME.md](src/adaptadores/saida/anthropic/LEIA-ME.md) |
 | `src/adaptadores/saida/supabase/` | [.../saida/supabase/LEIA-ME.md](src/adaptadores/saida/supabase/LEIA-ME.md) |
