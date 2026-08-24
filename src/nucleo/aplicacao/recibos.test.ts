@@ -181,11 +181,23 @@ describe("gerar o lote", () => {
   });
 });
 
-describe("fechar o lote", () => {
-  function ambiente(p: {
+const TEL_DONO = "5511999990000";
+
+const loteDeAgosto = (over: Partial<LoteGravado> = {}): LoteGravado => ({
+  id: "l2", competencia: "2026-08-01", linhas: 35, valor: 7240,
+  criadoEm: "2026-08-24T12:00:00-03:00", situacao: "gerado", ...over,
+});
+
+/* No escopo do módulo porque DOIS describes usam: "fechar o lote" e "a confirmação do
+ * fechamento, para o dono". */
+function ambiente(p: {
     destinatarios?: DestinatarioDeRecibo[];
     jaFechado?: boolean;
     quebrarPara?: string[];
+    /** `null` = o dono ainda não preencheu o "WhatsApp do dono". */
+    telefoneDono?: string | null;
+    /** O lote que o banco devolve em `listarLotes` — é dele que saem os números da confirmação. */
+    lote?: LoteGravado | null;
   } = {}) {
     const soltos: string[] = [];
     const confirmados: string[] = [];
@@ -204,7 +216,10 @@ describe("fechar o lote", () => {
       async destinatariosDoLote() { return p.destinatarios ?? []; },
       async lancarAvulso() { throw new Error("não usado neste teste"); },
       async excluirAvulso() {},
-      async listarLotes() { return []; },
+      async listarLotes() {
+        const l = p.lote === undefined ? loteDeAgosto() : p.lote;
+        return l ? [l] : [];
+      },
     };
 
     const canal: CanalDeMensagens = {
@@ -215,6 +230,13 @@ describe("fechar o lote", () => {
       async escalar() {},
     };
 
+    const canalRepo = {
+      async ler() {
+        const tel = p.telefoneDono === undefined ? TEL_DONO : p.telefoneDono;
+        return tel ? { telefoneDono: tel } : null;
+      },
+    } as never;
+
     const negocio = { async negocio() { return { nome: "Consultório Carla Guth" }; } } as never;
     const assistente = {
       async ler() {
@@ -222,22 +244,28 @@ describe("fechar o lote", () => {
       },
     } as never;
 
-    const fechar = criarFecharLoteDeRecibos({ recibos, canal, negocio, assistente });
-    return { fechar, soltos, confirmados, enviados };
-  }
+    const fechar = criarFecharLoteDeRecibos({ recibos, canal, negocio, assistente, canalRepo });
+    /* A confirmação do dono é a ÚLTIMA mensagem, e vai para o número dele. Separar por
+     * destino é mais honesto que por posição: se o dono também for paciente, a posição mente. */
+    const paraODono = () => enviados.filter((e) => e.para === TEL_DONO);
+    const paraPacientes = () => enviados.filter((e) => e.para !== TEL_DONO);
+  return { fechar, soltos, confirmados, enviados, paraODono, paraPacientes };
+}
 
-  const quem = (over: Partial<DestinatarioDeRecibo> = {}): DestinatarioDeRecibo => ({
-    nome: "Mariana Alves",
-    telefone: "5511981234567",
-    data: "2026-08-14",
-    valor: 250,
-    ...over,
-  });
+const quem = (over: Partial<DestinatarioDeRecibo> = {}): DestinatarioDeRecibo => ({
+  nome: "Mariana Alves",
+  telefone: "5511981234567",
+  data: "2026-08-14",
+  valor: 250,
+  ...over,
+});
+
+describe("fechar o lote", () => {
 
   /* ⚠️ Trocar os dois é o erro caro: soltar depois de importado faz o mês seguinte gerar
    * recibo em dobro para sessões já assinadas no e-CAC. */
   it("descartado solta as sessões; importado não", async () => {
-    const { fechar, soltos, confirmados } = ambiente();
+    const { fechar, soltos, confirmados, paraODono } = ambiente();
 
     await fechar(t, { loteId: "l1", situacao: "descartado" });
     await fechar(t, { loteId: "l2", situacao: "importado" });
@@ -248,30 +276,30 @@ describe("fechar o lote", () => {
 
   /* ★ OPT-IN. A MAISA fala pelo WhatsApp pessoal de quem a usa: `avisar` ausente é silêncio. */
   it("não manda nada sem `avisar`", async () => {
-    const { fechar, enviados } = ambiente({ destinatarios: [quem()] });
+    const { fechar, enviados, paraPacientes, paraODono } = ambiente({ destinatarios: [quem()] });
 
     const r = await fechar(t, { loteId: "l1", situacao: "importado" });
 
-    expect(enviados).toEqual([]);
+    expect(paraPacientes()).toEqual([]);
     expect(r.avisados).toBe(0);
   });
 
   it("avisa cada paciente com data, valor e o nome do negócio — e nunca o serviço", async () => {
-    const { fechar, enviados } = ambiente({
+    const { fechar, enviados, paraPacientes, paraODono } = ambiente({
       destinatarios: [quem(), quem({ nome: "Rafael Costa", telefone: "5511998761234", valor: 180 })],
     });
 
     const r = await fechar(t, { loteId: "l1", situacao: "importado", avisar: true });
 
     expect(r).toEqual({ avisados: 2, semTelefone: 0, falhas: 0 });
-    expect(enviados.map((e) => e.para)).toEqual(["5511981234567", "5511998761234"]);
-    expect(enviados[0].texto).toContain("Oi, Mariana!");
-    expect(enviados[0].texto).toContain("14/08");
-    expect(enviados[0].texto).toContain("R$ 250,00");
-    expect(enviados[0].texto).toContain("Consultório Carla Guth");
-    expect(enviados[0].texto).toContain("declaração pré-preenchida");
-    expect(enviados[0].texto).toContain("— MAISA");
-    expect(enviados[1].texto).toContain("R$ 180,00");
+    expect(paraPacientes().map((e) => e.para)).toEqual(["5511981234567", "5511998761234"]);
+    expect(paraPacientes()[0].texto).toContain("Oi, Mariana!");
+    expect(paraPacientes()[0].texto).toContain("14/08");
+    expect(paraPacientes()[0].texto).toContain("R$ 250,00");
+    expect(paraPacientes()[0].texto).toContain("Consultório Carla Guth");
+    expect(paraPacientes()[0].texto).toContain("declaração pré-preenchida");
+    expect(paraPacientes()[0].texto).toContain("— MAISA");
+    expect(paraPacientes()[1].texto).toContain("R$ 180,00");
   });
 
   /* ★ O TESTE QUE EXISTE PORQUE MENSAGEM ENTREGUE NÃO SE APAGA.
@@ -280,30 +308,30 @@ describe("fechar o lote", () => {
    * devolve `false` e ninguém pode ser avisado de novo. Sem este portão, o paciente recebe dois
    * avisos do mesmo recibo e liga perguntando se foi cobrado duas vezes. */
   it("não avisa duas vezes quando o lote já estava fechado", async () => {
-    const { fechar, enviados } = ambiente({ destinatarios: [quem()], jaFechado: true });
+    const { fechar, enviados, paraPacientes, paraODono } = ambiente({ destinatarios: [quem()], jaFechado: true });
 
     const r = await fechar(t, { loteId: "l1", situacao: "importado", avisar: true });
 
-    expect(enviados).toEqual([]);
+    expect(paraPacientes()).toEqual([]);
     expect(r.avisados).toBe(0);
   });
 
   it("conta quem ficou sem telefone em vez de falhar o lote", async () => {
-    const { fechar, enviados } = ambiente({
+    const { fechar, enviados, paraPacientes, paraODono } = ambiente({
       destinatarios: [quem(), quem({ nome: "Avulso sem cadastro", telefone: null })],
     });
 
     const r = await fechar(t, { loteId: "l1", situacao: "importado", avisar: true });
 
     expect(r).toEqual({ avisados: 1, semTelefone: 1, falhas: 0 });
-    expect(enviados).toHaveLength(1);
+    expect(paraPacientes()).toHaveLength(1);
   });
 
   /* ⚠️ O recibo já existe quando isto acontece — foi importado no e-CAC pela mão dela. Deixar a
    * exceção subir faria a tela dizer que o fechamento falhou, e o clique seguinte não avisaria
    * mais ninguém: os que receberam nunca apareceriam num número. */
   it("um envio que falha não derruba os outros", async () => {
-    const { fechar, enviados } = ambiente({
+    const { fechar, enviados, paraPacientes, paraODono } = ambiente({
       destinatarios: [quem(), quem({ telefone: "5511900000000" }), quem({ telefone: "5511911111111" })],
       quebrarPara: ["5511900000000"],
     });
@@ -311,16 +339,16 @@ describe("fechar o lote", () => {
     const r = await fechar(t, { loteId: "l1", situacao: "importado", avisar: true });
 
     expect(r).toEqual({ avisados: 2, semTelefone: 0, falhas: 1 });
-    expect(enviados).toHaveLength(2);
+    expect(paraPacientes()).toHaveLength(2);
   });
 
   /* Descartar é desistir do arquivo: não existe recibo, então não existe aviso. */
   it("descartar não avisa ninguém, mesmo com `avisar`", async () => {
-    const { fechar, enviados, confirmados } = ambiente({ destinatarios: [quem()] });
+    const { fechar, enviados, confirmados, paraPacientes, paraODono } = ambiente({ destinatarios: [quem()] });
 
     const r = await fechar(t, { loteId: "l1", situacao: "descartado", avisar: true });
 
-    expect(enviados).toEqual([]);
+    expect(paraPacientes()).toEqual([]);
     expect(confirmados).toEqual([]);
     expect(r.avisados).toBe(0);
   });
@@ -521,5 +549,97 @@ describe("o que vai no próximo arquivo", () => {
     const { repo } = recibosDe([sessao(), sessao({ id: "at2", teste: true })]);
     const r = await criarLerRecibosPendentes({ recibos: repo })(t);
     expect(r.pagamentos).toHaveLength(1);
+  });
+});
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * A CONFIRMAÇÃO PARA O DONO — pedida por quem usa: "assim que eu clicasse que subi os
+ * recibos, eu recebesse da MAISA a confirmação".
+ *
+ * ★ A REGRA QUE UM BUG MEU QUASE ENTERROU: ela NÃO depende de `avisar`. A primeira versão
+ * juntava os dois num early return, e a confirmação do dono só saía quando ele também tinha
+ * pedido para avisar os pacientes. São coisas diferentes — o aviso ao paciente é opt-in porque
+ * vai para o WhatsApp de terceiro; a confirmação vai para o número dele mesmo.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+describe("a confirmação do fechamento, para o dono", () => {
+  /* ★ O TESTE QUE PRENDE O BUG. */
+  it("sai MESMO sem `avisar`", async () => {
+    const a = ambiente({ destinatarios: [] });
+    await a.fechar(t, { loteId: "l2", situacao: "importado" });
+
+    expect(a.paraODono()).toHaveLength(1);
+    expect(a.paraODono()[0].texto).toContain("Recibos de agosto lançados");
+  });
+
+  it("leva linhas e valor DO BANCO, não a contagem de destinatários", async () => {
+    const a = ambiente({
+      destinatarios: [quem(), quem({ telefone: "5511900000001" })],
+      lote: loteDeAgosto({ linhas: 35, valor: 7240 }),
+    });
+    await a.fechar(t, { loteId: "l2", situacao: "importado", avisar: true });
+
+    const texto = a.paraODono()[0].texto;
+    expect(texto).toContain("35 recibos");
+    expect(texto).toContain("R$ 7240,00");
+    /* Dois destinatários, mas o lote diz 35: quem manda é o banco. */
+    expect(texto).not.toContain("2 recibos");
+  });
+
+  it("conta os avisados e os sem telefone", async () => {
+    const a = ambiente({
+      destinatarios: [quem(), quem({ telefone: null }), quem({ telefone: "5511900000002" })],
+    });
+    await a.fechar(t, { loteId: "l2", situacao: "importado", avisar: true });
+
+    const texto = a.paraODono()[0].texto;
+    expect(texto).toContain("2 pacientes avisados");
+    expect(texto).toContain("1 sem telefone no cadastro");
+  });
+
+  /* Descartar é desistir do arquivo: não há recibo, então não há o que confirmar. */
+  it("descartar não manda confirmação", async () => {
+    const a = ambiente();
+    await a.fechar(t, { loteId: "l2", situacao: "descartado" });
+    expect(a.paraODono()).toEqual([]);
+  });
+
+  /* Segundo clique: `confirmarLote` devolve `false` e ninguém recebe nada de novo. */
+  it("lote já fechado não manda confirmação de novo", async () => {
+    const a = ambiente({ jaFechado: true });
+    await a.fechar(t, { loteId: "l2", situacao: "importado" });
+    expect(a.paraODono()).toEqual([]);
+  });
+
+  /* Estado legítimo: a tela pede o "WhatsApp do dono" e não bloqueia por causa dele. */
+  it("sem telefone do dono, ninguém é avisado e nada estoura", async () => {
+    const a = ambiente({ telefoneDono: null });
+    const r = await a.fechar(t, { loteId: "l2", situacao: "importado", avisar: true });
+
+    expect(a.paraODono()).toEqual([]);
+    expect(r.avisados).toBe(0);
+  });
+
+  /* ⚠️ A confirmação é a ÚLTIMA coisa e fica FORA de `falhas`. Somá-la faria a tela dizer que
+   * envios de paciente falharam quando o que falhou foi o recibo do próprio dono. */
+  it("confirmação que não sai não conta como falha de paciente", async () => {
+    const a = ambiente({
+      destinatarios: [quem()],
+      quebrarPara: [TEL_DONO],
+    });
+    const r = await a.fechar(t, { loteId: "l2", situacao: "importado", avisar: true });
+
+    expect(r).toEqual({ avisados: 1, semTelefone: 0, falhas: 0 });
+  });
+
+  /* ⚠️ Mensagem se encaminha. Nome de paciente e CPF não podem estar nela. */
+  it("não leva nome de paciente nem CPF", async () => {
+    const a = ambiente({ destinatarios: [quem({ nome: "Mariana Alves" })] });
+    await a.fechar(t, { loteId: "l2", situacao: "importado", avisar: true });
+
+    const texto = a.paraODono()[0].texto;
+    expect(texto).not.toContain("Mariana");
+    expect(texto).not.toMatch(/\d{11}/);
   });
 });

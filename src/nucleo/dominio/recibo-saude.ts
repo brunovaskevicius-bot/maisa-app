@@ -347,3 +347,67 @@ export function avisoDeRecibo(p: {
     `— ${p.nomeDaAssistente}`
   );
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * A CONFIRMAÇÃO PARA O DONO — a mensagem que fecha o mês.
+ *
+ * ★ ELA NÃO É NOTIFICAÇÃO, É COMPROVANTE. E foi pedida por quem vai usar: *"seria muito show
+ * que, assim que eu clicasse que subi os recibos, eu recebesse da MAISA a confirmação."*
+ *
+ * O porquê é mais forte do que "é legal": fechar o mês fiscal é o momento de maior ansiedade
+ * de quem atende como pessoa física — R$100 de multa por mês-calendário não emitido, e nenhuma
+ * confirmação de que acabou. A tela diz "pronto" e depois some. **Uma mensagem no WhatsApp
+ * fica**: é rolável, encaminhável para o contador, e responde "eu já fiz agosto?" em três
+ * meses, quando ninguém lembra.
+ *
+ * ⚠️ VAI PARA O NÚMERO DO INQUILINO (`Canal.telefoneDono`), nunca para uma env global. Aqui o
+ * risco de errar é menor que na escalação — o texto não carrega telefone de paciente — mas
+ * carrega **quantos pacientes e quanto faturou**, que é informação de negócio de outra pessoa.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+/** ⚠️ Só agregado. NENHUM nome de paciente, NENHUM CPF: é mensagem, e mensagem se encaminha. */
+export type FechamentoParaODono = {
+  competencia: string;
+  linhas: number;
+  valor: number;
+  avisados: number;
+  semTelefone: number;
+};
+
+export function confirmacaoDoLote(p: {
+  fechamento: FechamentoParaODono;
+  nomeDaAssistente: string;
+}): string {
+  const f = p.fechamento;
+  const [ano, mes] = f.competencia.slice(0, 7).split("-");
+  const nome = MESES_LONGOS[Number(mes) - 1] ?? f.competencia.slice(0, 7);
+
+  const partes = [
+    `✅ *Recibos de ${nome} lançados*`,
+    "",
+    `${f.linhas} recibo${f.linhas === 1 ? "" : "s"} · R$ ${valorBrasileiro(f.valor)}`,
+  ];
+
+  if (f.avisados > 0) {
+    partes.push(`${f.avisados} paciente${f.avisados === 1 ? "" : "s"} avisado${f.avisados === 1 ? "" : "s"} aqui no WhatsApp`);
+  }
+  /* ⚠️ ACIONÁVEL, e por isso entra na mensagem: são pacientes com recibo emitido e sem aviso, e
+   * o conserto é pôr o telefone no cadastro. Omitir faria o número da tela e o da mensagem
+   * discordarem — e aí o dono não confia em nenhum dos dois. */
+  if (f.semTelefone > 0) {
+    partes.push(`⚠️ ${f.semTelefone} sem telefone no cadastro, esse${f.semTelefone === 1 ? "" : "s"} não foi avisado`);
+  }
+
+  partes.push(
+    "",
+    `Guardei o registro de ${nome}/${ano}. O próximo arquivo começa a juntar a partir de agora.`,
+    `— ${p.nomeDaAssistente}`,
+  );
+
+  return partes.join("\n");
+}
+
+const MESES_LONGOS = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];

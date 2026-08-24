@@ -28,9 +28,10 @@ import type { RepositorioFiscal } from "../portas/saida/repositorio-fiscal";
 import type { CanalDeMensagens } from "../portas/saida/canal-mensagens";
 import type { RepositorioNegocio } from "../portas/saida/repositorio-negocio";
 import type { RepositorioAssistente } from "../portas/saida/repositorio-assistente";
+import type { RepositorioCanal } from "../portas/saida/repositorio-canal";
 import {
-  avisoDeRecibo, montarLoteCsv, nomeDoArquivo,
-  type EmissorDeRecibo, type PagamentoRecebido,
+  avisoDeRecibo, confirmacaoDoLote, montarLoteCsv, nomeDoArquivo,
+  type EmissorDeRecibo, type FechamentoParaODono, type PagamentoRecebido,
 } from "../dominio/recibo-saude";
 import { caminhoDaNota, fiscalFaltando } from "../dominio/fiscal";
 import { cpfValido, soDigitos } from "../dominio/clientes";
@@ -169,8 +170,16 @@ function avisosDe(
 
   const avisos = [...porMotivo.entries()].map(([motivo, nomes]) => {
     const unicos = [...new Set(nomes)];
-    const lista = unicos.length > 3 ? `${unicos.slice(0, 3).join(", ")} e mais ${unicos.length - 3}` : unicos.join(", ");
-    return `${lista} ficou de fora — falta ${motivo}.`;
+    const lista = unicos.length > 3
+      ? `${unicos.slice(0, 3).join(", ")} e mais ${unicos.length - 3}`
+      : unicos.length > 1
+        ? `${unicos.slice(0, -1).join(", ")} e ${unicos[unicos.length - 1]}`
+        : unicos.join("");
+    /* Concorda o verbo. Parece frescura e não é: esta frase vai na tela que o dono mostra para
+     * um cliente, e "Patrícia Mendes, Sofia Ribeiro ficou de fora" é o tipo de erro que faz
+     * alguém desconfiar do resto do produto. */
+    const verbo = unicos.length > 1 ? "ficaram" : "ficou";
+    return `${lista} ${verbo} de fora — falta ${motivo}.`;
   });
 
   /* O teto de 1000 linhas do arquivo. Silenciar isto seria o pior truncamento possível: o
@@ -294,6 +303,8 @@ export function criarFecharLoteDeRecibos(deps: {
   canal: CanalDeMensagens;
   negocio: RepositorioNegocio;
   assistente: RepositorioAssistente;
+  /* Só para achar o `telefoneDono`. É de onde sai o destino da confirmação — nunca de env. */
+  canalRepo: RepositorioCanal;
 }): FecharLoteDeRecibos {
   return async (t, p) => {
     if (!p.loteId?.trim()) throw new DadoInvalido("Diga qual lote.", "loteId");
@@ -307,38 +318,91 @@ export function criarFecharLoteDeRecibos(deps: {
     }
 
     const virou = await deps.recibos.confirmarLote(t, p.loteId);
-    if (!virou || !p.avisar) return { avisados: 0, semTelefone: 0, falhas: 0 };
+    /* ⚠️ AQUI O EARLY RETURN É SÓ NO `!virou`, e não mais em `!p.avisar`. A primeira versão
+     * juntava os dois — e com isso a confirmação para o DONO só saía quando ele também tinha
+     * pedido para avisar os pacientes. São duas coisas diferentes: o aviso ao paciente é opt-in
+     * porque vai para o WhatsApp de terceiro; a confirmação vai para o número dele mesmo. */
+    if (!virou) return { avisados: 0, semTelefone: 0, falhas: 0 };
 
-    const destinatarios = await deps.recibos.destinatariosDoLote(t, p.loteId);
-    const semTelefone = destinatarios.filter((d) => !d.telefone).length;
-
-    /* Nome do negócio e da assistente numa consulta só, fora do laço: a frase é a mesma para
-     * todos, e o lote de um mês cheio tem trinta linhas. */
-    const [n, a] = await Promise.all([deps.negocio.negocio(t), deps.assistente.ler(t)]);
-    const nomeDoNegocio = n.nome;
+    /* Sempre lido: é o nome que assina as duas mensagens. */
+    const a = await deps.assistente.ler(t);
     const nomeDaAssistente = a?.assistente.nome ?? "MAISA";
 
     let avisados = 0;
+    let semTelefone = 0;
     let falhas = 0;
 
-    for (const d of destinatarios) {
-      if (!d.telefone) continue;
-      try {
-        await deps.canal.enviar(t, d.telefone, [
-          avisoDeRecibo({ recibo: d, nomeDoNegocio, nomeDaAssistente }),
-        ]);
-        avisados++;
-      } catch {
-        /* ⚠️ ENGOLE E CONTA. O recibo já foi emitido no e-CAC — propagar o erro faria a tela
-         * dizer que o fechamento falhou, e ela clicaria de novo: o `confirmarLote` devolveria
-         * `false`, ninguém mais seria avisado, e os 20 que receberam nunca apareceriam num
-         * número. Um telefone que mudou de dono não é motivo para o mês inteiro parecer roto. */
-        falhas++;
+    if (p.avisar) {
+      const destinatarios = await deps.recibos.destinatariosDoLote(t, p.loteId);
+      semTelefone = destinatarios.filter((d) => !d.telefone).length;
+
+      /* Nome do negócio fora do laço: a frase é a mesma para todos, e o lote de um mês cheio
+       * tem trinta linhas. */
+      const nomeDoNegocio = (await deps.negocio.negocio(t)).nome;
+
+      for (const d of destinatarios) {
+        if (!d.telefone) continue;
+        try {
+          await deps.canal.enviar(t, d.telefone, [
+            avisoDeRecibo({ recibo: d, nomeDoNegocio, nomeDaAssistente }),
+          ]);
+          avisados++;
+        } catch {
+          /* ⚠️ ENGOLE E CONTA. O recibo já foi emitido no e-CAC — propagar o erro faria a tela
+           * dizer que o fechamento falhou, e ela clicaria de novo: o `confirmarLote` devolveria
+           * `false`, ninguém mais seria avisado, e os 20 que receberam nunca apareceriam num
+           * número. Um telefone que mudou de dono não é motivo para o mês parecer roto. */
+          falhas++;
+        }
       }
+    }
+
+    /* ── A CONFIRMAÇÃO PARA O DONO ──
+     *
+     * ⚠️ POR ÚLTIMO, E FORA DA CONTA DE FALHAS. O lote já está fechado e os pacientes já foram
+     * avisados: se esta mensagem não sair, nada do que aconteceu se desfaz. Somá-la a `falhas`
+     * faria a tela dizer que N envios de paciente falharam quando o que falhou foi o recibo do
+     * próprio dono — e ele clicaria de novo, sem efeito, porque `confirmarLote` já devolveu
+     * `false`.
+     *
+     * ⚠️ OS NÚMEROS VÊM DO LOTE NO BANCO, não da contagem de destinatários. O banco somou na
+     * transação que prendeu as linhas; contar aqui daria um número que o CSV não confirma —
+     * exatamente o defeito que o `total` de `criarLerRecibosPendentes` evita. */
+    const lote = (await deps.recibos.listarLotes(t)).find((l) => l.id === p.loteId);
+    if (lote?.competencia) {
+      await avisarODono(deps, t, {
+        competencia: lote.competencia,
+        linhas: lote.linhas,
+        valor: lote.valor,
+        avisados,
+        semTelefone,
+      }, nomeDaAssistente).catch(() => {});
     }
 
     return { avisados, semTelefone, falhas };
   };
+}
+
+/**
+ * Manda a confirmação para o número do inquilino.
+ *
+ * Separada porque o caminho de `descartado` não passa por aqui, e porque toda falha aqui é
+ * engolida: ver o comentário na chamada.
+ */
+async function avisarODono(
+  deps: { canal: CanalDeMensagens; canalRepo: RepositorioCanal },
+  t: Parameters<FecharLoteDeRecibos>[0],
+  fechamento: FechamentoParaODono,
+  nomeDaAssistente: string,
+): Promise<void> {
+  const canal = await deps.canalRepo.ler(t);
+  /* `null` = o dono ainda não preencheu o "WhatsApp do dono". Estado legítimo, e a tela pede
+   * sem bloquear — ver `Canal.telefoneDono`. Aqui simplesmente não há para onde mandar. */
+  if (!canal?.telefoneDono) return;
+
+  await deps.canal.enviar(t, canal.telefoneDono, [
+    confirmacaoDoLote({ fechamento, nomeDaAssistente }),
+  ]);
 }
 
 

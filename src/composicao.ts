@@ -554,7 +554,11 @@ export const app = {
   gerarLoteDeRecibos: criarGerarLoteDeRecibos({ recibos: recibosRepo, fiscal: fiscalRepo }),
   /* Canal, negócio e assistente porque fechar o lote pode AVISAR os pacientes no WhatsApp —
    * mesmas dependências do lembrete de 3h antes, e é o mesmo canal falando. */
-  fecharLoteDeRecibos: criarFecharLoteDeRecibos({ recibos: recibosRepo, canal, negocio, assistente }),
+  /* `canalRepo` só para achar o `telefoneDono`: é para lá que vai a confirmação de
+   * fechamento do mês. Nunca para `MAISA_WHATSAPP_DONO` — ver `Canal.telefoneDono`. */
+  fecharLoteDeRecibos: criarFecharLoteDeRecibos({
+    recibos: recibosRepo, canal, negocio, assistente, canalRepo,
+  }),
   desligarReciboSaude: criarDesligarReciboSaude({ recibos: recibosRepo, fiscal: fiscalRepo }),
 
   /* O que vai no próximo arquivo, e o lançamento do que a agenda não pegou. A MAISA cobre a
