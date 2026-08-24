@@ -15,7 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  EMAIL_RECEITA_SAUDE, checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
+  EMAIL_RECEITA_SAUDE, LINK_CARNE_LEAO, LINK_ECAC_SERVICO,
+  checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
 } from "./checklist-recibo";
 import type { ConfigFiscal } from "./fiscal";
 
@@ -101,12 +102,45 @@ describe("★ o que está do outro lado do muro", () => {
    * meio. Estes são os nomes que aparecem na tela dela. */
   it("os passos usam os nomes dos botões do e-CAC", () => {
     const passos = (item(carla(), "carne_leao").passos ?? []).join(" | ");
-    expect(passos).toContain("Acessar Carnê-Leão");
     expect(passos).toContain("trabalhador autônomo");
     expect(passos).toContain("Ocupações");
     expect(passos).toContain("Salvar Identificação");
     expect(passos).toContain("Psicólogo");
     expect(passos).toContain("CRP");
+  });
+
+  /* ★ O PASSO DE NAVEGAÇÃO SAIU EM 24/08/2026, e a ausência é a mudança. O link passou a cair
+   * DENTRO do Carnê-Leão — repetir "Declarações e Demonstrativos → Acessar Carnê-Leão" mandaria
+   * ela procurar um menu que já não está na frente dela, e duvidar de que chegou no lugar certo. */
+  it("não manda navegar até o Carnê-Leão, porque o link já entra lá", () => {
+    const passos = (item(carla(), "carne_leao").passos ?? []).join(" | ");
+    expect(passos).not.toContain("Acessar Carnê-Leão");
+    expect(passos).not.toContain("Declarações e Demonstrativos");
+  });
+
+  /* O ensaio cai na própria escrituração: o primeiro passo é o botão que já está na tela. */
+  it("o ensaio começa no botão que já está na tela", () => {
+    const passos = (item(carla(), "ensaio").passos ?? []);
+    expect(passos[0]).toBe("Clique em Importar Escrituração");
+  });
+
+  /* ⚠️ Deep link tem quebra silenciosa: deslogada, o e-CAC devolve para o login e pode não
+   * voltar. Sem a saída alternativa, "não abriu" vira "não funciona". */
+  it("todo deep link tem uma saída pela página de serviço", () => {
+    for (const id of ["carne_leao", "ensaio"]) {
+      const i = item(carla(), id);
+      expect(i.link?.url).toBe(LINK_CARNE_LEAO);
+      expect(i.linkAlternativo?.url).toBe(LINK_ECAC_SERVICO);
+      expect(i.linkAlternativo?.rotulo).toContain("Não abriu");
+    }
+  });
+
+  /* Só a URL que alguém abriu e viu funcionar. Todas as rotas de `/carneleao/` respondem 302
+   * para o login quando deslogado, então caminho de dentro não se verifica sem sessão — e
+   * inventar `/identificacao` daria um link que quebra calado. */
+  it("o deep link é a escrituração, e nenhuma rota adivinhada", () => {
+    expect(LINK_CARNE_LEAO).toBe("https://www3.cav.receita.fazenda.gov.br/carneleao/escrituracao");
+    expect(LINK_CARNE_LEAO).not.toMatch(/identificacao|configuracoes/);
   });
 
   it("o ensaio explica que não emite nada", () => {

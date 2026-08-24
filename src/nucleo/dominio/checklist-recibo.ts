@@ -36,8 +36,26 @@ import type { ConfigFiscal } from "./fiscal";
 import { CODIGO_OCUPACAO, type OcupacaoSaude } from "./recibo-saude";
 import { soDigitos } from "./clientes";
 
-/** Onde a profissional configura a ocupação e o registro. É a origem dos dois primeiros erros. */
-export const LINK_CARNE_LEAO = "https://www.gov.br/pt-br/servicos/apurar-carne-leao";
+/**
+ * O Carnê-Leão, direto na escrituração.
+ *
+ * ★ DEEP LINK, e a decisão foi revista em 24/08/2026. A primeira versão apontava para a página
+ * de serviço do gov.br justamente para não depender de URL interna do e-CAC — mas o custo disso
+ * é a pessoa cair numa página institucional e ter que achar sozinha o caminho dentro do portal
+ * logado. Para quem tem pouca intimidade com computador, isso é onde ela desiste.
+ *
+ * ⚠️ O PREÇO DE ERRAR AQUI É QUEBRA SILENCIOSA: se a rota mudar, o e-CAC redireciona para o
+ * login ou para a home logada, e ela conclui que clicou errado. Testado em 24/08/2026 — mas
+ * todas as rotas do `/carneleao/` respondem 302 para o login quando deslogado, então **não dá
+ * para verificar caminho de dentro sem sessão**. Por isso só esta URL está aqui: é a única que
+ * alguém abriu e viu funcionar. Não inventar `/identificacao` nem `/configuracoes`.
+ *
+ * `LINK_ECAC_SERVICO` fica como saída para quem não está logada — ver `linkAlternativo`.
+ */
+export const LINK_CARNE_LEAO = "https://www3.cav.receita.fazenda.gov.br/carneleao/escrituracao";
+
+/** A página de serviço do gov.br. Não é deep link, então não quebra — é a rede de segurança. */
+export const LINK_ECAC_SERVICO = "https://www.gov.br/pt-br/servicos/apurar-carne-leao";
 
 /** O e-mail da Receita para o caso em que tudo está certo e ainda recusa. Fonte: CRP-MG. */
 export const EMAIL_RECEITA_SAUDE = "receitasaude.cofis@rfb.gov.br";
@@ -60,6 +78,11 @@ export type ItemDoChecklist = {
   detalhe: string;
   estado: EstadoDoItem;
   link?: { url: string; rotulo: string };
+  /**
+   * A saída quando o deep link não abre — porque ela não está logada, ou porque a Receita mudou
+   * a rota. Sem isto, link quebrado numa tela fiscal vira "não funciona" em vez de "faça login".
+   */
+  linkAlternativo?: { url: string; rotulo: string };
   /** O que clicar do outro lado, com os nomes dos botões que ela VAI VER na tela. */
   passos?: string[];
 };
@@ -135,13 +158,17 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
       + `quem fez em ${Number(ano) - 1} e não refez está de fora. É daqui que vêm os dois erros `
       + `que mais aparecem, "Ocupação não cadastrada" e "Registro profissional não informado `
       + `pelo conselho".`,
-    link: { url: LINK_CARNE_LEAO, rotulo: "Abrir o Carnê-Leão no e-CAC" },
+    link: { url: LINK_CARNE_LEAO, rotulo: "Abrir meu Carnê-Leão" },
+    linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Não abriu? Entre pelo e-CAC" },
     /* Os nomes dos botões são os que aparecem na tela dela. Instrução que não usa as mesmas
-     * palavras do site é instrução que faz a pessoa desistir no meio. */
+     * palavras do site é instrução que faz a pessoa desistir no meio.
+     *
+     * ⚠️ O "Declarações e Demonstrativos → Acessar Carnê-Leão" SAIU daqui em 24/08/2026: o link
+     * agora cai dentro do Carnê-Leão, e repetir um passo que ela já pulou faz duvidar de que
+     * está no lugar certo. */
     passos: [
-      "Declarações e Demonstrativos → Acessar Carnê-Leão",
-      "Configurações → marque que você é trabalhador autônomo",
-      `Identificação → Ocupações → escolha "${profissao ?? "sua profissão"}", digite o ${conselho} e clique em Adicionar`,
+      "No menu, abra Configurações e marque que você é trabalhador autônomo",
+      `Em Identificação → Ocupações, escolha "${profissao ?? "sua profissão"}", digite o ${conselho} e clique em Adicionar`,
       "Salvar Identificação",
     ],
   });
@@ -153,9 +180,11 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
     detalhe:
       "O e-CAC tem uma conferência que **aponta os erros sem emitir recibo nenhum** — de graça e "
       + "quantas vezes você quiser. Vale sempre fazer antes: se voltar sem erro, aí sim importe.",
-    link: { url: LINK_CARNE_LEAO, rotulo: "Abrir o Carnê-Leão no e-CAC" },
+    /* O link cai NA escrituração, que é exatamente esta tela. Dois cliques até o resultado. */
+    link: { url: LINK_CARNE_LEAO, rotulo: "Abrir a escrituração" },
+    linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Não abriu? Entre pelo e-CAC" },
     passos: [
-      "Escrituração → Importar Escrituração",
+      "Clique em Importar Escrituração",
       "Escolha o arquivo e clique em Analisar Arquivo",
       "Voltou sem erro? Então importe de verdade",
     ],

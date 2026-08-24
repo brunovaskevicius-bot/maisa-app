@@ -32,7 +32,7 @@ import { s, Btn, Card, Icon, SectionTitle, StatTile } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { cpfValido } from "@/nucleo/dominio/clientes";
 import {
-  checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
+  LINK_CARNE_LEAO, checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
   type ItemDoChecklist,
 } from "@/nucleo/dominio/checklist-recibo";
 import { hojeISO } from "@/nucleo/dominio/tempo";
@@ -43,11 +43,19 @@ import type { PagamentoPendente, RecibosPendentes } from "@/nucleo/portas/entrad
 /**
  * O caminho no e-CAC, em link.
  *
- * ⚠️ É a página de SERVIÇO do gov.br, e não uma URL interna do e-CAC. O portal autenticado
- * monta as telas por sessão — deep link quebra no primeiro redesenho e, pior, quebra calado:
- * leva para a home logada e a pessoa acha que errou o caminho.
+ * ⚠️ ESTE COMENTÁRIO DIZIA O CONTRÁRIO ATÉ 24/08/2026, e a decisão foi revista de propósito.
+ * A versão anterior apontava para a página de SERVIÇO do gov.br para não depender de URL
+ * interna do portal autenticado — o argumento era que deep link quebra calado, levando para a
+ * home logada e fazendo a pessoa achar que errou o caminho.
+ *
+ * O argumento continua verdadeiro. O que mudou foi o peso do outro lado: cair numa página
+ * institucional e ter que achar sozinha o caminho dentro do e-CAC é onde alguém com pouca
+ * intimidade com computador desiste — e é exatamente o público deste produto.
+ *
+ * A quebra silenciosa está coberta pelo `linkAlternativo` do checklist ("Não abriu? Entre pelo
+ * e-CAC"), que é a página de serviço de antes. Ver `LINK_CARNE_LEAO`.
  */
-const CARNE_LEAO = "https://www.gov.br/pt-br/servicos/apurar-carne-leao";
+const CARNE_LEAO = LINK_CARNE_LEAO;
 
 /**
  * Uma linha do "pronto para emitir?".
@@ -87,16 +95,32 @@ function ItemChecklist({ item }: { item: ItemDoChecklist }) {
         )}
 
         {item.link && (
-          <a
-            href={item.link.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="m-press m-focus"
-            style={s("display:inline-flex;align-items:center;gap:7px;align-self:flex-start;margin-top:3px;padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--ink);font-size:var(--t-label);font-weight:var(--w-title);text-decoration:none")}
-          >
-            <Icon name="link" size={13} sw={2.2} />
-            {item.link.rotulo}
-          </a>
+          <div style={s("display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:3px")}>
+            <a
+              href={item.link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="m-press m-focus"
+              style={s("display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--ink);font-size:var(--t-label);font-weight:var(--w-title);text-decoration:none")}
+            >
+              <Icon name="link" size={13} sw={2.2} />
+              {item.link.rotulo}
+            </a>
+            {/* ⚠️ A REDE DE SEGURANÇA DO DEEP LINK. Se ela não estiver logada, o e-CAC devolve
+                para o login e pode não voltar — sem esta saída, "não abriu" vira "não
+                funciona". Discreto de propósito: só quem precisou é que procura. */}
+            {item.linkAlternativo && (
+              <a
+                href={item.linkAlternativo.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="m-focus"
+                style={s("font-size:var(--t-label);color:var(--muted);text-decoration:underline")}
+              >
+                {item.linkAlternativo.rotulo}
+              </a>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -627,11 +651,12 @@ export function LoteReceitaSaude() {
             style={s("display:flex;align-items:center;gap:8px;align-self:flex-start;padding:10px 16px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--ink);font-size:var(--t-sm);font-weight:var(--w-title);text-decoration:none")}
           >
             <Icon name="link" size={15} sw={2.2} />
-            Abrir o Carnê-Leão no e-CAC
+            Abrir a escrituração no e-CAC
           </a>
           <span style={s("font-size:var(--t-label);color:var(--muted)")}>
-            Lá dentro: <strong>Escrituração → Importar Escrituração → Analisar Arquivo</strong>.
-            A análise aponta linha e campo de qualquer erro <strong>sem emitir nada</strong>.
+            O link cai direto na escrituração. Lá: <strong>Importar Escrituração → Analisar
+            Arquivo</strong> — a análise aponta linha e campo de qualquer erro{" "}
+            <strong>sem emitir nada</strong>. Só depois, Importar.
           </span>
 
           {/* ★ O AVISO NO WHATSAPP, E POR QUE ELE É UMA CAIXA E NÃO UM COMPORTAMENTO.
