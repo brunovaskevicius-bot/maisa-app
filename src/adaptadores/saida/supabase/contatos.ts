@@ -52,6 +52,22 @@ export const contatosSupabase: RepositorioContatos = {
     return data ? paraContato(data) : null;
   },
 
+  async estaVazio(t: ContextoTenant): Promise<boolean> {
+    const supabase = clienteDoContexto(t);
+    /* ⚠️ `head: true` + `count: "exact"`: o Postgres conta e NÃO devolve linha nenhuma. A
+     * tentação é `listar().length`, e ela custa milhares de linhas por mensagem recebida no
+     * caderno de quem importou a agenda inteira. Caminho quente — ver a porta. */
+    const { count, error } = await supabase
+      .from(TABELA)
+      .select("telefone_chave", { count: "exact", head: true })
+      .eq("tenant_id", t.tenantId);
+
+    /* Estourar aqui sobe para o `catch` de `criarAvaliarAtendimento`, que falha ABERTO de
+     * propósito. Não engolir: um `true` inventado calaria a MAISA para o inquilino inteiro. */
+    if (error) throw new Error(error.message);
+    return (count ?? 0) === 0;
+  },
+
   async listar(t: ContextoTenant): Promise<Contato[]> {
     const supabase = clienteDoContexto(t);
     const { data, error } = await supabase

@@ -27,6 +27,8 @@ const t: ContextoTenant = { tenantId: "n1", usuarioId: "u1", ator: { tipo: "usua
 function repo(over: Partial<RepositorioContatos> = {}): RepositorioContatos {
   return {
     ler: async () => null,
+    /* Padrão `false` = caderno com gente. O vazio é a exceção, e quem testa a trava diz. */
+    estaVazio: async () => false,
     listar: async () => [],
     salvarLote: async (_t, c) => ({ novos: c.length, total: c.length }),
     marcar: async () => {},
@@ -246,5 +248,56 @@ describe("marcarContatos", () => {
     await marcar(t, { chaves: ["11994294906"], cliente: null });
 
     expect(recebido).toBeNull();
+  });
+});
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ★ A TRAVA DO CADERNO VAZIO, NO CAMINHO QUENTE.
+ *
+ * A regra é do domínio e tem teste lá. Estes aqui prendem a COSTURA: que a aplicação
+ * realmente pergunta se o caderno está vazio, e que a resposta chega em `podeResponder`.
+ * Sem isto, a trava existiria no domínio e nunca seria acionada em produção — que é
+ * exatamente o tipo de bug que passa em toda revisão.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+describe("★ caderno vazio, no caminho quente", () => {
+  it("cala e explica quando a agenda nunca foi importada", async () => {
+    const avaliar = criarAvaliarAtendimento({
+      contatos: repo({ estaVazio: async () => true, modo: async () => "pessoal" }),
+    });
+
+    const r = await avaliar(t, "5511994294906");
+
+    expect(r.pode).toBe(false);
+    expect(r.motivo).toContain("Importe os contatos");
+  });
+
+  it("com agenda importada, atende o desconhecido de novo", async () => {
+    const avaliar = criarAvaliarAtendimento({
+      contatos: repo({ estaVazio: async () => false, modo: async () => "pessoal" }),
+    });
+
+    expect((await avaliar(t, "5511994294906")).pode).toBe(true);
+  });
+
+  /* ⚠️ FALHA ABERTA quando o banco não responde, e a trava cai junto — consciente. Um banco
+   * fora do ar é evento raro e ruidoso; o caderno vazio é estado silencioso e duradouro, e é
+   * o segundo que a trava existe para pegar. */
+  it("banco fora do ar continua atendendo, como sempre foi", async () => {
+    const avaliar = criarAvaliarAtendimento({
+      contatos: repo({ estaVazio: async () => { throw new Error("banco fora"); } }),
+    });
+
+    expect((await avaliar(t, "5511994294906")).pode).toBe(true);
+  });
+
+  /* No número do negócio a trava não vale, e a costura tem que respeitar isso. */
+  it("no modo negócio, caderno vazio não cala", async () => {
+    const avaliar = criarAvaliarAtendimento({
+      contatos: repo({ estaVazio: async () => true, modo: async () => "negocio" }),
+    });
+
+    expect((await avaliar(t, "5511994294906")).pode).toBe(true);
   });
 });

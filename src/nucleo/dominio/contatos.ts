@@ -96,10 +96,46 @@ export function chaveDe(telefone: string | null | undefined): string {
  *
  * `contato` é `null` quando o número não está no caderno.
  */
-export function podeResponder(p: { modo: ModoDoNumero; contato: Contato | null }): boolean {
+export type Atendimento = {
+  modo: ModoDoNumero;
+  contato: Contato | null;
+  /**
+   * O caderno tem ZERO linhas?
+   *
+   * ★ ENTROU EM 24/08/2026, DEPOIS DE ACONTECER. O dono conectou o WhatsApp pessoal dele sem
+   * ter importado a agenda, e a MAISA passou a responder **todo mundo que escrevia para o
+   * número dele** — inclusive gente conhecida. Não foi bug: foi esta função fazendo o que
+   * está escrito, sem o dado de que ela depende.
+   *
+   * Com o caderno vazio, "não está no caderno" deixa de significar "é um lead" e passa a
+   * significar "eu não sei nada sobre ninguém". São coisas diferentes, e antes disto o
+   * código não conseguia distingui-las.
+   */
+  cadernoVazio: boolean;
+};
+
+export function podeResponder(p: Atendimento): boolean {
   /* Linha do negócio: não há vida pessoal para proteger. Responde todo mundo, inclusive —
-   * e principalmente — quem ela nunca viu, que é o lead. */
+   * e principalmente — quem ela nunca viu, que é o lead.
+   *
+   * O caderno vazio não muda nada aqui, e a ordem importa: quem declarou o número como linha
+   * de negócio não tem contato pessoal a proteger, e travar por caderno vazio silenciaria
+   * justamente o caso em que responder desconhecido é o produto inteiro. */
   if (p.modo === "negocio") return true;
+
+  /* ── ⚠️ A TRAVA, E ELA FALHA FECHADO ──
+   *
+   * Modo pessoal + caderno vazio = a regra de baixo não tem contra o que proteger. Toda
+   * pessoa do mundo cai em "desconhecido", e "desconhecido" atende.
+   *
+   * Os dois erros não são simétricos. Calar até a agenda ser importada custa um lead — que é
+   * recuperável, visível na tela de Conversas, e o dono resolve com um clique. Responder o
+   * conhecido custa uma mensagem de robô no WhatsApp pessoal de terceiro, que não se apaga e
+   * que ninguém pediu. Aqui o barato é calar.
+   *
+   * ⚠️ E o silêncio NÃO É MUDO: `motivoDoSilencio` devolve a frase e a tela mostra. Silêncio
+   * sem motivo registrado é o modo de falha mais caro deste canal. */
+  if (p.cadernoVazio) return false;
 
   /* Modo pessoal, número DESCONHECIDO: é o lead. Responde.
    *
@@ -120,8 +156,18 @@ export function podeResponder(p: { modo: ModoDoNumero; contato: Contato | null }
  * Existe porque silêncio sem motivo registrado é o modo de falha mais caro deste canal: o
  * dono vê "a MAISA não respondeu" e não tem como distinguir isto de um erro de verdade.
  */
-export function motivoDoSilencio(p: { modo: ModoDoNumero; contato: Contato | null }): string | null {
+export function motivoDoSilencio(p: Atendimento): string | null {
   if (podeResponder(p)) return null;
+
+  /* A frase da trava vem PRIMEIRO e é acionável: quem lê isto não fez o import, e a causa
+   * verdadeira do silêncio é essa — não o contato. Dizer "não foi marcado como cliente" aqui
+   * mandaria o dono marcar pessoa por pessoa para consertar algo que um botão resolve. */
+  if (p.cadernoVazio) {
+    return "A MAISA está calada porque seus contatos ainda não foram importados. Sem a agenda, "
+      + "ela não tem como saber quem é cliente e quem é da sua vida pessoal — e neste número ela "
+      + "responderia todo mundo. Importe os contatos para ela voltar a atender.";
+  }
+
   const quem = p.contato?.nome?.trim();
   return quem
     ? `${quem} está nos seus contatos e não foi marcado como cliente — neste número a MAISA só atende cliente e quem ela não conhece.`

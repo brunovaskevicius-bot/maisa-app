@@ -59,6 +59,12 @@ export const contatosDemo: RepositorioContatos = {
     return achado ? { chave: achado.chave, nome: achado.nome, cliente: achado.cliente } : null;
   },
 
+  async estaVazio(t: ContextoTenant) {
+    /* No demo o caderno começa vazio, e isso não é descuido: é o estado que causou o
+     * incidente de 24/08/2026, e o laboratório tem que conseguir reproduzi-lo. */
+    return caderno(t.tenantId).size === 0;
+  },
+
   async listar(t: ContextoTenant) {
     return [...caderno(t.tenantId).values()]
       .map((c) => ({ chave: c.chave, nome: c.nome, cliente: c.cliente }))

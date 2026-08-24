@@ -46,6 +46,21 @@ export interface RepositorioContatos {
    */
   ler(t: ContextoTenant, chave: string): Promise<Contato | null>;
 
+  /**
+   * O caderno tem ZERO linhas?
+   *
+   * ★ EXISTE POR CAUSA DE UM INCIDENTE (24/08/2026): o dono conectou o WhatsApp pessoal sem
+   * importar a agenda, e a MAISA respondeu todo mundo que escreveu para ele. `ler` devolve
+   * `null` tanto para "não está no caderno" quanto para "não há caderno" — e essas duas
+   * coisas exigem decisões opostas. Ver `podeResponder`.
+   *
+   * ⚠️ É CAMINHO QUENTE: roda uma vez por mensagem recebida, junto com `ler` e `modo`. Quem
+   * implementa usa `count` com `head`, nunca `listar().length` — o caderno de quem importou a
+   * agenda inteira tem milhares de linhas, e trazê-las para saber se são zero é o tipo de
+   * consulta que só aparece na conta no fim do mês.
+   */
+  estaVazio(t: ContextoTenant): Promise<boolean>;
+
   /** O caderno inteiro, para a tela. */
   listar(t: ContextoTenant): Promise<Contato[]>;
 

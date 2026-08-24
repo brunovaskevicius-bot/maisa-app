@@ -42,12 +42,25 @@ export function criarAvaliarAtendimento(deps: { contatos: RepositorioContatos })
     if (!chave) return { pode: true, motivo: null, nome: null };
 
     try {
-      /* As duas juntas: tabelas diferentes, nenhuma depende da outra, e este é o caminho
-       * quente — o cliente está com a tela aberta esperando. */
-      const [modo, contato] = await Promise.all([deps.contatos.modo(t), deps.contatos.ler(t, chave)]);
-      const p = { modo: modo ?? MODO_PADRAO, contato };
+      /* As três juntas: tabelas diferentes, nenhuma depende da outra, e este é o caminho
+       * quente — o cliente está com a tela aberta esperando.
+       *
+       * `estaVazio` entrou em 24/08/2026 e custa uma consulta a mais por mensagem. Vale: sem
+       * ela, `ler` devolvendo `null` é ambíguo entre "não conheço esta pessoa" e "não conheço
+       * ninguém", e as duas exigem decisões opostas. Ver `podeResponder`. */
+      const [modo, contato, cadernoVazio] = await Promise.all([
+        deps.contatos.modo(t),
+        deps.contatos.ler(t, chave),
+        deps.contatos.estaVazio(t),
+      ]);
+      const p = { modo: modo ?? MODO_PADRAO, contato, cadernoVazio };
       return { pode: podeResponder(p), motivo: motivoDoSilencio(p), nome: contato?.nome ?? null };
     } catch (e) {
+      /* ⚠️ A TRAVA DO CADERNO VAZIO TAMBÉM CAI AQUI, e isso é consciente: se o banco não
+       * responde, não dá para saber se o caderno está vazio. Continuar falhando aberto é a
+       * mesma aposta de sempre — um banco fora do ar é evento raro e ruidoso, enquanto o
+       * caderno vazio é estado silencioso e duradouro. É o segundo que a trava existe para
+       * pegar. */
       console.error(
         `[aplicacao/contatos] não foi possível decidir se a MAISA atende ${chave} no inquilino ${t.tenantId} — `
         + `respondendo POR PADRÃO (ver o ⚠️ de criarAvaliarAtendimento): ${e instanceof Error ? e.message : String(e)}`,
