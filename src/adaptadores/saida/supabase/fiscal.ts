@@ -46,6 +46,8 @@ type Linha = {
   prestador_cpf: string | null;
   ocupacao_saude: string | null;
   registro_profissional: string | null;
+  procurador_documento: string | null;
+  procuracao_valida_ate: string | null;
   inscricao_municipal: string | null;
   item_lista_servico: string | null;
   aliquota_iss: number | string | null;
@@ -72,6 +74,8 @@ const VAZIA: ConfigFiscal = {
   prestadorCpf: null,
   ocupacaoSaude: null,
   registroProfissional: null,
+  procuradorDocumento: null,
+  procuracaoValidaAte: null,
   inscricaoMunicipal: null,
   itemListaServico: null,
   aliquotaIss: null,
@@ -97,6 +101,8 @@ const paraConfig = (l: Linha): ConfigFiscal => ({
    * que a Receita recusa na análise — e a mensagem fala do arquivo, não da coluna. */
   ocupacaoSaude: ocupacaoValida(l.ocupacao_saude),
   registroProfissional: l.registro_profissional,
+  procuradorDocumento: l.procurador_documento,
+  procuracaoValidaAte: l.procuracao_valida_ate,
   inscricaoMunicipal: l.inscricao_municipal,
   itemListaServico: l.item_lista_servico,
   /* `numeric` volta como string no supabase-js — `Number(null)` é 0, e alíquota 0 é
@@ -120,6 +126,8 @@ function paraLinha(r: RemendoFiscal): Record<string, unknown> {
   if ("prestadorCpf" in r) l.prestador_cpf = r.prestadorCpf;
   if ("ocupacaoSaude" in r) l.ocupacao_saude = r.ocupacaoSaude;
   if ("registroProfissional" in r) l.registro_profissional = r.registroProfissional;
+  if ("procuradorDocumento" in r) l.procurador_documento = r.procuradorDocumento;
+  if ("procuracaoValidaAte" in r) l.procuracao_valida_ate = r.procuracaoValidaAte;
   if ("inscricaoMunicipal" in r) l.inscricao_municipal = r.inscricaoMunicipal;
   if ("itemListaServico" in r) l.item_lista_servico = r.itemListaServico;
   if ("aliquotaIss" in r) l.aliquota_iss = r.aliquotaIss;

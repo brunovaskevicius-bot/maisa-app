@@ -33,6 +33,8 @@ const carla: ConfigFiscal = {
   prestadorCpf: "12345678909",
   ocupacaoSaude: "psicologo",
   registroProfissional: "CRP 06/123456",
+  procuradorDocumento: null,
+  procuracaoValidaAte: null,
   inscricaoMunicipal: null, itemListaServico: null,
   aliquotaIss: null, codigoTributarioMunicipio: null,
 };

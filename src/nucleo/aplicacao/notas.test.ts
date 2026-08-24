@@ -41,6 +41,8 @@ const CONFIG_PRONTA: ConfigFiscal = {
   prestadorCpf: null,
   ocupacaoSaude: null,
   registroProfissional: null,
+  procuradorDocumento: null,
+  procuracaoValidaAte: null,
   inscricaoMunicipal: null,
   itemListaServico: null,
   aliquotaIss: null,

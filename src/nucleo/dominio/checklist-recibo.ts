@@ -32,7 +32,8 @@
  * ela não conseguir fechar o mês por nada.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { ConfigFiscal } from "./fiscal";
+import { procuracaoAVencer, representacao, type ConfigFiscal } from "./fiscal";
+import { rotuloBR } from "./tempo";
 import { CODIGO_OCUPACAO, type OcupacaoSaude } from "./recibo-saude";
 import { soDigitos } from "./clientes";
 
@@ -70,6 +71,21 @@ export const LINK_CARNE_LEAO = "https://cav.receita.fazenda.gov.br/autenticacao/
  */
 export const LINK_ECAC_SERVICO = "https://www.gov.br/pt-br/servicos/apurar-carne-leao";
 
+/**
+ * As procurações do e-CAC — **serviço 51**, não 10028.
+ *
+ * Mesmo mecanismo do `LINK_CARNE_LEAO` e mesma verificação, em 24/08/2026:
+ *
+ *   /autenticacao/login/index/51 → 302 → servicos.receitafederal.gov.br/login
+ *                                         ?redirectUrl=…/login.aspx?sistema=51   ✓
+ *
+ * ⚠️ NÃO REAPROVEITE O LINK DO CARNÊ-LEÃO AQUI. Outorgar procuração é outro serviço do portal;
+ * mandar `sistema=10028` levaria ela para a escrituração e o passo a passo falaria de um menu
+ * que não está na tela. O `51` saiu da página oficial `gov.br/pt-br/servicos/
+ * cadastrar-ou-cancelar-procuracao-para-acesso-ao-e-cac`, não de tentativa.
+ */
+export const LINK_PROCURACAO = "https://cav.receita.fazenda.gov.br/autenticacao/login/index/51";
+
 /** O e-mail da Receita para o caso em que tudo está certo e ainda recusa. Fonte: CRP-MG. */
 export const EMAIL_RECEITA_SAUDE = "receitasaude.cofis@rfb.gov.br";
 
@@ -85,7 +101,7 @@ export type EstadoDoItem =
   | "nao_da_para_saber";
 
 export type ItemDoChecklist = {
-  id: "cpf" | "profissao" | "registro" | "carne_leao" | "ensaio";
+  id: "cpf" | "profissao" | "registro" | "procuracao" | "carne_leao" | "ensaio";
   titulo: string;
   /** Uma frase em português de gente. Vai na tela como está. */
   detalhe: string;
@@ -131,6 +147,34 @@ export const CONSELHO: Record<OcupacaoSaude, string> = {
   psicologo: "CRP",
 };
 
+/** 000.000.000-00 ou 00.000.000/0000-00 — o documento como ela vai conferir na tela do e-CAC. */
+function documentoFormatado(d: string): string {
+  return d.length === 11
+    ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")
+    : d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+}
+
+/**
+ * Os seis cliques da outorga, com os nomes dos menus do e-CAC.
+ *
+ * ⚠️ A PERMISSÃO É "IRPF – Carnê Leão Web", E ELA É O PASSO QUE TODO MUNDO ERRA. A tela do e-CAC
+ * lista dezenas de serviços; marcar o errado gera uma procuração válida que **não serve**, e a
+ * descoberta acontece só na primeira emissão, dias depois.
+ *
+ * Exportado porque o onboarding pede a mesma coisa que a renovação — e duas listas divergindo
+ * dariam instruções diferentes para o mesmo ato.
+ */
+export function passosDaProcuracao(procurador: string): string[] {
+  return [
+    "Entre com a conta gov.br — precisa ser nível prata ou ouro",
+    "Não caiu em Procurações? Abra Senhas e Procurações → Cadastro, Consulta e Cancelamento · Procuração para e-CAC",
+    "Clique em Cadastrar Procuração",
+    `No CPF/CNPJ do procurador, informe ${documentoFormatado(procurador)}`,
+    `Marque a permissão "IRPF – Carnê Leão Web"`,
+    "Confirme clicando em Cadastrar Procuração",
+  ];
+}
+
 export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklist[] {
   const ano = hoje.slice(0, 4);
   const ocupacao = c.ocupacaoSaude;
@@ -171,6 +215,51 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
        * achando que precisa resolver antes, e não precisa. */
       : `Preencha para o número ir no arquivo. Não bloqueia gerar, mas é o que a Receita confere contra o ${conselho}.`,
   });
+
+  /* ── ★ A PROCURAÇÃO, QUANDO EXISTE ──
+   *
+   * Vem antes do Carnê-Leão de propósito: para quem outorgou, este é o item que descreve o
+   * produto que ela comprou, e o de baixo vira "a MAISA cuida". Para quem não outorgou, ele
+   * não existe e nada muda. */
+  const rep = representacao(c, hoje);
+
+  if (rep.modo === "vencida") {
+    itens.push({
+      id: "procuracao",
+      titulo: "Sua procuração venceu",
+      /* `falta`, não `nao_da_para_saber`: isto a gente sabe, é acionável, e sem ele a emissão
+       * para. É a única pendência deste checklist que faz o botão deixar de funcionar. */
+      estado: "falta",
+      detalhe:
+        `Venceu em ${rotuloBR(rep.ate)}. Enquanto não for renovada, a MAISA não consegue emitir `
+        + `no seu nome e os recibos ficam parados. Renovar leva um minuto e é você quem faz — `
+        + `a Receita exige que a autorização venha de você.`,
+      link: { url: LINK_PROCURACAO, rotulo: "Renovar no e-CAC" },
+      linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Travou no login? Entre pelo gov.br" },
+      passos: passosDaProcuracao(rep.procurador),
+    });
+  } else if (rep.modo === "representada") {
+    const aVencer = procuracaoAVencer(rep);
+    itens.push({
+      id: "procuracao",
+      titulo: aVencer ? "Sua procuração está para vencer" : "Sua procuração",
+      estado: aVencer ? "falta" : "pronto",
+      detalhe: rep.ate
+        ? (aVencer
+          ? `Vale até ${rotuloBR(rep.ate)} — faltam ${rep.diasParaVencer} dias. Renove antes de `
+            + `vencer: depois disso a emissão para até você autorizar de novo.`
+          : `A MAISA emite seus recibos no seu nome, com a procuração que você deu no e-CAC. `
+            + `Vale até ${rotuloBR(rep.ate)}.`)
+        : "A MAISA emite seus recibos no seu nome, com a procuração que você deu no e-CAC. "
+          + "Você não pôs prazo, então ela vale até você cancelar.",
+      ...(aVencer
+        ? {
+            link: { url: LINK_PROCURACAO, rotulo: "Renovar no e-CAC" },
+            passos: passosDaProcuracao(rep.procurador),
+          }
+        : {}),
+    });
+  }
 
   /* ── ★ O ITEM QUE A GENTE NÃO PODE FINGIR QUE SABE ── */
   itens.push({

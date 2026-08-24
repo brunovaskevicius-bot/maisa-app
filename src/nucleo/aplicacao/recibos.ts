@@ -427,6 +427,11 @@ export function criarDesligarReciboSaude({ recibos, fiscal }: DepsRecibo): Desli
       prestadorCpf: null,
       ocupacaoSaude: null,
       registroProfissional: null,
+      /* ⚠️ A PROCURAÇÃO SAI JUNTO. Desligar o Receita Saúde e deixar o procurador gravado faria
+       * o negócio voltar um dia por outro caminho já representado — com uma outorga que
+       * ninguém lembra de ter dado, e que talvez nem exista mais no e-CAC. */
+      procuradorDocumento: null,
+      procuracaoValidaAte: null,
       /* Volta para homologação junto: `producao` era verdade só porque o recibo não tem
        * ambiente de teste. Deixá-lo aceso faria o próximo caminho — se for o do CNPJ —
        * nascer valendo, e nota fiscal em produção é documento que não se apaga. */

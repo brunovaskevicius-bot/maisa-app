@@ -55,6 +55,8 @@ export type RemendoFiscal = Partial<
     | "prestadorCpf"
     | "ocupacaoSaude"
     | "registroProfissional"
+    | "procuradorDocumento"
+    | "procuracaoValidaAte"
     | "inscricaoMunicipal"
     | "itemListaServico"
     | "aliquotaIss"

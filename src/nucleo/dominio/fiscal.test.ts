@@ -15,7 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  VIRADA_SIMPLES_NACIONAL, caminhoDaNota, fiscalFaltando, type ConfigFiscal,
+  VIRADA_SIMPLES_NACIONAL, caminhoDaNota, fiscalFaltando, procuracaoAVencer, representacao,
+  type ConfigFiscal,
 } from "./fiscal";
 
 const HOJE = "2026-08-17";
@@ -34,6 +35,8 @@ const meiPronto: ConfigFiscal = {
   prestadorCpf: null,
   ocupacaoSaude: null,
   registroProfissional: null,
+  procuradorDocumento: null,
+  procuracaoValidaAte: null,
   inscricaoMunicipal: null,
   itemListaServico: null,
   aliquotaIss: null,
@@ -179,5 +182,91 @@ describe("o que falta para emitir", () => {
     it("que vence hoje ainda vale hoje", () => {
       expect(fiscalFaltando({ ...meiPronto, certificadoValidoAte: HOJE }, HOJE)).toEqual([]);
     });
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * REPRESENTAÇÃO — a procuração do e-CAC
+ *
+ * ★ O TESTE QUE IMPORTA É O DA PROCURAÇÃO VENCIDA NÃO VIRAR "propria".
+ *
+ * Se `representacao` devolvesse `propria` para uma outorga vencida, a tela voltaria a mandar a
+ * profissional entrar sozinha no e-CAC — mudando o produto que ela comprou, por causa de uma
+ * data, sem ninguém dizer nada. O estado `vencida` existe para a tela poder falar.
+ *
+ * E o aviso de 30 dias: reoutorgar depende DELA, logada no gov.br. Avisar em cima da hora é um
+ * mês de recibos parados esperando uma pessoa que não trabalha para nós.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/** Uma psicóloga pessoa física — o caso do Receita Saúde. */
+const pfBase: ConfigFiscal = {
+  ...meiPronto,
+  cnpj: null, razaoSocial: null, codigoMunicipio: null,
+  optanteMei: false, empresaId: null, certificadoValidoAte: null,
+  codigoTributacaoNacional: null,
+  prestadorCpf: "12345678909", ocupacaoSaude: "psicologo",
+};
+
+describe("representação", () => {
+  const HOJE = "2026-08-24";
+  const PJ = "62025689000166";
+
+  const cfg = (over: Partial<ConfigFiscal> = {}): ConfigFiscal => ({ ...pfBase, ...over });
+
+  it("sem procurador, ela mesma emite", () => {
+    expect(representacao(cfg(), HOJE).modo).toBe("propria");
+  });
+
+  /* Documento com máscara é o caso normal de quem digita. Guardar formatado faria a comparação
+   * com o que a Receita devolve falhar por ponto e barra. */
+  it("normaliza o documento para dígitos", () => {
+    const r = representacao(cfg({ procuradorDocumento: "62.025.689/0001-66" }), HOJE);
+    expect(r).toMatchObject({ modo: "representada", procurador: PJ });
+  });
+
+  it("sem prazo é representada por tempo indeterminado", () => {
+    const r = representacao(cfg({ procuradorDocumento: PJ, procuracaoValidaAte: null }), HOJE);
+    expect(r).toEqual({ modo: "representada", procurador: PJ, ate: null, diasParaVencer: null });
+    expect(procuracaoAVencer(r)).toBe(false);
+  });
+
+  it("conta os dias que faltam", () => {
+    const r = representacao(cfg({ procuradorDocumento: PJ, procuracaoValidaAte: "2026-09-03" }), HOJE);
+    expect(r).toMatchObject({ modo: "representada", diasParaVencer: 10 });
+  });
+
+  /* ★ O TESTE QUE JUSTIFICA O ESTADO. Ver o cabeçalho. */
+  it("vencida NÃO vira `propria` — vira `vencida`, com quem e até quando", () => {
+    const r = representacao(cfg({ procuradorDocumento: PJ, procuracaoValidaAte: "2026-08-23" }), HOJE);
+
+    expect(r).toEqual({ modo: "vencida", procurador: PJ, ate: "2026-08-23" });
+  });
+
+  /* O último dia ainda vale: a procuração morre no fim dele, não na véspera. */
+  it("vence no dia seguinte ao último dia, não nele", () => {
+    expect(representacao(cfg({ procuradorDocumento: PJ, procuracaoValidaAte: HOJE }), HOJE).modo)
+      .toBe("representada");
+  });
+});
+
+describe("aviso de procuração a vencer", () => {
+  const HOJE = "2026-08-24";
+  const PJ = "62025689000166";
+  const em = (ate: string | null) =>
+    representacao({ ...pfBase, procuradorDocumento: PJ, procuracaoValidaAte: ate }, HOJE);
+
+  it("dentro de 30 dias, avisa", () => {
+    expect(procuracaoAVencer(em("2026-09-20"))).toBe(true);   // 27 dias
+  });
+
+  /* A borda exata: 30 dias ainda avisa, 31 ainda não. */
+  it("30 avisa, 31 não", () => {
+    expect(procuracaoAVencer(em("2026-09-23"))).toBe(true);
+    expect(procuracaoAVencer(em("2026-09-24"))).toBe(false);
+  });
+
+  /* Vencida não "vence em breve" — já venceu, e a frase da tela é outra. */
+  it("vencida não é `a vencer`", () => {
+    expect(procuracaoAVencer(em("2026-08-01"))).toBe(false);
   });
 });

@@ -15,7 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  EMAIL_RECEITA_SAUDE, LINK_CARNE_LEAO, LINK_ECAC_SERVICO,
+  EMAIL_RECEITA_SAUDE, LINK_CARNE_LEAO, LINK_ECAC_SERVICO, LINK_PROCURACAO,
+  passosDaProcuracao,
   checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
 } from "./checklist-recibo";
 import type { ConfigFiscal } from "./fiscal";
@@ -30,6 +31,8 @@ const carla = (over: Partial<ConfigFiscal> = {}): ConfigFiscal => ({
   prestadorCpf: "12345678909",
   ocupacaoSaude: "psicologo",
   registroProfissional: "CRP 06/123456",
+  procuradorDocumento: null,
+  procuracaoValidaAte: null,
   inscricaoMunicipal: null, itemListaServico: null,
   aliquotaIss: null, codigoTributarioMunicipio: null,
   ...over,
@@ -217,5 +220,83 @@ describe("a escada de quando recusa mesmo com tudo certo", () => {
   it("fala do conselho certo por profissão", () => {
     expect(seAindaRecusar("terapeuta_ocupacional")[1]).toContain("CREFITO");
     expect(seAindaRecusar(null)[1]).toContain("seu conselho");
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * A PROCURAÇÃO NO CHECKLIST
+ *
+ * ★ DOIS DETALHES DECIDEM SE A OUTORGA FUNCIONA, E OS DOIS SÃO INVISÍVEIS NUMA REVISÃO VISUAL:
+ *
+ *   1. A permissão marcada tem que ser **"IRPF – Carnê Leão Web"**. A tela do e-CAC lista
+ *      dezenas de serviços; marcar outro gera uma procuração válida que NÃO SERVE — e a
+ *      descoberta acontece na primeira emissão, dias depois, com a Receita recusando.
+ *
+ *   2. O link é o serviço **51**, não o 10028 do Carnê-Leão. Reaproveitar o outro levaria ela
+ *      para a escrituração, com um passo a passo falando de um menu que não está na tela.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+
+const PJ = "62025689000166";
+const comProcuracao = (ate: string | null) => carla({ procuradorDocumento: PJ, procuracaoValidaAte: ate });
+
+describe("★ a procuração", () => {
+  it("sem outorga, o item não existe", () => {
+    expect(checklistDoRecibo(carla(), HOJE).find((i) => i.id === "procuracao")).toBeUndefined();
+  });
+
+  it("outorgada e no prazo, fica pronta e diz até quando", () => {
+    const i = item(comProcuracao("2027-05-12"), "procuracao");
+    expect(i.estado).toBe("pronto");
+    expect(i.detalhe).toContain("12/05/2027");
+    /* Sem prazo apertado não há por que mostrar o passo a passo — é ruído sobre algo resolvido. */
+    expect(i.passos).toBeUndefined();
+  });
+
+  it("sem prazo, explica que vale até ela cancelar", () => {
+    const i = item(comProcuracao(null), "procuracao");
+    expect(i.estado).toBe("pronto");
+    expect(i.detalhe).toContain("até você cancelar");
+  });
+
+  /* Trinta dias antes vira pendência COM instrução: é o único aviso possível antes de parar. */
+  it("a vencer vira pendência e traz os passos", () => {
+    const i = item(comProcuracao("2026-09-10"), "procuracao");
+    expect(i.estado).toBe("falta");
+    expect(i.titulo).toContain("para vencer");
+    expect(i.passos?.length).toBeGreaterThan(0);
+  });
+
+  /* ⚠️ A ÚNICA PENDÊNCIA DESTE CHECKLIST QUE FAZ O BOTÃO PARAR DE FUNCIONAR. */
+  it("vencida diz a data e que a emissão parou", () => {
+    const i = item(comProcuracao("2026-08-01"), "procuracao");
+    expect(i.estado).toBe("falta");
+    expect(i.detalhe).toContain("01/08/2026");
+    expect(i.detalhe).toContain("não consegue emitir");
+  });
+});
+
+describe("★ os seis cliques da outorga", () => {
+  /* O TESTE QUE JUSTIFICA A FUNÇÃO. Ver o cabeçalho. */
+  it("nomeia a permissão exata, com o travessão da Receita", () => {
+    expect(passosDaProcuracao(PJ).join(" | ")).toContain('"IRPF – Carnê Leão Web"');
+  });
+
+  it("mostra o documento formatado, do jeito que ela vai conferir na tela", () => {
+    expect(passosDaProcuracao(PJ).join(" | ")).toContain("62.025.689/0001-66");
+    expect(passosDaProcuracao("12345678909").join(" | ")).toContain("123.456.789-09");
+  });
+
+  it("o nível da conta gov.br está no primeiro passo — prata ou ouro", () => {
+    const p = passosDaProcuracao(PJ);
+    expect(p[0]).toContain("prata");
+    expect(p[0]).toContain("ouro");
+  });
+
+  /* ★ O link é 51. Se um dia alguém "unificar" com o do Carnê-Leão, isto quebra aqui. */
+  it("o link é o serviço de procurações, e não o do Carnê-Leão", () => {
+    expect(LINK_PROCURACAO).toBe("https://cav.receita.fazenda.gov.br/autenticacao/login/index/51");
+    expect(LINK_PROCURACAO).not.toBe(LINK_CARNE_LEAO);
+    expect(item(comProcuracao("2026-08-01"), "procuracao").link?.url).toBe(LINK_PROCURACAO);
   });
 });

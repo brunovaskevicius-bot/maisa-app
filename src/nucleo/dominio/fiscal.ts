@@ -13,6 +13,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import { soDigitos } from "./clientes";
+import { diasEntre } from "./tempo";
 import type { OcupacaoSaude } from "./recibo-saude";
 
 export type StatusNota = "pendente" | "processando" | "emitida" | "cancelada" | "erro";
@@ -201,6 +202,57 @@ export type CadastroDoCnpj = {
 };
 
 /** Por qual caminho a nota sai. Derivado, nunca escolhido à mão — ver `caminhoDaNota`. */
+/**
+ * Quem a Receita vai ver emitindo.
+ *
+ * ⚠️ REVOGAÇÃO NÃO APARECE AQUI, e não tem como aparecer: o e-CAC não avisa ninguém quando uma
+ * procuração é cancelada, e não há o que consultar de fora. A gente só descobre quando a
+ * emissão falha. Por isso o vencimento — que é a parte **previsível** — não pode ser
+ * desperdiçado: é o único aviso que dá para dar antes do prejuízo.
+ */
+export type Representacao =
+  /** Ela mesma entra no e-CAC. Continua válido, e é o padrão de quem não outorgou nada. */
+  | { modo: "propria" }
+  /** Nós emitimos por ela. `ate: null` = outorgada sem prazo. */
+  | { modo: "representada"; procurador: string; ate: string | null; diasParaVencer: number | null }
+  /**
+   * ★ VENCEU — E ISSO NÃO PODE VIRAR `propria` EM SILÊNCIO. Cair para o modo próprio faria a
+   * tela voltar a mandá-la ao e-CAC sozinha, mudando o produto que ela comprou por causa de uma
+   * data, sem ninguém dizer nada. O estado existe para a tela conseguir falar "venceu".
+   */
+  | { modo: "vencida"; procurador: string; ate: string };
+
+/**
+ * Quantos dias antes do vencimento a tela começa a cobrar a renovação.
+ *
+ * ⚠️ TRINTA, E NÃO TRÊS. Reoutorgar depende DELA: logar no gov.br, achar o menu, marcar a
+ * permissão certa. Avisar em cima da hora é um mês de recibos parados esperando uma pessoa que
+ * não trabalha para nós — e o mês do Receita Saúde tem prazo.
+ */
+export const AVISO_PROCURACAO_DIAS = 30;
+
+export function representacao(c: ConfigFiscal, hoje: string): Representacao {
+  const procurador = soDigitos(c.procuradorDocumento ?? "");
+  if (!procurador) return { modo: "propria" };
+
+  const ate = c.procuracaoValidaAte;
+  if (ate && ate < hoje) return { modo: "vencida", procurador, ate };
+
+  return {
+    modo: "representada",
+    procurador,
+    ate,
+    diasParaVencer: ate ? diasEntre(hoje, ate) : null,
+  };
+}
+
+/** Vence em breve? Só existe para quem está representada COM prazo. */
+export function procuracaoAVencer(r: Representacao): boolean {
+  return r.modo === "representada"
+    && r.diasParaVencer !== null
+    && r.diasParaVencer <= AVISO_PROCURACAO_DIAS;
+}
+
 export type CaminhoFiscal =
   /** DPS no Ambiente Nacional. MEI sempre; Simples a partir de 01/11/2026. */
   | "nacional"
@@ -266,6 +318,22 @@ export type ConfigFiscal = {
    * domínio não impede.
    */
   registroProfissional: string | null;
+
+  /* ── ★ representação: quem entra no e-CAC por ela ──
+   *
+   * A procuração eletrônica do e-CAC, com a permissão **"IRPF – Carnê Leão Web"**, autoriza um
+   * terceiro a *"emitir, consultar, cancelar e alterar seus recibos"*. É o que transforma o
+   * Receita Saúde de "ela aprende o portal" em "ela aperta um botão": entramos com credencial
+   * NOSSA e trocamos de perfil, que é o fluxo normal de contador. Ela outorga com gov.br prata
+   * ou ouro — certificado é nosso, não dela.
+   *
+   * ⚠️ É A ÚNICA PEÇA DESTA ARQUITETURA QUE VENCE E DEPENDE DAS MÃOS DELA. Certificado,
+   * servidor e código são nossos; reoutorgar exige ela, logada no gov.br. */
+
+  /** CPF ou CNPJ de quem emite por ela, só dígitos. `null` = ela mesma emite. */
+  procuradorDocumento: string | null;
+  /** Data civil do fim da procuração. `null` = outorgada sem prazo — o e-CAC permite. */
+  procuracaoValidaAte: string | null;
 
   /* ── caminho municipal ── */
   inscricaoMunicipal: string | null;
