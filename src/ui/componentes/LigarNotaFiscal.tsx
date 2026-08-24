@@ -84,12 +84,60 @@ function paraBase64(f: File): Promise<string> {
   });
 }
 
+/* A moldura do cartão. Vive fora do componente porque o ESQUELETO usa a mesma — se as duas
+ * divergirem, a troca de um pelo outro volta a empurrar a tela. */
+const CAIXA = "background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow-card)";
+
+/** Barra cinza no lugar de uma linha de texto. `h` é a altura da linha que ela substitui. */
+function Barra({ w, h = 13 }: { w: string; h?: number }) {
+  return (
+    <span aria-hidden className="m-pulse"
+      style={s(`display:block;width:${w};height:${h}px;border-radius:99px;background:var(--surface-2)`)} />
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ★ O ESQUELETO — e por que ele não é enfeite de carregamento.
+ *
+ * `/api/fiscal` é uma ida ao servidor DEPOIS da hidratação: o cartão só sabia se existe
+ * uns segundos após a tela pintar. Enquanto não sabia, a tela ficava sem ele — e quando a
+ * resposta chegava, o cartão nascia no topo do Faturamento e empurrava a lista inteira para
+ * baixo. Quem estava lendo o mês perdia a linha; quem ia clicar clicava em outra coisa.
+ *
+ * Então o slot é reservado desde o primeiro paint. As medidas aqui não são estéticas: são as
+ * MESMAS do estado da pergunta (mesma `CAIXA`, mesmos paddings, 30px do ícone, 22px da linha
+ * de texto, os dois botões de 64px). Mudar padding lá e não mudar aqui traz o pulo de volta.
+ * ────────────────────────────────────────────────────────────────────────────── */
+function EsqueletoFiscal() {
+  const fantasma = "display:flex;flex-direction:column;gap:8px;flex:1;min-width:200px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);background:var(--bg)";
+  return (
+    <section aria-label="Nota fiscal" aria-busy="true" style={s(`flex-shrink:0;${CAIXA}`)}>
+      <div style={s("display:flex;align-items:center;gap:11px")}>
+        <span aria-hidden className="m-pulse"
+          style={s("width:30px;height:30px;flex-shrink:0;border-radius:99px;background:var(--surface-2)")} />
+        <Barra w="190px" h={15} />
+      </div>
+      {/* 22px = uma linha de --t-sm com line-height 1.55, que é o parágrafo que vem aqui. */}
+      <div style={s("display:flex;align-items:center;height:22px")}>
+        <Barra w="min(100%, 620px)" />
+      </div>
+      <div style={s("display:flex;gap:10px;flex-wrap:wrap")}>
+        <div style={s(fantasma)}><Barra w="110px" h={14} /><Barra w="min(100%, 240px)" h={12} /></div>
+        <div style={s(fantasma)}><Barra w="150px" h={14} /><Barra w="min(100%, 215px)" h={12} /></div>
+      </div>
+    </section>
+  );
+}
+
 export function LigarNotaFiscal() {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [cnpj, setCnpj] = useState("");
   const [previa, setPrevia] = useState<CadastroDoCnpj | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  /* ⚠️ EXISTE POR CAUSA DO ESQUELETO. Sem ele, uma leitura que falha deixa `estado` em `null`
+   * para sempre — e o esqueleto pulsa eternamente, prometendo um cartão que nunca chega. */
+  const [falhou, setFalhou] = useState(false);
   const [senha, setSenha] = useState("");
   const arquivo = useRef<HTMLInputElement>(null);
 
@@ -103,10 +151,12 @@ export function LigarNotaFiscal() {
     try {
       const r = await fetch("/api/fiscal", { cache: "no-store" });
       const d = await r.json();
-      if (d?.ok) setEstado(d as Estado);
+      if (d?.ok) setEstado(d as Estado); else setFalhou(true);
     } catch {
       /* Silêncio: esta tela é configuração, não operação. Uma faixa de erro por causa de uma
-       * leitura que falhou competiria com o faturamento do mês, que é o que importa aqui. */
+       * leitura que falhou competiria com o faturamento do mês, que é o que importa aqui.
+       * Silêncio não é imobilidade: o esqueleto precisa parar, senão a espera é infinita. */
+      setFalhou(true);
     }
   }, []);
 
@@ -146,7 +196,10 @@ export function LigarNotaFiscal() {
     }
   }
 
-  if (!estado) return null;
+  /* ⚠️ NÃO É `return null`. Ver `EsqueletoFiscal`: sumir agora é empurrar a lista depois.
+   * A leitura que falhou é o único caso que volta a sumir — esqueleto que nunca vira cartão
+   * é pior que cartão que não aparece. */
+  if (!estado) return falhou ? null : <EsqueletoFiscal />;
 
   const { config, caminho, falta, provedorFaltando } = estado;
   const ligado = config.empresaId != null;
@@ -169,10 +222,8 @@ export function LigarNotaFiscal() {
   const soRecibo = provedorFaltando.length > 0;
   if (soRecibo && ligado) return null;
 
-  const caixa = "background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow-card)";
-
   return (
-    <section aria-label="Nota fiscal" style={s(`flex-shrink:0;${caixa}`)}>
+    <section aria-label="Nota fiscal" style={s(`flex-shrink:0;${CAIXA}`)}>
       <div style={s("display:flex;align-items:center;gap:11px")}>
         <span aria-hidden style={s(`display:flex;align-items:center;justify-content:center;width:30px;height:30px;flex-shrink:0;border-radius:99px;background:${pronto ? "var(--success-soft)" : "var(--primary-soft)"}`)}>
           <Icon name={pronto ? "check" : "receipt"} size={16} sw={pronto ? 2.6 : 2} stroke={pronto ? "var(--success)" : "var(--primary-dark)"} />
