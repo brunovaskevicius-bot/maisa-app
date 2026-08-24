@@ -16,6 +16,7 @@ export * from "./expediente";
 export * from "./fiscal";
 export * from "./recibo-saude";
 export * from "./recibo-unitario";
+export * from "./checklist-recibo";
 export * from "./conversas";
 export * from "./assistente";
 export * from "./horarios";

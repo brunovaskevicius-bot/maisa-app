@@ -31,6 +31,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import { s, Btn, Card, Icon, SectionTitle, StatTile } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { cpfValido } from "@/nucleo/dominio/clientes";
+import {
+  checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
+  type ItemDoChecklist,
+} from "@/nucleo/dominio/checklist-recibo";
+import { hojeISO } from "@/nucleo/dominio/tempo";
+import type { ConfigFiscal } from "@/nucleo/dominio/fiscal";
 import { mensagemDaFalha } from "@/ui/falhas";
 import type { PagamentoPendente, RecibosPendentes } from "@/nucleo/portas/entrada/casos-de-uso";
 
@@ -42,6 +48,67 @@ import type { PagamentoPendente, RecibosPendentes } from "@/nucleo/portas/entrad
  * leva para a home logada e a pessoa acha que errou o caminho.
  */
 const CARNE_LEAO = "https://www.gov.br/pt-br/servicos/apurar-carne-leao";
+
+/**
+ * Uma linha do "pronto para emitir?".
+ *
+ * ⚠️ TRÊS ESTADOS, TRÊS DESENHOS, e o terceiro NÃO é cinza de "desligado": é o item que está
+ * do outro lado do muro. Pintá-lo de verde ou de vermelho seria afirmar algo que a gente não
+ * sabe — e ela sairia da tela achando que está tudo certo, para descobrir no e-CAC, sozinha.
+ * Então ele vira instrução, com seta em vez de selo.
+ */
+function ItemChecklist({ item }: { item: ItemDoChecklist }) {
+  const cor =
+    item.estado === "pronto" ? "var(--ok, var(--brand))"
+    : item.estado === "falta" ? "var(--warn)"
+    : "var(--muted)";
+  const icone =
+    item.estado === "pronto" ? "check"
+    : item.estado === "falta" ? "alert"
+    : "link";
+
+  return (
+    <div style={s("display:flex;gap:10px;align-items:flex-start;padding:9px 14px")}>
+      <span style={s(`color:${cor};margin-top:2px;flex-shrink:0`)}>
+        <Icon name={icone} size={16} sw={2.3} />
+      </span>
+      <div style={s("display:grid;gap:5px;min-width:0;flex:1")}>
+        <strong style={s("font-size:var(--t-sm);color:var(--ink)")}>{item.titulo}</strong>
+        {/* O `**negrito**` do domínio vira <strong> aqui: a frase é escrita por quem conhece a
+            regra, e a ênfase faz parte dela. Renderizar como texto cru perderia o que importa. */}
+        <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.55")}>
+          {negritar(item.detalhe)}
+        </span>
+
+        {item.passos && (
+          <ol style={s("margin:2px 0 0;padding-left:17px;display:grid;gap:4px;font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+            {item.passos.map((passo) => <li key={passo}>{passo}</li>)}
+          </ol>
+        )}
+
+        {item.link && (
+          <a
+            href={item.link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="m-press m-focus"
+            style={s("display:inline-flex;align-items:center;gap:7px;align-self:flex-start;margin-top:3px;padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--ink);font-size:var(--t-label);font-weight:var(--w-title);text-decoration:none")}
+          >
+            <Icon name="link" size={13} sw={2.2} />
+            {item.link.rotulo}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** `**assim**` → <strong>. Um `split` basta: a ênfase é o único markup que as frases usam. */
+function negritar(texto: string): React.ReactNode[] {
+  return texto.split(/\*\*(.+?)\*\*/g).map((parte, i) =>
+    i % 2 === 1 ? <strong key={i} style={s("color:var(--ink)")}>{parte}</strong> : <span key={i}>{parte}</span>,
+  );
+}
 
 type Lote = {
   loteId: string;
@@ -90,6 +157,9 @@ export function LoteReceitaSaude() {
   const [ehRecibo, setEhRecibo] = useState<boolean | null>(null);
   const [falta, setFalta] = useState<string[]>([]);
   const [cpfEmissor, setCpfEmissor] = useState<string | null>(null);
+  /* A config inteira, para o checklist. Já vinha na mesma resposta — só era descartada. */
+  const [config, setConfig] = useState<ConfigFiscal | null>(null);
+  const [checklistAberto, setChecklistAberto] = useState(false);
   const [pendentes, setPendentes] = useState<RecibosPendentes | null>(null);
   const [lote, setLote] = useState<Lote | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -127,6 +197,7 @@ export function LoteReceitaSaude() {
         setEhRecibo(recibo);
         setFalta(Array.isArray(r?.falta) ? r.falta : []);
         setCpfEmissor(typeof r?.config?.prestadorCpf === "string" ? r.config.prestadorCpf : null);
+        setConfig(r?.config ?? null);
         if (recibo) void lerPendentes();
       } catch {
         if (vivo) setEhRecibo(false);
@@ -310,12 +381,68 @@ export function LoteReceitaSaude() {
             ? "o valor recebido"
             : "";
 
+  /* Calculado na hora: é função pura sobre a config que já está em memória. Não vale uma rota
+   * nem um estado — e um `useMemo` aqui só esconderia que a conta é de três `if`. */
+  const checklist = config ? checklistDoRecibo(config, hojeISO()) : [];
+  const pendencias = faltaNoChecklist(checklist);
+
   return (
     <Card style={{ display: "grid", gap: 14 }}>
       <SectionTitle
         title="Recibos do mês — Receita Saúde"
         sub="A MAISA monta o arquivo. Quem emite e assina é você, no e-CAC."
       />
+
+      {/* ── ★ O "PRONTO PARA EMITIR?" ──
+          Existe porque o e-CAC recusa DEPOIS da viagem, em vocabulário de Receita. Os dois
+          erros mais comuns ("Ocupação não cadastrada", "Registro profissional não informado
+          pelo conselho") nascem do cadastro dela no Carnê-Leão — que a gente não alcança e não
+          pode fingir que checou. Ver `checklistDoRecibo`. */}
+      {checklist.length > 0 && (
+        <div style={s("display:grid;gap:0;border:1px solid var(--border);border-radius:12px;overflow:hidden")}>
+          <button
+            type="button"
+            onClick={() => setChecklistAberto((v) => !v)}
+            className="m-press m-focus"
+            style={s("display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;border:0;background:var(--bg);color:var(--ink);cursor:pointer;text-align:left;font-size:var(--t-sm);font-weight:var(--w-title)")}
+          >
+            <Icon name={pendencias > 0 ? "alert" : "check"} size={17} sw={2.3} />
+            <span style={s("flex:1")}>
+              Pronto para emitir?
+              {pendencias > 0 && (
+                <span style={s("color:var(--warn);font-weight:var(--w-body)")}>
+                  {" "}· {pendencias} {pendencias === 1 ? "item" : "itens"} para você preencher
+                </span>
+              )}
+            </span>
+            {/* `arrow-right` rotacionado: não existe `up`/`down` no conjunto de ícones,
+                e inventar um SVG solto aqui furaria o design system por uma seta. */}
+            <span style={s(`display:inline-flex;transition:transform .15s;transform:rotate(${checklistAberto ? 90 : 0}deg)`)}>
+              <Icon name="arrow-right" size={15} />
+            </span>
+          </button>
+
+          {checklistAberto && (
+            <div style={s("display:grid;gap:2px;padding:4px 0 10px;border-top:1px solid var(--border)")}>
+              {checklist.map((i) => <ItemChecklist key={i.id} item={i} />)}
+
+              {/* A escada do "e se recusar mesmo com tudo certo?". O último degrau é um e-mail
+                  da Receita que quase ninguém sabe que existe — sem ele, a profissional com
+                  registro ativo e recusa persistente conclui que o produto está quebrado. */}
+              <details style={s("margin:6px 14px 0;font-size:var(--t-label);color:var(--muted)")}>
+                <summary style={s("cursor:pointer;font-weight:var(--w-title);color:var(--ink)")}>
+                  E se o e-CAC recusar mesmo com tudo certo?
+                </summary>
+                <ol style={s("margin:8px 0 0;padding-left:18px;display:grid;gap:6px;line-height:1.55")}>
+                  {seAindaRecusar(config?.ocupacaoSaude ?? null).map((passo) => (
+                    <li key={passo}>{passo}</li>
+                  ))}
+                </ol>
+              </details>
+            </div>
+          )}
+        </div>
+      )}
 
       {falta.length > 0 ? (
         <div style={s("display:flex;gap:10px;align-items:flex-start;color:var(--warn)")}>

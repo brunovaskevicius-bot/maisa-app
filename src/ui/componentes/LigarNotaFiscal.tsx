@@ -267,9 +267,15 @@ export function LigarNotaFiscal() {
             </select>
           </label>
 
-          {/* Opcional para a Receita (quem tem um registro só pode omitir) e decisivo para o
-              paciente: recibo sem o número do conselho é o motivo nº 1 de recusa de reembolso
-              pelo plano de saúde. Por isso a frase diz para que serve, em vez de "opcional". */}
+          {/* ⚠️ NÃO BLOQUEIA, E A FRASE DIZ ISSO — o campo 16 do arquivo aceita vazio (manual
+              2.1, pergunta 25). Marcar como obrigatório impediria de fechar o mês por um dado
+              que a Receita nem exige.
+
+              Mas ele importa por dois motivos que a frase precisa carregar: é o que o plano de
+              saúde exige para reembolsar o paciente, e é o número que **tem que estar também no
+              Carnê-Leão dela** — que é de onde vem o erro "Registro profissional não informado
+              pelo conselho profissional". A Receita cruza CPF ↔ base do conselho; digitar aqui
+              não substitui o cadastro lá. Ver `checklistDoRecibo`. */}
           <label style={s("display:flex;flex-direction:column;gap:6px")}>
             <span style={s("font-size:var(--t-label);color:var(--muted)")}>
               Seu registro no conselho — é ele que o plano de saúde exige para reembolsar
@@ -281,6 +287,17 @@ export function LigarNotaFiscal() {
               className="n m-focus"
               style={s("font-family:inherit;font-size:var(--t-body);padding:11px 13px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--ink)")}
             />
+            {!registro.trim() && (
+              <span style={s("display:flex;gap:7px;align-items:flex-start;font-size:var(--t-label);color:var(--warn);line-height:1.5")}>
+                <Icon name="alert" size={14} />
+                <span>
+                  Dá para deixar em branco, mas o mesmo número precisa estar cadastrado no seu
+                  Carnê-Leão — senão a Receita recusa o arquivo com{" "}
+                  <em>&ldquo;registro profissional não informado pelo conselho&rdquo;</em>. Depois
+                  de salvar, veja o passo a passo em <strong>Pronto para emitir?</strong>
+                </span>
+              </span>
+            )}
           </label>
 
           <div style={s("display:flex;gap:10px;align-items:center;flex-wrap:wrap")}>
