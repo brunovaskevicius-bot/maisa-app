@@ -14,6 +14,7 @@ import { useIsMobile, useEstreita } from "@/ui/useIsMobile";
 import { useStore, type TelaId } from "@/ui/estado/store";
 import { Cartao, GradeCartoes, Hero, TelaGrade, type TomTag } from "@/ui/componentes/Cartao";
 import { LigarNotaFiscal } from "@/ui/componentes/LigarNotaFiscal";
+import { LoteReceitaSaude } from "../componentes/LoteReceitaSaude";
 
 /* Estado da nota → como o cartão se apresenta. Um lugar só, para as duas telas
    que mostram nota (Faturamento e a ficha do cliente) contarem a mesma coisa. */
@@ -149,6 +150,11 @@ export function Faturamento() {
           quando não há nada a fazer (e quando o emissor não está configurado no ambiente,
           que não é problema do dono). */}
       <LigarNotaFiscal />
+
+      {/* Some sozinho quando o negócio emite nota fiscal — quem decide é `caminhoDaNota`, e
+          esta tela nunca escolhe. Para quem atende como pessoa física é o oposto: é o ÚNICO
+          documento que ela emite, e o `LigarNotaFiscal` acima é que fica invisível. */}
+      <LoteReceitaSaude />
 
       {base.length === 0 ? (
         <EmptyState icon="receipt" title="Nada a faturar" sub="Nenhum cliente ativo com valor fechado nesta competência." />

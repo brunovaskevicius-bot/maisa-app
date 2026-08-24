@@ -21,7 +21,7 @@ import type { ContextoTenant } from "../dominio/tenant";
 import { DadoInvalido } from "../dominio/erros";
 import {
   codigoNacionalDoCnae, criarEnviarCertificado, criarLerEstadoFiscal,
-  criarLiberarProducaoFiscal, criarLigarNotaFiscal,
+  criarLiberarProducaoFiscal, criarLigarNotaFiscal, criarLigarReciboSaude,
 } from "./fiscal";
 
 const t: ContextoTenant = { tenantId: "neg-1", usuarioId: "u-1", ator: { tipo: "usuario", id: "u-1" } };
@@ -32,6 +32,9 @@ const VAZIA: ConfigFiscal = {
   optanteMei: false, optanteSimples: false,
   empresaId: null, certificadoValidoAte: null,
   codigoTributacaoNacional: null,
+  prestadorCpf: null,
+  ocupacaoSaude: null,
+  registroProfissional: null,
   inscricaoMunicipal: null, itemListaServico: null, aliquotaIss: null,
   codigoTributarioMunicipio: null,
 };
@@ -274,5 +277,81 @@ describe("ler o estado", () => {
       fiscal: repo().r, cadastro: emissor({ faltando: () => ["FOCUS_NFE_TOKEN"] }),
     });
     expect((await ler(t)).provedorFaltando).toEqual(["FOCUS_NFE_TOKEN"]);
+  });
+});
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * LIGAR O RECIBO — o outro lado da bifurcação.
+ *
+ * ★ O QUE ESTES TESTES PRENDEM É UMA AUSÊNCIA: depois de ligar, `falta` fica VAZIO sem
+ * ninguém ter enviado certificado, criado empresa ou consultado a Receita. Se algum dia
+ * alguém acrescentar uma exigência de CNPJ na função compartilhada, é aqui que quebra.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+describe("ligar o Receita Saúde", () => {
+  it("grava CPF, ocupação e registro — e não fala com o provedor", async () => {
+    const { r, atual } = repo();
+    const cadastro = emissor();
+    const ligar = criarLigarReciboSaude({ fiscal: r, cadastro });
+
+    const estado = await ligar(t, { cpf: "123.456.789-09", ocupacao: "psicologo", registro: "CRP 06/123456" });
+
+    expect(atual().prestadorCpf).toBe("12345678909");
+    expect(atual().ocupacaoSaude).toBe("psicologo");
+    expect(atual().registroProfissional).toBe("CRP 06/123456");
+    expect(estado.caminho).toBe("recibo_saude");
+    /* Nenhuma das três chamadas que custam dinheiro ou dependem de rede. */
+    expect(cadastro.consultarCnpj).not.toHaveBeenCalled();
+    expect(cadastro.criarEmpresa).not.toHaveBeenCalled();
+    expect(cadastro.enviarCertificado).not.toHaveBeenCalled();
+  });
+
+  /* ★ A AUSÊNCIA QUE É O PRODUTO. */
+  it("fica pronto para emitir SEM certificado digital", async () => {
+    const { r } = repo();
+    const ligar = criarLigarReciboSaude({ fiscal: r, cadastro: emissor() });
+    const estado = await ligar(t, { cpf: "12345678909", ocupacao: "fisioterapeuta", registro: null });
+    expect(estado.falta).toEqual([]);
+  });
+
+  /* Não existe homologação neste caminho — o ensaio é o "Analisar Arquivo" do e-CAC. Deixar
+   * em homologação faria a tela estampar "modo teste" sobre o arquivo que ela vai importar. */
+  it("nasce em produção", async () => {
+    const { r, atual } = repo();
+    await criarLigarReciboSaude({ fiscal: r, cadastro: emissor() })(t, { cpf: "12345678909", ocupacao: "psicologo" });
+    expect(atual().ambiente).toBe("producao");
+  });
+
+  it("recusa CPF que não tem 11 dígitos", async () => {
+    const { r } = repo();
+    await expect(criarLigarReciboSaude({ fiscal: r, cadastro: emissor() })(t, { cpf: "123", ocupacao: "psicologo" }))
+      .rejects.toBeInstanceOf(DadoInvalido);
+  });
+
+  /* A lista de ocupações é fechada pela Receita: nutricionista não está nela, e um código
+   * inventado só falha na análise do arquivo, depois, com mensagem que fala do CSV. */
+  it("recusa profissão fora da lista da Receita", async () => {
+    const { r } = repo();
+    await expect(criarLigarReciboSaude({ fiscal: r, cadastro: emissor() })(
+      t, { cpf: "12345678909", ocupacao: "nutricionista" as never },
+    )).rejects.toBeInstanceOf(DadoInvalido);
+  });
+
+  /* Virar o caminho com empresa já criada deixaria um CNPJ vivo e cobrado no provedor, com o
+   * dono achando que "desligou a nota fiscal". */
+  it("recusa trocar de caminho quando já existe empresa no emissor", async () => {
+    const { r } = repo({ ...VAZIA, cnpj: "12345678000123", empresaId: 9001, optanteMei: true });
+    await expect(criarLigarReciboSaude({ fiscal: r, cadastro: emissor() })(
+      t, { cpf: "12345678909", ocupacao: "psicologo" },
+    )).rejects.toThrow(/já está ligado com CNPJ/i);
+  });
+
+  it("corta o registro profissional em 15 caracteres, como o arquivo exige", async () => {
+    const { r, atual } = repo();
+    await criarLigarReciboSaude({ fiscal: r, cadastro: emissor() })(
+      t, { cpf: "12345678909", ocupacao: "psicologo", registro: "CRP 06/123456789012345" },
+    );
+    expect(atual().registroProfissional).toHaveLength(15);
   });
 });

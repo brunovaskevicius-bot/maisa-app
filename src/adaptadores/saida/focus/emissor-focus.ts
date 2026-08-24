@@ -105,7 +105,7 @@ export const emissorFocus: EmissorFiscal = {
     if (semEmissor()) return { status: "simulado", ref: p.ref, ambiente: config.ambiente, simulado: true };
 
     const prestador = await prestadorDe(config);
-    const nacional = caminhoDaNota(config) === "nacional";
+    const nacional = caminhoDaNota(config, hojeISO()) === "nacional";
     const input: EmissaoInput = {
       ref: p.ref,
       valorServicos: p.valor,
@@ -168,7 +168,7 @@ export const emissorFocus: EmissorFiscal = {
     if (semEmissor()) return { status: "simulado", ref, ambiente: config.ambiente, simulado: true };
 
     const prestador = await prestadorDe(config);
-    const nacional = caminhoDaNota(config) === "nacional";
+    const nacional = caminhoDaNota(config, hojeISO()) === "nacional";
 
     let data: any;
     try {
@@ -201,7 +201,7 @@ export const emissorFocus: EmissorFiscal = {
     if (semEmissor()) return { status: "cancelado", ref, ambiente: config.ambiente, simulado: true };
 
     const prestador = await prestadorDe(config);
-    const nacional = caminhoDaNota(config) === "nacional";
+    const nacional = caminhoDaNota(config, hojeISO()) === "nacional";
     const motivo = justificativa || JUSTIFICATIVA_PADRAO;
 
     let data: any;

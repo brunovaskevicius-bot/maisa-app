@@ -36,6 +36,7 @@ import type {
   AFaturar, AmbienteFiscal, CadastroDoCnpj, CaminhoFiscal, ConfigFiscal, NotaGravada,
   ResultadoDeNota,
 } from "../../dominio/fiscal";
+import type { OcupacaoSaude } from "../../dominio/recibo-saude";
 import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
 import type { VagasDoDia } from "../../dominio/vagas";
 import type { Faq, FaqEncontrada } from "../../dominio/faq";
@@ -560,3 +561,228 @@ export type EnviarCertificado = (
  * metade" e um documento fiscal torto que só se conserta cancelando na prefeitura.
  */
 export type LiberarProducaoFiscal = (t: ContextoTenant) => Promise<EstadoFiscal>;
+
+/* ─────────────────── o lote do Receita Saúde (prestador pessoa física) ───────────────────
+ *
+ * ★ ESTE BLOCO NÃO É NOTA FISCAL, e a separação é o conteúdo. Quem atende como pessoa
+ * física — psicóloga, fisioterapeuta, fonoaudióloga, TO — emite o **Recibo Eletrônico de
+ * Serviços de Saúde** no e-CAC, obrigatório desde 01/01/2025 (IN RFB 2.240/2024). Não há
+ * provedor, não há certificado, não há prefeitura.
+ *
+ * O que a MAISA entrega é o **arquivo**: um CSV que ela importa no Carnê-Leão e assina. A
+ * emissão é dela, não nossa — e por isso não existe `EmitirRecibo` aqui. Prometer emissão
+ * seria vender o que o produto não faz.
+ * ──────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Uma linha que vai (ou não) para o próximo arquivo.
+ *
+ * ★ EXISTE PARA A TELA MOSTRAR O QUE VAI NO ARQUIVO **ANTES** DE GERAR. Sem isso, lançar um
+ * pagamento à mão era um formulário que engolia o dado: o dono clicava em "lançar" e não via
+ * nada mudar até gerar o arquivo — e no recarregar da página ficava sem saber se salvou.
+ */
+export type PagamentoPendente = {
+  id: string;
+  /** `atendimento` veio da agenda; `avulso` foi digitado. */
+  fonte: "atendimento" | "avulso";
+  nome: string;
+  cpf: string | null;
+  data: string;
+  valor: number;
+  /**
+   * Só avulso se apaga, e a tela usa isto para decidir o botão.
+   *
+   * ⚠️ Atendimento NÃO se apaga por aqui: ele é o registro de que o serviço aconteceu, e
+   * apagá-lo para "tirar do recibo" perderia a agenda junto. Quem não quer emitir tira o CPF
+   * ou cancela o atendimento na tela dele.
+   */
+  podeExcluir: boolean;
+};
+
+export type RecibosPendentes = {
+  pagamentos: PagamentoPendente[];
+  /** Soma do que está pronto para entrar — os sem CPF não entram e não somam. */
+  total: number;
+  /** Quantos estão sem CPF. É a única pendência que o dono resolve sozinho. */
+  semCpf: number;
+};
+
+/** O que vai no próximo arquivo, para a tela mostrar antes de gerar. */
+export type LerRecibosPendentes = (t: ContextoTenant) => Promise<RecibosPendentes>;
+
+/**
+ * Lança um pagamento que não está na agenda.
+ *
+ * ★ A NECESSIDADE, NA PALAVRA DO BRUNO (21/08/2026): "nem tudo vai estar registrado
+ * automaticamente, a MAISA cobre a maioria dos casos, mas não todos."
+ *
+ * Sessão marcada por fora, pacote pago adiantado, paciente que voltou depois de meses. O
+ * recibo é obrigatório do mesmo jeito, e a unidade do arquivo sempre foi o pagamento — o
+ * atendimento é só a fonte mais comum de um.
+ */
+export type LancarPagamentoAvulso = (
+  t: ContextoTenant,
+  p: {
+    data: string;
+    valor: number;
+    nome: string;
+    cpf: string;
+    cpfPagador?: string | null;
+    clienteId?: string | null;
+    observacao?: string | null;
+  },
+) => Promise<PagamentoPendente>;
+
+/** Apaga um lançamento avulso — só enquanto ele não entrou num arquivo. */
+export type ExcluirPagamentoAvulso = (t: ContextoTenant, p: { id: string }) => Promise<void>;
+
+/** O arquivo gerado, mais tudo que a tela precisa dizer sobre ele. */
+export type LoteDeRecibos = {
+  loteId: string;
+  competencia: string;
+  /** O conteúdo do CSV. A rota devolve como download; a tela nunca o mostra. */
+  csv: string;
+  /** Nome sugerido, com CPF e competência — para não importar o mês errado duas vezes. */
+  arquivo: string;
+  linhas: number;
+  valor: number;
+  /**
+   * ⚠️ O QUE FICOU DE FORA, EM PORTUGUÊS. Nunca vazio por preguiça: um arquivo com 8 de 12
+   * sessões e nenhum aviso faz o dono assinar achando que fechou o mês, e as outras 4 só
+   * aparecem quando um paciente cobrar o recibo.
+   */
+  avisos: string[];
+};
+
+/**
+ * Monta o lote do período e prende os atendimentos nele.
+ *
+ * `ate` é o último dia que entra (inclusive). Sem ele, o padrão é hoje — ninguém emite
+ * recibo de sessão que ainda não aconteceu.
+ */
+export type GerarLoteDeRecibos = (
+  t: ContextoTenant,
+  p: { ate?: string },
+) => Promise<LoteDeRecibos>;
+
+/**
+ * Liga o caminho do recibo: grava CPF, ocupação e registro do conselho.
+ *
+ * ★ É O PAR DE `LigarNotaFiscal`, E A ASSIMETRIA É O PRODUTO. Lá são 14 dígitos e a Receita
+ * responde o resto, mas sobra o certificado A1 — um arquivo que o cliente tem que comprar.
+ * Aqui são três campos digitados e **acabou**: não há empresa para criar num provedor, não há
+ * certificado, não há custo por documento. O onboarding fecha na mesma reunião.
+ */
+export type LigarReciboSaude = (
+  t: ContextoTenant,
+  p: { cpf: string; ocupacao: OcupacaoSaude; registro?: string | null },
+) => Promise<EstadoFiscal>;
+
+/**
+ * Desliga o caminho do recibo e devolve o negócio à pergunta "nota fiscal ou recibo?".
+ *
+ * ★ EXISTE PORQUE ESCOLHER ERRADO TEM QUE SER BARATO. A pergunta do onboarding é sobre o
+ * regime de quem atende, e quem está testando o produto — ou quem clicou rápido — vai errar.
+ * Sem esta saída, consertar era `update config_fiscal` no SQL Editor.
+ *
+ * ⚠️ RECUSA DEPOIS QUE EXISTE LOTE IMPORTADO, e essa é a linha que separa "configuração" de
+ * "histórico fiscal". Lote importado significa recibo emitido no e-CAC, no nome dela, com o
+ * paciente já podendo ver — a partir daí trocar o caminho não é preferência, é apagar o
+ * rastro do documento que a MAISA ajudou a emitir. Enquanto ninguém importou nada, o arquivo
+ * é inerte e trocar não custa nada.
+ */
+export type DesligarReciboSaude = (t: ContextoTenant) => Promise<EstadoFiscal>;
+
+/** O que aconteceu com o aviso no WhatsApp, para a tela dizer um número em vez de "pronto". */
+export type FechamentoDeLote = {
+  /** Quantas pessoas receberam a mensagem. `0` quando `avisar` veio falso. */
+  avisados: number;
+  /** Entraram no arquivo mas não têm telefone. O recibo saiu; o aviso não. */
+  semTelefone: number;
+  /**
+   * ⚠️ FALHAS DE ENVIO, NÃO DE EMISSÃO. O recibo já é fato quando isto acontece — o lote foi
+   * importado no e-CAC pela mão dela. Uma mensagem que não sai não desfaz nada, e travar o
+   * fechamento por causa disso deixaria o lote eternamente "gerado" para o mês seguinte
+   * faturar de novo.
+   */
+  falhas: number;
+};
+
+/**
+ * O dono diz o que aconteceu com o arquivo depois de sair daqui.
+ *
+ * ★ `avisar` É OPT-IN, E O PADRÃO É NÃO MANDAR NADA.
+ *
+ * A MAISA fala pelo WhatsApp **pessoal** de quem a usa. Disparar mensagem para trinta
+ * pacientes porque um campo veio `undefined` numa chamada de API é o tipo de erro que não tem
+ * desfazer — então quem quer o disparo pede explicitamente. Ver `avisoDeRecibo` para o texto,
+ * e para o porquê de a mensagem ser a NOTÍCIA do recibo e não o recibo.
+ */
+export type FecharLoteDeRecibos = (
+  t: ContextoTenant,
+  p: { loteId: string; situacao: "importado" | "descartado"; avisar?: boolean },
+) => Promise<FechamentoDeLote>;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * EMISSÃO UNITÁRIA DO RECIBO — o caminho que devolve o PDF oficial.
+ *
+ * ★ É O IRMÃO DE `GerarLoteDeRecibos`, e a diferença é quem aperta o botão. No lote a MAISA
+ * monta um CSV e uma PESSOA o importa no e-CAC; aqui a emissão sai por um canal programático e
+ * volta com chave e PDF, que o lote nunca devolve.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+/** O que a tela mostra depois de mandar um recibo. */
+export type ReciboLancado = {
+  reciboId: string;
+  canal: "automacao" | "rebots";
+  /**
+   * ⚠️ QUASE SEMPRE `pendente`, e a tela **não pode escrever "emitido"** em cima disso. A
+   * emissão é assíncrona: quem lê este campo como sucesso promete um documento que talvez não
+   * exista. Ver `podeTentarOutroCanal`.
+   */
+  situacao: "pendente" | "emitido";
+  protocolo: string;
+  /** Somado pelo banco na claim, nunca recebido da tela. */
+  valor: number;
+  nome: string;
+  data: string;
+};
+
+/**
+ * Emite UM recibo, do pagamento que está na lista.
+ *
+ * ⚠️ RECEBE APENAS `fonte` E `id`. Valor, CPF e data saem do banco — a rota `/api/nf/emitir`
+ * aceitava `valor` e `tomador` do corpo até 17/08/2026, e com isso um POST forjado emitia
+ * documento fiscal de qualquer valor para qualquer CPF, sob o CNPJ do dono.
+ */
+export type EmitirRecibo = (
+  t: ContextoTenant,
+  p: { fonte: "atendimento" | "avulso"; id: string },
+) => Promise<ReciboLancado>;
+
+/** O placar de uma rodada de reconciliação. */
+export type ResultadoDaReconciliacao = {
+  /** Quantos foram efetivamente perguntados ao canal. Cada um custa uma consulta. */
+  olhados: number;
+  emitidos: number;
+  recusados: number;
+  /** Novos demais, ou o canal ainda não sabe. Continuam na fila — e isso é o certo. */
+  aindaPendentes: number;
+  /**
+   * ⚠️ IRRECONCILIÁVEIS: `pendente` sem protocolo, do processo que morreu no meio. Não há o que
+   * perguntar. Este número **tem que aparecer na tela** — é a única coisa aqui que exige gente.
+   */
+  semProtocolo: number;
+};
+
+/**
+ * Pergunta ao canal o que aconteceu com os pendentes vencidos.
+ *
+ * ★ É O QUE TORNA A CASCATA SEGURA. Sem isto, um `pendente` velho só tem saídas erradas: cair
+ * para o próximo canal (emite o segundo recibo) ou ficar pendurado (o pagamento desaparece do
+ * faturamento). Ela não decide nada — só grava o que o canal respondeu.
+ */
+export type ReconciliarRecibos = (
+  t: ContextoTenant,
+  agora?: Date,
+) => Promise<ResultadoDaReconciliacao>;

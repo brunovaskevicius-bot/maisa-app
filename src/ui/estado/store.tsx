@@ -2873,6 +2873,37 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     window.history.replaceState({}, "", window.location.pathname + (busca ? `?${busca}` : ""));
   }, [lerStatusGoogle]);
 
+  /* ─────────────────────────────────────────────────────────────────────────
+   * `?tela=` — link que abre direto numa tela.
+   *
+   * ★ EXISTE PARA O LINK QUE A GENTE MANDA NO WHATSAPP. "Entra no painel, clica em Mais,
+   * depois em Faturamento" é instrução que se perde na terceira palavra; `/?tela=faturamento`
+   * é um toque. É o mesmo motivo do `?google=ok` acima: quem chega de fora chega no lugar.
+   *
+   * ⚠️ Valida contra a lista antes de aplicar. `TelaId` é tipo, e tipo não existe em runtime:
+   * um `?tela=qualquercoisa` viraria `st.tela` inválido, o mapa de telas devolveria
+   * `undefined` e a tela inteira ficaria branca — a partir de um parâmetro que qualquer um
+   * escreve na barra de endereço.
+   *
+   * A URL é limpa depois: o parâmetro é uma instrução de chegada, não estado. Deixá-lo faria
+   * o F5 no meio de outra tela pular de volta, o que parece bug de navegação.
+   * ───────────────────────────────────────────────────────────────────────── */
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const alvo = q.get("tela");
+    if (!alvo) return;
+
+    const VALIDAS: TelaId[] = [
+      "fluxo", "conversas", "agenda", "clientes", "faturamento",
+      "equipe", "servicos", "assistente", "contatos", "mais",
+    ];
+    if (VALIDAS.includes(alvo as TelaId)) irPara(alvo as TelaId);
+
+    q.delete("tela");
+    const busca = q.toString();
+    window.history.replaceState({}, "", window.location.pathname + (busca ? `?${busca}` : ""));
+  }, [irPara]);
+
   const googleDe = useCallback(
     (pid: string) => google.conexoes.find((c) => c.profissionalId === pid),
     [google.conexoes],

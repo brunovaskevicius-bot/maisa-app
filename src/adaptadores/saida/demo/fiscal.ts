@@ -33,6 +33,11 @@ let estado: ConfigFiscal = {
   /* ⚠️ NULO DE PROPÓSITO — é o passo que falta na vida real. */
   certificadoValidoAte: null,
   codigoTributacaoNacional: "060101",
+  /* Nulos: este demo é o do MEI. O caminho do recibo tem demo próprio — ver `recibos.ts`,
+   * que monta um lote de verdade a partir dos mesmos fixtures de clientes. */
+  prestadorCpf: null,
+  ocupacaoSaude: null,
+  registroProfissional: null,
   inscricaoMunicipal: null,
   itemListaServico: null,
   aliquotaIss: null,

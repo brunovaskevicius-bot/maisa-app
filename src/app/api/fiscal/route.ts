@@ -9,8 +9,10 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 // GET   /api/fiscal            →  { config, caminho, falta, provedorFaltando }
 // GET   /api/fiscal?cnpj=…     →  { cadastro }   prévia na Receita, não grava nada
 // POST  /api/fiscal            →  { …estado }    liga: consulta o CNPJ e cria a empresa
+// POST  /api/fiscal  { cpf }    →  { …estado }    liga o caminho do RECIBO (pessoa física)
 // PUT   /api/fiscal            →  { …estado }    instala o certificado A1
 // PATCH /api/fiscal            →  { …estado }    vira a chave para produção
+// DELETE /api/fiscal           →  { …estado }    desliga o caminho do RECIBO e volta à pergunta
 //
 // ── ⚠️ `exigirSessao`, NUNCA `sessaoOuDemo` ──
 //
@@ -61,17 +63,33 @@ export async function POST(request: Request) {
   const porteiro = await exigirSessao();
   if (barrou(porteiro)) return porteiro.barrado;
 
-  const corpo = await request.json().catch(() => null);
+  const corpo = await request.json().catch(() => null) as
+    { cnpj?: unknown; cpf?: unknown; ocupacao?: unknown; registro?: unknown; email?: unknown } | null;
 
   try {
+    /* ── ⚠️ A BIFURCAÇÃO DO ONBOARDING FISCAL MORA AQUI, E É UM CAMPO ──
+     *
+     * `cpf` no corpo = quem atende como pessoa física, e o documento dele é o Recibo
+     * Eletrônico de Serviços de Saúde, não nota fiscal. Nada de provedor, nada de
+     * certificado. `cnpj` = o caminho de sempre.
+     *
+     * Um campo e não uma rota nova porque a pergunta da tela é UMA ("como você atende?") e
+     * as duas respostas terminam no mesmo lugar: `EstadoFiscal`. Duas rotas fariam a tela
+     * escolher URL, e o dia em que aparecer o terceiro regime seriam três telas. */
+    if (typeof corpo?.cpf === "string" && corpo.cpf.replace(/\D/g, "").length > 0) {
+      const estado = await app.ligarReciboSaude(porteiro.tenant, {
+        cpf: corpo.cpf,
+        ocupacao: String(corpo.ocupacao ?? "") as never,
+        registro: typeof corpo.registro === "string" ? corpo.registro : null,
+      });
+      return NextResponse.json({ ok: true, status: "ok", ...estado });
+    }
+
     const estado = await app.ligarNotaFiscal(porteiro.tenant, {
-      cnpj: String((corpo as { cnpj?: unknown } | null)?.cnpj ?? ""),
+      cnpj: String(corpo?.cnpj ?? ""),
       /* Para onde o emissor manda aviso de nota. Opcional: quem avisa o cliente é a MAISA,
        * pelo WhatsApp — o e-mail aqui é só para o dono receber cópia se quiser. */
-      email: (() => {
-        const e = (corpo as { email?: unknown } | null)?.email;
-        return typeof e === "string" && e.trim() ? e.trim() : null;
-      })(),
+      email: typeof corpo?.email === "string" && corpo.email.trim() ? corpo.email.trim() : null,
     });
     return NextResponse.json({ ok: true, status: "ok", ...estado });
   } catch (e) {
@@ -109,6 +127,29 @@ export async function PATCH() {
      * não se apaga, cancela-se na prefeitura. Um corpo com `{ ambiente }` convidaria a
      * mandar "producao" antes de estar pronto; quem recusa é o caso de uso. */
     const estado = await app.liberarProducaoFiscal(porteiro.tenant);
+    return NextResponse.json({ ok: true, status: "ok", ...estado });
+  } catch (e) {
+    return falha("fiscal", e);
+  }
+}
+
+
+/**
+ * Desliga o caminho do recibo.
+ *
+ * ⚠️ SÓ O DO RECIBO, e a assimetria é deliberada: o caminho do CNPJ não se desliga por aqui
+ * porque a empresa cadastrada no provedor continua existindo (e cobrada). "Apagar a
+ * configuração" daria ao dono a impressão de ter desfeito algo que continua lá.
+ *
+ * O caso de uso recusa quando já existe lote importado — a partir daí não é preferência de
+ * tela, é histórico de documento emitido.
+ */
+export async function DELETE() {
+  const porteiro = await exigirSessao();
+  if (barrou(porteiro)) return porteiro.barrado;
+
+  try {
+    const estado = await app.desligarReciboSaude(porteiro.tenant);
     return NextResponse.json({ ok: true, status: "ok", ...estado });
   } catch (e) {
     return falha("fiscal", e);

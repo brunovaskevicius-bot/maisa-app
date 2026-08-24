@@ -69,7 +69,10 @@ const ETAPAS: { id: EtapaId; titulo: string; sub: string }[] = [
    * Então a etapa pergunta "agora ou depois", e "depois" é uma resposta de primeira classe:
    * o cartão da jornada continua cobrando no painel, sem pressa. O que não podia acontecer é
    * o dono terminar o onboarding sem SABER que isto existe. */
-  { id: "fiscal", titulo: "Nota fiscal", sub: "Ela emite sozinha depois do atendimento" },
+  /* "Nota fiscal" sozinho mentia para metade do ICP: quem atende como pessoa física emite
+   * RECIBO (Receita Saúde), não nota — e o certificado digital, que a frase antiga prometia
+   * implicitamente, não existe nesse caminho. */
+  { id: "fiscal", titulo: "Nota fiscal ou recibo", sub: "O documento que sai depois do atendimento" },
 ];
 
 const VERTICAIS: { id: Vertical; rotulo: string; desc: string; icone: string }[] = [
@@ -1216,7 +1219,10 @@ function EtapaNotaFiscal({ aoPainel }: { aoPainel: () => void }) {
         setEstado({
           falta: d.falta ?? [],
           provedorFaltando: d.provedorFaltando ?? [],
-          ligado: d.config?.empresaId != null,
+          /* Ligado = tem empresa no emissor OU tem CPF de prestador. As duas coisas
+           * significam "o dono já decidiu qual documento sai" — e é isso que a despedida
+           * desta etapa pergunta. */
+          ligado: d.config?.empresaId != null || d.config?.prestadorCpf != null,
         });
       })
       .catch(() => { if (vivo) setEstado({ falta: [], provedorFaltando: ["leitura"], ligado: false }); });
@@ -1225,25 +1231,33 @@ function EtapaNotaFiscal({ aoPainel }: { aoPainel: () => void }) {
 
   if (!estado) return <div style={{ minHeight: 200 }} aria-busy="true" />;
 
-  const indisponivel = estado.provedorFaltando.length > 0;
-  const pronto = !indisponivel && estado.falta.length === 0;
+  /* ── ⚠️ "INDISPONÍVEL" DEIXOU DE SER SÓ `provedorFaltando` ──
+   *
+   * Sem `FOCUS_NFE_TOKEN` no ambiente não há como ligar NOTA FISCAL. Mas o caminho do RECIBO
+   * (Receita Saúde, para quem atende como pessoa física) não passa pelo provedor: são três
+   * campos, sem certificado e sem empresa cadastrada em lugar nenhum.
+   *
+   * Ou seja: `provedorFaltando` sozinho não pode mais apagar esta etapa. Quando ele apagava,
+   * a psicóloga que poderia ter ligado o Receita Saúde em trinta segundos terminava o
+   * onboarding sem nunca saber que isso existe — que é exatamente o desfecho ruim que esta
+   * etapa foi criada para evitar. O `LigarNotaFiscal` lá dentro já sabe oferecer só a metade
+   * que funciona. */
+  const pronto = estado.falta.length === 0 && estado.ligado;
 
   /* Já está tudo ligado (ou não há o que ligar): só a despedida. Perguntar "quer ligar a nota
    * fiscal?" a quem já ligou é o tipo de tela que faz a pessoa desconfiar do produto. */
-  if (pronto || indisponivel) {
+  if (pronto) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 18, alignItems: "center", textAlign: "center" }}>
-        <div style={s(`display:flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:999px;background:${pronto ? "var(--success-soft)" : "var(--primary-soft)"}`)}>
-          <Icon name={pronto ? "check" : "receipt"} size={27} sw={pronto ? 2.6 : 2} stroke={pronto ? "var(--success)" : "var(--primary-dark)"} />
+        <div style={s("display:flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:999px;background:var(--success-soft)")}>
+          <Icon name="check" size={27} sw={2.6} stroke="var(--success)" />
         </div>
         <div>
           <p style={s("font-size:var(--t-body);font-weight:var(--w-title);color:var(--ink);margin:0")}>
-            {pronto ? "Sua nota fiscal já está ligada" : "Tudo pronto"}
+            Seu documento fiscal já está ligado
           </p>
           <p style={s("font-size:var(--t-sm);color:var(--muted);margin:8px 0 0;line-height:1.55")}>
-            {pronto
-              ? "Depois de cada atendimento ela emite sozinha. Você acompanha em Faturamento."
-              : "A MAISA está no ar. A nota fiscal fica em Faturamento, quando você quiser ligar."}
+            Você acompanha tudo em Faturamento, atendimento por atendimento.
           </p>
         </div>
         <Botao onClick={aoPainel} full>Abrir meu painel</Botao>

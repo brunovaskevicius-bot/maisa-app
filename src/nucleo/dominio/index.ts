@@ -14,6 +14,8 @@ export * from "./contatos";
 export * from "./agenda";
 export * from "./expediente";
 export * from "./fiscal";
+export * from "./recibo-saude";
+export * from "./recibo-unitario";
 export * from "./conversas";
 export * from "./assistente";
 export * from "./horarios";

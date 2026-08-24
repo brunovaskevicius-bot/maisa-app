@@ -26,13 +26,14 @@
 
 import type {
   ConsultarCnpj, EnviarCertificado, EstadoFiscal, LerEstadoFiscal, LiberarProducaoFiscal,
-  LigarNotaFiscal,
+  LigarNotaFiscal, LigarReciboSaude,
 } from "../portas/entrada/casos-de-uso";
 import type { CadastroDeEmissor } from "../portas/saida/cadastro-de-emissor";
 import type { RepositorioFiscal } from "../portas/saida/repositorio-fiscal";
 import type { CadastroDoCnpj, ConfigFiscal } from "../dominio/fiscal";
 import { caminhoDaNota, fiscalFaltando } from "../dominio/fiscal";
-import { soDigitos } from "../dominio/clientes";
+import { CODIGO_OCUPACAO } from "../dominio/recibo-saude";
+import { cpfValido, soDigitos } from "../dominio/clientes";
 import { DadoInvalido } from "../dominio/erros";
 import { hojeISO } from "../dominio/tempo";
 
@@ -84,7 +85,7 @@ export function codigoNacionalDoCnae(cnae: string | null | undefined): string | 
 function estado(config: ConfigFiscal, provedorFaltando: string[]): EstadoFiscal {
   return {
     config,
-    caminho: caminhoDaNota(config),
+    caminho: caminhoDaNota(config, hojeISO()),
     falta: fiscalFaltando(config, hojeISO()),
     provedorFaltando,
   };
@@ -221,6 +222,53 @@ export function criarLiberarProducaoFiscal(deps: DepsFiscal): LiberarProducaoFis
       throw new DadoInvalido(`Ainda falta ${falta.join(", ")} antes de emitir nota valendo.`, "fiscal");
     }
     const salvo = await deps.fiscal.salvar(t, { ambiente: "producao" });
+    return estado(salvo, deps.cadastro.faltando());
+  };
+}
+
+/**
+ * Liga o caminho do recibo — o onboarding fiscal de quem atende como pessoa física.
+ *
+ * ★ TRÊS CAMPOS E NENHUMA CHAMADA EXTERNA. Não há CNPJ para consultar na Receita (é o
+ * próprio caso), não há empresa para criar no provedor e não há certificado para instalar.
+ * Comparado com `criarLigarNotaFiscal`, este caso de uso não tem nenhuma das quatro etapas
+ * que precisam dar certo em ordem — só valida e grava.
+ *
+ * ⚠️ `ambiente: "producao"`, e não o `homologacao` padrão. Não existe homologação neste
+ * caminho: o ensaio é o "Analisar Arquivo" do e-CAC, que acontece fora do nosso app. Deixar
+ * em homologação faria a tela de Faturamento estampar "isto é teste" sobre o arquivo que ela
+ * vai realmente importar — e aqui isso é seguro, porque um CSV é inerte até alguém assiná-lo
+ * no e-CAC. É o oposto da nota fiscal, onde produção significa documento irreversível e por
+ * isso tem `criarLiberarProducaoFiscal` como cancela.
+ */
+export function criarLigarReciboSaude(deps: DepsFiscal): LigarReciboSaude {
+  return async (t, p) => {
+    const cpf = soDigitos(p.cpf);
+    /* O CPF de quem emite é o que a Receita casa com o Carnê-Leão. Errar um dígito aqui faz
+     * o arquivo inteiro ser recusado, linha por linha, e a mensagem fala do arquivo. */
+    if (!cpfValido(cpf)) throw new DadoInvalido("Esse CPF não é válido — confira os dígitos.", "cpf");
+    if (!(p.ocupacao in CODIGO_OCUPACAO)) {
+      throw new DadoInvalido("Escolha a profissão registrada no seu conselho.", "ocupacao");
+    }
+
+    const atual = await deps.fiscal.ler(t);
+    /* ⚠️ RECUSA TROCAR DE CAMINHO COM EMPRESA JÁ CRIADA. Existe um CNPJ cadastrado (e
+     * cobrado) no provedor: virar este negócio para pessoa física deixaria a empresa lá,
+     * viva, e o dono acharia que "desligou a nota fiscal". Quem precisa disso está migrando
+     * de regime, e migração de regime não é campo de tela. */
+    if (atual.empresaId) {
+      throw new DadoInvalido(
+        "Esse negócio já está ligado com CNPJ. Fale com a gente antes de mudar para pessoa física.",
+        "cnpj",
+      );
+    }
+
+    const salvo = await deps.fiscal.salvar(t, {
+      prestadorCpf: cpf,
+      ocupacaoSaude: p.ocupacao,
+      registroProfissional: p.registro?.trim().slice(0, 15) || null,
+      ambiente: "producao",
+    });
     return estado(salvo, deps.cadastro.faltando());
   };
 }

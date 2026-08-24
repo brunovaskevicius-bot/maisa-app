@@ -33,7 +33,7 @@ import type { CadastroDoCnpj, ConfigFiscal } from "@/nucleo/dominio/fiscal";
 
 type Estado = {
   config: ConfigFiscal;
-  caminho: "nacional" | "municipal";
+  caminho: "nacional" | "municipal" | "recibo_saude";
   falta: string[];
   provedorFaltando: string[];
 };
@@ -47,6 +47,32 @@ function mascaraCnpj(v: string): string {
     .replace(/\.(\d{3})(\d)/, ".$1/$2")
     .replace(/(\d{4})(\d)/, "$1-$2");
 }
+
+/** 11 dígitos com pontuação. */
+function mascaraCpf(v: string): string {
+  const d = v.replace(/\D/g, "").slice(0, 11);
+  return d
+    .replace(/^(\d{3})(\d)/, "$1.$2")
+    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1-$2");
+}
+
+/**
+ * As seis profissões que o Receita Saúde aceita, com o nome que a pessoa usa.
+ *
+ * ⚠️ A LISTA É FECHADA PELA RECEITA, e as ausências são clientes que este caminho não atende:
+ * nutricionista não está na tabela de ocupações do lote, e terapeuta holístico/massoterapeuta
+ * não são profissionais de saúde para a IN 2.240. Inventar uma opção "outra" aqui geraria
+ * arquivo que a Receita recusa na análise.
+ */
+const PROFISSOES = [
+  ["psicologo", "Psicólogo(a)"],
+  ["fisioterapeuta", "Fisioterapeuta"],
+  ["fonoaudiologo", "Fonoaudiólogo(a)"],
+  ["terapeuta_ocupacional", "Terapeuta ocupacional"],
+  ["medico", "Médico(a)"],
+  ["odontologo", "Dentista"],
+] as const;
 
 /** Base64 puro, sem o `data:...;base64,` que o FileReader prefixa. */
 function paraBase64(f: File): Promise<string> {
@@ -66,6 +92,12 @@ export function LigarNotaFiscal() {
   const [ocupado, setOcupado] = useState(false);
   const [senha, setSenha] = useState("");
   const arquivo = useRef<HTMLInputElement>(null);
+
+  /* A bifurcação. `null` = ninguém escolheu ainda, e é aí que a pergunta aparece. */
+  const [modo, setModo] = useState<"cnpj" | "cpf" | null>(null);
+  const [cpf, setCpf] = useState("");
+  const [ocupacao, setOcupacao] = useState<string>("psicologo");
+  const [registro, setRegistro] = useState("");
 
   const ler = useCallback(async () => {
     try {
@@ -120,9 +152,22 @@ export function LigarNotaFiscal() {
   const ligado = config.empresaId != null;
   const pronto = falta.length === 0;
 
-  /* Emissor não configurado no ambiente NÃO é culpa do dono, e a tela não pode pedir a ele
-   * uma coisa que só nós podemos resolver. Some inteira em vez de mostrar um botão que falha. */
-  if (provedorFaltando.length) return null;
+  /* Já é pessoa física: quem manda na tela é o cartão do lote (`LoteReceitaSaude`), que
+   * mostra o arquivo do mês. Repetir aqui um "recibo ligado" seria dois cartões dizendo o
+   * mesmo em cima do outro. */
+  if (caminho === "recibo_saude") return null;
+
+  /* ── ⚠️ EMISSOR SEM CONFIGURAÇÃO NÃO ESCONDE MAIS A TELA INTEIRA ──
+   *
+   * Antes um `return null` seco: sem `FOCUS_NFE_TOKEN` não há como ligar nota fiscal, e cobrar
+   * do dono um passo que só nós destravamos é checklist que mente.
+   *
+   * Só que o caminho do RECIBO não usa o provedor — nem token, nem certificado, nem custo por
+   * documento. Esconder tudo tirava do ar justamente a opção que sempre funciona, e o efeito
+   * era o pior possível: a etapa fiscal do onboarding sumia para uma psicóloga que poderia ter
+   * ligado o Receita Saúde em três campos. */
+  const soRecibo = provedorFaltando.length > 0;
+  if (soRecibo && ligado) return null;
 
   const caixa = "background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow-card)";
 
@@ -133,7 +178,15 @@ export function LigarNotaFiscal() {
           <Icon name={pronto ? "check" : "receipt"} size={16} sw={pronto ? 2.6 : 2} stroke={pronto ? "var(--success)" : "var(--primary-dark)"} />
         </span>
         <h2 style={s("margin:0;font-size:var(--t-body);font-weight:var(--w-title);color:var(--ink)")}>
-          {pronto ? "Nota fiscal ligada" : ligado ? "Falta o certificado" : "Ligar a nota fiscal"}
+          {pronto && ligado
+            ? "Nota fiscal ligada"
+            : ligado
+              ? "Falta o certificado"
+              : modo === "cpf"
+                ? "Recibos do Receita Saúde"
+                : modo === "cnpj"
+                  ? "Ligar a nota fiscal"
+                  : "Nota fiscal ou recibo?"}
         </h2>
         {/* ⚠️ O ambiente é a informação mais importante desta tela quando está tudo pronto:
             é a diferença entre um teste e um documento com validade fiscal. */}
@@ -144,8 +197,117 @@ export function LigarNotaFiscal() {
         )}
       </div>
 
+      {/* ── ★ passo 0 · A PERGUNTA QUE DECIDE TUDO ──
+           Duas respostas, e a diferença entre elas não é de regime tributário: é de
+           DOCUMENTO. Quem tem CNPJ emite nota fiscal; quem atende como pessoa física emite o
+           Recibo Eletrônico de Serviços de Saúde, no e-CAC, obrigatório desde 01/01/2025.
+           Não dá para derivar dos dados — não existe CNPJ para consultar na Receita quando a
+           resposta é "pessoa física". É a única pergunta que este fluxo não conseguiu matar. */}
+      {!ligado && modo === null && (
+        <>
+          <p style={s("margin:0;font-size:var(--t-sm);color:var(--muted);line-height:1.55")}>
+            {soRecibo
+              ? "Você atende como pessoa física, com CPF e registro no conselho? Então seu documento é o recibo do Receita Saúde — e eu monto o arquivo do mês para você."
+              : "Como você atende? Isso decide o documento que sai depois de cada atendimento — e são documentos diferentes, não jeitos diferentes do mesmo."}
+          </p>
+
+          <div style={s("display:flex;gap:10px;flex-wrap:wrap")}>
+            {!soRecibo && (
+              <button
+                onClick={() => setModo("cnpj")}
+                className="m-press m-focus"
+                style={s("display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;flex:1;min-width:200px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);background:var(--bg);cursor:pointer;font-family:inherit")}
+              >
+                <strong style={s("font-size:var(--t-sm);color:var(--ink)")}>Tenho CNPJ</strong>
+                <span style={s("font-size:var(--t-label);color:var(--muted)")}>Nota fiscal de serviço. Precisa de certificado digital.</span>
+              </button>
+            )}
+            <button
+              onClick={() => setModo("cpf")}
+              className="m-press m-focus"
+              style={s("display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;flex:1;min-width:200px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);background:var(--bg);cursor:pointer;font-family:inherit")}
+            >
+              <strong style={s("font-size:var(--t-sm);color:var(--ink)")}>Atendo como pessoa física</strong>
+              <span style={s("font-size:var(--t-label);color:var(--muted)")}>Recibo do Receita Saúde. Sem certificado, sem CNPJ.</span>
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── passo 1-B · três campos, e acabou ── */}
+      {!ligado && modo === "cpf" && (
+        <>
+          <p style={s("margin:0;font-size:var(--t-sm);color:var(--muted);line-height:1.55")}>
+            Todo mês eu monto o arquivo com as sessões atendidas e você importa no
+            <strong style={s("color:var(--ink)")}> e-CAC → Carnê-Leão → Escrituração</strong>.
+            A Receita valida o arquivo antes de emitir qualquer coisa.
+          </p>
+
+          <label style={s("display:flex;flex-direction:column;gap:6px")}>
+            <span style={s("font-size:var(--t-label);color:var(--muted)")}>Seu CPF — o mesmo que você usa no e-CAC</span>
+            <input
+              value={cpf}
+              onChange={(e) => setCpf(mascaraCpf(e.target.value))}
+              inputMode="numeric"
+              placeholder="000.000.000-00"
+              className="n m-focus"
+              style={s("font-family:inherit;font-size:var(--t-body);padding:11px 13px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--ink)")}
+            />
+          </label>
+
+          <label style={s("display:flex;flex-direction:column;gap:6px")}>
+            <span style={s("font-size:var(--t-label);color:var(--muted)")}>Sua profissão</span>
+            <select
+              value={ocupacao}
+              onChange={(e) => setOcupacao(e.target.value)}
+              className="n m-focus"
+              style={s("font-family:inherit;font-size:var(--t-body);padding:11px 13px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--ink)")}
+            >
+              {PROFISSOES.map(([id, rotulo]) => <option key={id} value={id}>{rotulo}</option>)}
+            </select>
+          </label>
+
+          {/* Opcional para a Receita (quem tem um registro só pode omitir) e decisivo para o
+              paciente: recibo sem o número do conselho é o motivo nº 1 de recusa de reembolso
+              pelo plano de saúde. Por isso a frase diz para que serve, em vez de "opcional". */}
+          <label style={s("display:flex;flex-direction:column;gap:6px")}>
+            <span style={s("font-size:var(--t-label);color:var(--muted)")}>
+              Seu registro no conselho — é ele que o plano de saúde exige para reembolsar
+            </span>
+            <input
+              value={registro}
+              onChange={(e) => setRegistro(e.target.value.slice(0, 15))}
+              placeholder="CRP 06/123456"
+              className="n m-focus"
+              style={s("font-family:inherit;font-size:var(--t-body);padding:11px 13px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--ink)")}
+            />
+          </label>
+
+          <div style={s("display:flex;gap:10px;align-items:center;flex-wrap:wrap")}>
+            <button
+              onClick={() => chamar("POST", { cpf, ocupacao, registro })}
+              disabled={ocupado || cpf.replace(/\D/g, "").length !== 11}
+              className="m-press m-focus"
+              style={s(`display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:12px;border:none;background:var(--primary);color:var(--on-primary);font-family:inherit;font-size:var(--t-sm);font-weight:var(--w-title);cursor:${ocupado ? "default" : "pointer"};opacity:${ocupado || cpf.replace(/\D/g, "").length !== 11 ? 0.55 : 1}`)}
+            >
+              <Icon name="check" size={15} sw={2.4} stroke="var(--on-primary)" />
+              {ocupado ? "Salvando…" : "Ligar os recibos"}
+            </button>
+            {!soRecibo && (
+              <button
+                onClick={() => setModo(null)}
+                className="m-press m-focus"
+                style={s("background:none;border:none;padding:0;font-family:inherit;font-size:var(--t-label);color:var(--muted);cursor:pointer;text-decoration:underline")}
+              >
+                Na verdade eu tenho CNPJ
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
       {/* ── passo 1 · a única pergunta ── */}
-      {!ligado && (
+      {!ligado && modo === "cnpj" && (
         <>
           <p style={s("margin:0;font-size:var(--t-sm);color:var(--muted);line-height:1.55")}>
             Digite o CNPJ e eu busco o resto na Receita. Você não vai preencher endereço,

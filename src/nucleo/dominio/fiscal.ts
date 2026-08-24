@@ -12,6 +12,9 @@
  *   erro         — a prefeitura ou o emissor rejeitou; `erro` traz o motivo
  * ────────────────────────────────────────────────────────────────────────────── */
 
+import { soDigitos } from "./clientes";
+import type { OcupacaoSaude } from "./recibo-saude";
+
 export type StatusNota = "pendente" | "processando" | "emitida" | "cancelada" | "erro";
 
 export type Nota = {
@@ -199,10 +202,32 @@ export type CadastroDoCnpj = {
 
 /** Por qual caminho a nota sai. Derivado, nunca escolhido à mão — ver `caminhoDaNota`. */
 export type CaminhoFiscal =
-  /** DPS no Ambiente Nacional. MEI hoje; Simples a partir de 11/2026. */
+  /** DPS no Ambiente Nacional. MEI sempre; Simples a partir de 01/11/2026. */
   | "nacional"
-  /** NFS-e no formato da prefeitura. */
-  | "municipal";
+  /** NFS-e no formato da prefeitura. Só até a virada — ver `VIRADA_SIMPLES_NACIONAL`. */
+  | "municipal"
+  /**
+   * ★ NÃO É NOTA FISCAL. Recibo Eletrônico de Serviços de Saúde ("Receita Saúde"), que é o
+   * documento de quem atende como PESSOA FÍSICA — psicóloga, fisioterapeuta, fonoaudióloga,
+   * TO. Obrigatório desde 01/01/2025 (IN RFB 2.240/2024), emitido dentro do e-CAC, e a
+   * automação possível é um CSV em lote. Ver `dominio/recibo-saude.ts`.
+   */
+  | "recibo_saude";
+
+/**
+ * O dia em que ME/EPP do Simples deixa de emitir pela prefeitura.
+ *
+ * ★ **Resolução CGSN nº 191, de 04/08/2026**: a partir de 01/11/2026 a emissão passa a ser
+ * pelo Emissor Nacional (web ou API), com transição até 31/12/2026 e CBS/IBS em 01/2027. A
+ * data anterior era setembro e foi prorrogada — por isso é constante com nome, e não um
+ * literal escondido dentro de um `if`.
+ *
+ * ⚠️ Isto dá prazo de validade ao caminho municipal. Em São Paulo o efeito é maior do que
+ * trocar de layout: a capital aderiu ao ADN em 12/2025 **mantendo o emissor próprio**, então
+ * para ME paulistana a virada é troca de SISTEMA. Nada a fazer no código antes da data — o
+ * que não podia acontecer é a data existir só na cabeça de quem leu a notícia.
+ */
+export const VIRADA_SIMPLES_NACIONAL = "2026-11-01";
 
 export type ConfigFiscal = {
   ambiente: AmbienteFiscal;
@@ -221,6 +246,27 @@ export type ConfigFiscal = {
   /* ── caminho nacional ── */
   codigoTributacaoNacional: string | null;
 
+  /* ── caminho do recibo (prestador pessoa física) ──
+   *
+   * ⚠️ NENHUM DOS TRÊS É DERIVÁVEL. Os campos do caminho fiscal saem dos 14 dígitos do CNPJ
+   * consultados na Receita; aqui não há CNPJ para consultar — é o próprio caso. Então são as
+   * três únicas perguntas deste caminho, e em troca ele não pede certificado digital. */
+
+  /** Só dígitos, 11. **É a presença dele que escolhe o caminho** — ver `caminhoDaNota`. */
+  prestadorCpf: string | null;
+  /** Uma das seis ocupações que o lote do Carnê-Leão aceita. */
+  ocupacaoSaude: OcupacaoSaude | null;
+  /**
+   * CRP, CREFITO, CRFa… até 15 caracteres.
+   *
+   * A Receita aceita vazio quando o profissional tem um registro ativo só, e por isso ele
+   * **não entra em `fiscalFaltando`** — bloquear a emissão por um campo que o órgão dispensa
+   * seria inventar regra. Mas recibo sem registro é o motivo nº 1 de recusa de reembolso pelo
+   * plano de saúde: opcional para a Receita, decisivo para o paciente. A tela pede; o
+   * domínio não impede.
+   */
+  registroProfissional: string | null;
+
   /* ── caminho municipal ── */
   inscricaoMunicipal: string | null;
   itemListaServico: string | null;
@@ -228,9 +274,32 @@ export type ConfigFiscal = {
   codigoTributarioMunicipio: string | null;
 };
 
-/** Por onde esta nota tem que sair. */
-export function caminhoDaNota(c: Pick<ConfigFiscal, "optanteMei">): CaminhoFiscal {
-  return c.optanteMei ? "nacional" : "municipal";
+/**
+ * Por onde o documento deste negócio tem que sair.
+ *
+ * ★ A ORDEM DAS TRÊS PERGUNTAS É O CONTEÚDO DA FUNÇÃO:
+ *
+ *   tem CPF de prestador? → `recibo_saude`. Quem atende como pessoa física não emite nota
+ *                           fiscal de jeito nenhum; emite o Receita Saúde. Vem primeiro
+ *                           porque não é regime tributário, é outro documento.
+ *   é MEI? .............. → `nacional`, obrigatório desde 09/2023 independente do município.
+ *   é Simples, e já virou? → `nacional` (CGSN 191/2026).
+ *   resto ............... → `municipal`.
+ *
+ * ⚠️ NÃO É "SEM CNPJ → RECIBO". Inquilino que ainda não digitou o CNPJ tem os dois campos
+ * nulos, e ele não é pessoa física: é alguém no meio do onboarding. Derivar o caminho da
+ * AUSÊNCIA de CNPJ faria a tela pedir CPF e profissão a um barbeiro MEI que só não terminou
+ * de preencher. Quem escolhe é a presença de `prestadorCpf`, que só existe se alguém disse
+ * "atendo como pessoa física".
+ */
+export function caminhoDaNota(
+  c: Pick<ConfigFiscal, "prestadorCpf" | "optanteMei" | "optanteSimples">,
+  hoje: string,
+): CaminhoFiscal {
+  if (c.prestadorCpf) return "recibo_saude";
+  if (c.optanteMei) return "nacional";
+  if (c.optanteSimples && hoje >= VIRADA_SIMPLES_NACIONAL) return "nacional";
+  return "municipal";
 }
 
 /**
@@ -244,6 +313,20 @@ export function caminhoDaNota(c: Pick<ConfigFiscal, "optanteMei">): CaminhoFisca
  */
 export function fiscalFaltando(c: ConfigFiscal, hoje: string): string[] {
   const falta: string[] = [];
+  const caminho = caminhoDaNota(c, hoje);
+
+  /* ★ O CAMINHO DO RECIBO NÃO PEDE NADA DO QUE OS OUTROS DOIS PEDEM, e essa é a notícia:
+   * sem CNPJ, sem município, sem empresa cadastrada no emissor e — o que importa — **sem
+   * certificado digital**, que era o único passo do onboarding fiscal dependendo de o
+   * cliente trazer um arquivo de fora. Duas linhas de dado e ele está pronto.
+   *
+   * Sai cedo de propósito: as checagens abaixo pediriam o CNPJ de quem, por definição, não
+   * tem um. */
+  if (caminho === "recibo_saude") {
+    if (soDigitos(c.prestadorCpf ?? "").length !== 11) falta.push("o CPF de quem atende");
+    if (!c.ocupacaoSaude) falta.push("a profissão registrada no conselho");
+    return falta;
+  }
 
   if (!c.cnpj) falta.push("o CNPJ de quem emite");
   if (!c.codigoMunicipio) falta.push("o município do CNPJ");
@@ -255,7 +338,7 @@ export function fiscalFaltando(c: ConfigFiscal, hoje: string): string[] {
   if (!c.certificadoValidoAte) falta.push("o certificado digital da empresa");
   else if (c.certificadoValidoAte < hoje) falta.push("renovar o certificado digital (venceu)");
 
-  if (caminhoDaNota(c) === "nacional") {
+  if (caminho === "nacional") {
     if (!c.codigoTributacaoNacional) falta.push("o código do serviço");
   } else {
     if (!c.inscricaoMunicipal) falta.push("a inscrição municipal");

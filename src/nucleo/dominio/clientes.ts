@@ -45,6 +45,40 @@ export const soDigitos = (v?: string | null) => (v ?? "").replace(/\D/g, "");
  * O DDI 55 é retirado da exibição por ser ruído: todo mundo aqui tem o mesmo. Número que não
  * tem cara de brasileiro volta como veio — melhor um formato feio que um recorte errado.
  */
+/**
+ * O CPF fecha na conta do dígito verificador?
+ *
+ * ★ ESTA FUNÇÃO NASCEU DE UM ERRO REAL DA RECEITA, em 21/08/2026. O primeiro arquivo do
+ * Receita Saúde levado ao "Analisar Arquivo" do e-CAC voltou com:
+ *
+ *     CPF Titular Pagamento — "Titular do pagamento inválido."
+ *     CPF Beneficiário ..... — "Beneficiário do serviço inválido."
+ *
+ * Os dois eram CPFs de teste inventados (111.222.333-44), que têm 11 dígitos e não fecham no
+ * módulo 11. Ou seja: a checagem de TAMANHO que existia deixava passar, e o erro só aparecia
+ * depois — no portal da Receita, com a pessoa já achando que o arquivo estava pronto.
+ *
+ * ⚠️ ISTO NÃO DIZ QUE O CPF EXISTE. Diz que ele não é digitação errada. Existência só a
+ * Receita sabe, e é ela quem recusa na análise — que continua sendo o juiz.
+ *
+ * Rejeita os onze dígitos repetidos (111.111.111-11 e companhia) porque eles PASSAM no módulo
+ * 11 e não são CPF de ninguém: é o placeholder que todo formulário do país recebe.
+ */
+export function cpfValido(v?: string | null): boolean {
+  const d = soDigitos(v);
+  if (d.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(d)) return false;
+
+  const digito = (ate: number): number => {
+    let soma = 0;
+    for (let i = 0; i < ate; i++) soma += Number(d[i]) * (ate + 1 - i);
+    const r = (soma * 10) % 11;
+    return r === 10 ? 0 : r;
+  };
+
+  return digito(9) === Number(d[9]) && digito(10) === Number(d[10]);
+}
+
 export function telefoneBonito(v?: string | null): string {
   const d = soDigitos(v);
   const nacional = d.length > 11 && d.startsWith("55") ? d.slice(2) : d;

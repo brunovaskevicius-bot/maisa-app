@@ -14,7 +14,9 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import { describe, expect, it } from "vitest";
-import { caminhoDaNota, fiscalFaltando, type ConfigFiscal } from "./fiscal";
+import {
+  VIRADA_SIMPLES_NACIONAL, caminhoDaNota, fiscalFaltando, type ConfigFiscal,
+} from "./fiscal";
 
 const HOJE = "2026-08-17";
 
@@ -29,6 +31,9 @@ const meiPronto: ConfigFiscal = {
   empresaId: 9001,
   certificadoValidoAte: "2027-08-17",
   codigoTributacaoNacional: "060101",
+  prestadorCpf: null,
+  ocupacaoSaude: null,
+  registroProfissional: null,
   inscricaoMunicipal: null,
   itemListaServico: null,
   aliquotaIss: null,
@@ -46,13 +51,77 @@ const mePronto: ConfigFiscal = {
 };
 
 describe("por onde a nota sai", () => {
+  const so = (c: Partial<ConfigFiscal>) =>
+    caminhoDaNota({ prestadorCpf: null, optanteMei: false, optanteSimples: false, ...c }, HOJE);
+
   /* ⚠️ O teste que dá nome ao arquivo. */
   it("MEI vai pelo Ambiente Nacional, sempre — independente do município", () => {
-    expect(caminhoDaNota({ optanteMei: true })).toBe("nacional");
+    expect(so({ optanteMei: true })).toBe("nacional");
   });
 
   it("quem não é MEI segue pela prefeitura", () => {
-    expect(caminhoDaNota({ optanteMei: false })).toBe("municipal");
+    expect(so({})).toBe("municipal");
+  });
+
+  /* ── a virada da Resolução CGSN 191/2026 ── */
+
+  it("ME do Simples ainda vai pela prefeitura antes de 01/11/2026", () => {
+    expect(so({ optanteSimples: true })).toBe("municipal");
+  });
+
+  it("ME do Simples vai para o nacional a partir de 01/11/2026", () => {
+    expect(caminhoDaNota(
+      { prestadorCpf: null, optanteMei: false, optanteSimples: true },
+      VIRADA_SIMPLES_NACIONAL,
+    )).toBe("nacional");
+  });
+
+  /* ── o caminho de quem não tem CNPJ ── */
+
+  it("quem atende como pessoa física emite recibo, não nota", () => {
+    expect(so({ prestadorCpf: "12345678909" })).toBe("recibo_saude");
+  });
+
+  /* ⚠️ O erro que a ordem das perguntas evita: inquilino no meio do onboarding tem os dois
+   * campos nulos, e não é pessoa física — é alguém que não terminou de preencher. */
+  it("sem CNPJ e sem CPF ainda é caminho fiscal, não recibo", () => {
+    expect(so({})).toBe("municipal");
+  });
+});
+
+describe("o que falta no caminho do recibo", () => {
+  const carla: ConfigFiscal = {
+    ...meiPronto,
+    cnpj: null,
+    razaoSocial: null,
+    codigoMunicipio: null,
+    optanteMei: false,
+    empresaId: null,
+    /* ★ O ponto do caminho: NULO, e mesmo assim nada falta. */
+    certificadoValidoAte: null,
+    codigoTributacaoNacional: null,
+    prestadorCpf: "12345678909",
+    ocupacaoSaude: "psicologo",
+    registroProfissional: "CRP 06/123456",
+  };
+
+  it("nada, e em particular NÃO pede certificado digital", () => {
+    expect(fiscalFaltando(carla, HOJE)).toEqual([]);
+  });
+
+  it("pede o CPF quando ele tem menos de 11 dígitos", () => {
+    expect(fiscalFaltando({ ...carla, prestadorCpf: "1234" }, HOJE)).toEqual(["o CPF de quem atende"]);
+  });
+
+  it("pede a profissão, que é o código da ocupação no Carnê-Leão", () => {
+    expect(fiscalFaltando({ ...carla, ocupacaoSaude: null }, HOJE))
+      .toEqual(["a profissão registrada no conselho"]);
+  });
+
+  /* O conselho aceita vazio quando há um registro só. Bloquear seria inventar regra — a
+   * tela pede, o domínio não impede. Ver o comentário do campo em `ConfigFiscal`. */
+  it("não bloqueia por falta de registro profissional", () => {
+    expect(fiscalFaltando({ ...carla, registroProfissional: null }, HOJE)).toEqual([]);
   });
 });
 

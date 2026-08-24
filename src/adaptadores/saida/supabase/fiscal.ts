@@ -18,13 +18,19 @@ import type { RemendoFiscal, RepositorioFiscal } from "@/nucleo/portas/saida/rep
 import type { AmbienteFiscal, ConfigFiscal } from "@/nucleo/dominio/fiscal";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import { NaoEncontrado } from "@/nucleo/dominio/erros";
+import { CODIGO_OCUPACAO, type OcupacaoSaude } from "@/nucleo/dominio/recibo-saude";
 import { clienteDoContexto } from "./contexto-cliente";
+
+/** Texto do banco → ocupação, ou `null`. Ver o ⚠️ em `paraConfig`. */
+const ocupacaoValida = (v: string | null): OcupacaoSaude | null =>
+  v && v in CODIGO_OCUPACAO ? (v as OcupacaoSaude) : null;
 
 const TABELA = "config_fiscal";
 
 const COLUNAS =
   "ambiente, prestador_cnpj, prestador_nome, codigo_municipio, optante_mei, optante_simples, "
   + "focus_empresa_id, certificado_valido_ate, codigo_tributacao_nacional, "
+  + "prestador_cpf, ocupacao_saude, registro_profissional, "
   + "inscricao_municipal, item_lista_servico, aliquota_iss, codigo_tributario_municipio";
 
 type Linha = {
@@ -37,6 +43,9 @@ type Linha = {
   focus_empresa_id: number | null;
   certificado_valido_ate: string | null;
   codigo_tributacao_nacional: string | null;
+  prestador_cpf: string | null;
+  ocupacao_saude: string | null;
+  registro_profissional: string | null;
   inscricao_municipal: string | null;
   item_lista_servico: string | null;
   aliquota_iss: number | string | null;
@@ -60,6 +69,9 @@ const VAZIA: ConfigFiscal = {
   empresaId: null,
   certificadoValidoAte: null,
   codigoTributacaoNacional: null,
+  prestadorCpf: null,
+  ocupacaoSaude: null,
+  registroProfissional: null,
   inscricaoMunicipal: null,
   itemListaServico: null,
   aliquotaIss: null,
@@ -78,6 +90,13 @@ const paraConfig = (l: Linha): ConfigFiscal => ({
   empresaId: l.focus_empresa_id ?? null,
   certificadoValidoAte: l.certificado_valido_ate,
   codigoTributacaoNacional: l.codigo_tributacao_nacional,
+  prestadorCpf: l.prestador_cpf,
+  /* ⚠️ O `check` do 018 fecha o domínio da coluna, mas texto do banco não é união de tipos
+   * no TypeScript: `ocupacaoValida` confere de novo aqui. Ocupação desconhecida virando
+   * `null` faz a tela pedir a profissão; virando string qualquer, o CSV sai com um código
+   * que a Receita recusa na análise — e a mensagem fala do arquivo, não da coluna. */
+  ocupacaoSaude: ocupacaoValida(l.ocupacao_saude),
+  registroProfissional: l.registro_profissional,
   inscricaoMunicipal: l.inscricao_municipal,
   itemListaServico: l.item_lista_servico,
   /* `numeric` volta como string no supabase-js — `Number(null)` é 0, e alíquota 0 é
@@ -98,6 +117,9 @@ function paraLinha(r: RemendoFiscal): Record<string, unknown> {
   if ("empresaId" in r) l.focus_empresa_id = r.empresaId;
   if ("certificadoValidoAte" in r) l.certificado_valido_ate = r.certificadoValidoAte;
   if ("codigoTributacaoNacional" in r) l.codigo_tributacao_nacional = r.codigoTributacaoNacional;
+  if ("prestadorCpf" in r) l.prestador_cpf = r.prestadorCpf;
+  if ("ocupacaoSaude" in r) l.ocupacao_saude = r.ocupacaoSaude;
+  if ("registroProfissional" in r) l.registro_profissional = r.registroProfissional;
   if ("inscricaoMunicipal" in r) l.inscricao_municipal = r.inscricaoMunicipal;
   if ("itemListaServico" in r) l.item_lista_servico = r.itemListaServico;
   if ("aliquotaIss" in r) l.aliquota_iss = r.aliquotaIss;

@@ -82,11 +82,14 @@ muda o comportamento da tela — procure o nome no store antes.
 
 | Rota | Métodos | Porteiro | Caso de uso |
 |---|---|---|---|
-| `/api/fiscal` | GET · POST · PUT · PATCH | `exigirSessao` | `LerEstadoFiscal` · `ConsultarCnpj` (`?cnpj=`) · `LigarNotaFiscal` · `EnviarCertificado` · `LiberarProducaoFiscal` |
+| `/api/fiscal` | GET · POST · PUT · PATCH · DELETE | `exigirSessao` | `LerEstadoFiscal` · `ConsultarCnpj` (`?cnpj=`) · `LigarNotaFiscal` · `LigarReciboSaude` (`{cpf}`) · `EnviarCertificado` · `LiberarProducaoFiscal` · `DesligarReciboSaude` (DELETE) |
 | `/api/faturamento` | GET | `exigirSessao` | `LerFaturamento` — o que falta emitir, o que já saiu, e o que impede |
 | `/api/nf/emitir` | POST | `sessaoOuDemo` | `EmitirNota` |
 | `/api/nf/status` | GET | `sessaoOuDemo` | `ConsultarNota` |
 | `/api/nf/cancelar` | POST | `sessaoOuDemo` | `CancelarNota` |
+| `/api/recibos/lote` | POST · PATCH | `exigirSessao` | `GerarLoteDeRecibos` · `FecharLoteDeRecibos` — o CSV do Receita Saúde, para quem atende como pessoa física. `PATCH { avisar: true }` manda a notícia do recibo aos pacientes no WhatsApp |
+| `/api/recibos` | GET · POST · DELETE | `exigirSessao` | `LerRecibosPendentes` · `LancarPagamentoAvulso` · `ExcluirPagamentoAvulso` — o que vai no arquivo, e o pagamento que a agenda não pegou |
+| `/api/recibos/callback` | POST | **segredo** (`RECIBOS_CALLBACK_SECRET`) | o canal de emissão diz o que aconteceu com o recibo. Sem sessão: quem chama é o servidor do fornecedor |
 
 **O `/api/fiscal` é o onboarding fiscal, e ele faz UMA pergunta: o CNPJ.** Razão social,
 município, CNAE e — o que decide o caminho de emissão — `optante_mei` vêm da Receita a partir
@@ -105,6 +108,26 @@ devolve 202 "processando" e a recusa chega minutos depois no status assíncrono.
 pedido ao provedor na hora de emitir e não chega ao núcleo; o certificado atravessa o `PUT` e
 vai embora, sobrando só `certificadoValidoAte`. Ver
 [`portas/saida/cadastro-de-emissor.ts`](../src/nucleo/portas/saida/cadastro-de-emissor.ts).
+
+**O `/api/recibos/lote` não emite nada, e o nome diz isso de propósito.** Quem atende como
+pessoa física — psicóloga, fisioterapeuta, fonoaudióloga, TO — emite o Recibo Eletrônico de
+Serviços de Saúde dentro do e-CAC, obrigatório desde 01/01/2025 (IN RFB 2.240/2024). Não há
+API: o que sai da rota é um CSV para ela importar no Carnê-Leão e assinar. É `exigirSessao`
+porque a resposta é uma lista de CPFs de pacientes e valores de sessão — o dado mais sensível
+que este app produz. Ver [`dominio/recibo-saude.ts`](../src/nucleo/dominio/recibo-saude.ts).
+
+⚠️ **`PATCH { avisar: true }` manda WhatsApp para pacientes, e a leitura é `=== true`.** O
+disparo sai pelo número **pessoal** de quem usa a MAISA: `"false"`, `1` ou um campo torto não
+podem virar trinta mensagens, e a ausência é silêncio. A mensagem leva **a notícia do recibo,
+nunca o documento** — a importação em lote do Carnê-Leão devolve só o PDF de erros e o CSV das
+linhas processadas; os PDFs dos recibos saem um por um, na tela do e-CAC. E ela **não leva o
+nome do serviço**, pela mesma razão da descrição do CSV. Ver
+[`avisoDeRecibo`](../src/nucleo/dominio/recibo-saude.ts).
+
+⚠️ **O aviso só sai se `confirmarLote` devolver `true`.** Ele é a claim: o `update` só sai de
+`gerado`, e o `.select("id")` conta as linhas afetadas. Sem esse portão, o segundo clique em
+"Importei no e-CAC" — ou um F5 depois de uma resposta lenta — mandaria outra rodada de mensagens
+para os mesmos pacientes, e mensagem entregue não se apaga.
 
 ⚠️ **`POST /api/nf/emitir` aceita UM campo: `clienteId`.** Ele recebia `valor`, `discriminacao`
 e `tomador` do corpo até 17/08/2026 — ou seja, um POST forjado emitia documento fiscal de

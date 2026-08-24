@@ -100,9 +100,15 @@ import { fiscalSupabase } from "@/adaptadores/saida/supabase/fiscal";
 import { cadastroDemo, fiscalDemo } from "@/adaptadores/saida/demo/fiscal";
 import { notasSupabase } from "@/adaptadores/saida/supabase/notas";
 import { notasDemo } from "@/adaptadores/saida/demo/notas";
+import { recibosSupabase } from "@/adaptadores/saida/supabase/recibos";
+import { recibosDemo } from "@/adaptadores/saida/demo/recibos";
+import {
+  criarDesligarReciboSaude, criarExcluirPagamentoAvulso, criarFecharLoteDeRecibos,
+  criarGerarLoteDeRecibos, criarLancarPagamentoAvulso, criarLerRecibosPendentes,
+} from "@/nucleo/aplicacao/recibos";
 import {
   criarConsultarCnpj, criarEnviarCertificado, criarLerEstadoFiscal,
-  criarLiberarProducaoFiscal, criarLigarNotaFiscal,
+  criarLiberarProducaoFiscal, criarLigarNotaFiscal, criarLigarReciboSaude,
 } from "@/nucleo/aplicacao/fiscal";
 
 /* As implementações escolhidas HOJE. Uma linha por decisão. */
@@ -119,37 +125,46 @@ const agenda = isGoogleConfigured ? agendaGoogle : agendaDemo;
 const conexoes = isGoogleConfigured ? conexoesGoogle : conexoesDemo;
 const emissor = emissorFocus;
 /**
- * ── FISCAL: DUAS PORTAS, E UM CRITÉRIO SÓ ──
+ * ── FISCAL: AS DUAS PORTAS SEGUEM `isSupabaseConfigured`, E NÃO O TOKEN DA FOCUS ──
  *
  * `fiscalRepo` guarda a `config_fiscal` do inquilino; `cadastroEmissor` cria a empresa na
- * Focus e sobe o certificado dela. As duas seguem **a mesma condição**, e ela é o E das
- * duas credenciais.
+ * Focus e sobe o certificado dela.
  *
- * ⚠️ O E É O PONTO, e a alternativa é que explica: escolhidos por critérios separados,
- * existiria o arranjo "token da Focus sem banco" — onde `cadastroEmissor` criaria uma
- * empresa DE VERDADE, cobrada, e `fiscalDemo` guardaria o `empresaId` em memória, que morre
- * no próximo deploy. O resultado é CNPJ duplicado na conta da Focus a cada reinício, e a
- * Focus não deduplica por CNPJ (ver `criarEmpresa`).
+ * ★ ISTO MUDOU EM 21/08/2026, E O BUG ERA VISÍVEL NA TELA. Antes as duas seguiam o E das
+ * duas credenciais (`isSupabaseConfigured && token da Focus`). Com o `FOCUS_NFE_TOKEN` vazio
+ * — que é o estado de todo `npm run dev` hoje — `fiscalRepo` caía no demo, e a tela de
+ * Faturamento mostrava **"BARBEARIA DEMONSTRAÇÃO MEI"** para um negócio real, com dados reais
+ * de faturamento ao lado. Metade da tela verdadeira, metade inventada.
  *
- * Com o E, um ambiente sem uma das duas coisas cai inteiro na demonstração: a tela fiscal
- * abre, o CNPJ "consulta", a empresa "é criada" — nada sai do processo. É o que faz o passo
- * que mais precisa de iteração (a tela de uma pergunta) rodar em `npm run dev` sem conta
- * na Focus.
+ * O que estragou o arranjo antigo foi o terceiro caminho fiscal: o **recibo do Receita Saúde**
+ * não usa a Focus para nada — nem token, nem certificado, nem empresa cadastrada. Com o E, o
+ * CPF e a profissão de uma psicóloga real seriam gravados num objeto em memória que morre com
+ * o processo, e lidos de volta como "BARBEARIA DEMONSTRAÇÃO MEI". A feature ficava
+ * inalcançável exatamente na configuração em que ela é a única que funciona.
+ *
+ * ⚠️ O PERIGO QUE O E EVITAVA CONTINUA EVITADO, e é ele que explica a forma nova. O arranjo
+ * ruim é **token da Focus sem banco**: `cadastroEmissor` cria empresa DE VERDADE, cobrada, e
+ * `fiscalDemo` guarda o `empresaId` em memória, que morre no próximo deploy — CNPJ duplicado
+ * na conta da Focus a cada reinício, e a Focus não deduplica por CNPJ. Como as duas agora
+ * seguem `isSupabaseConfigured`, esse arranjo não existe: sem banco, as DUAS são demo.
+ *
+ * O caso "banco sem token" passa a ser honesto em vez de fingido: `cadastroFocus.faltando()`
+ * devolve o que falta, `ligarNotaFiscal` recusa com essa frase, e a tela oferece só o caminho
+ * do recibo — que é verdade, não degradação. Ver `soRecibo` em `LigarNotaFiscal`.
  */
-const fiscalPronto = isSupabaseConfigured && cadastroFocus.faltando().length === 0;
-const fiscalRepo = fiscalPronto ? fiscalSupabase : fiscalDemo;
-/**
- * As notas emitidas seguem `isSupabaseConfigured`, e NÃO o `fiscalPronto` acima.
- *
- * ⚠️ A diferença é deliberada. `fiscalPronto` exige token da Focus porque sem ele não há como
- * cadastrar empresa. Aqui não: a nota é gravada no NOSSO banco, e a claim que impede
- * duplicação tem que valer mesmo quando a emissão sai `simulado`. Amarrar as duas coisas faria
- * um ambiente com banco e sem Focus perder a persistência das notas — e o teste do fluxo
- * inteiro (que é o valor do modo simulado) deixaria de exercitar justamente a garantia mais
- * frágil: clicar duas vezes não emite duas notas.
- */
+const fiscalRepo = isSupabaseConfigured ? fiscalSupabase : fiscalDemo;
+/* As notas emitidas seguem o mesmo critério — e desde 21/08/2026 isso deixou de ser uma
+ * exceção comentada: a nota é gravada no NOSSO banco, e a claim que impede duplicação tem que
+ * valer mesmo quando a emissão sai `simulado`. */
 const notasRepo = isSupabaseConfigured ? notasSupabase : notasDemo;
-const cadastroEmissor = fiscalPronto ? cadastroFocus : cadastroDemo;
+/* O lote do Receita Saúde. Repositório próprio e não método de `notasRepo`: o documento é
+ * outro, a unidade é a sessão (não o cliente) e quem emite é a profissional, no e-CAC. */
+const recibosRepo = isSupabaseConfigured ? recibosSupabase : recibosDemo;
+/* Sem banco, demo — junto com `fiscalRepo`, e é o par que impede empresa de verdade com
+ * `empresaId` em memória. Com banco e sem token, o `cadastroFocus` fica: é ele que sabe
+ * DIZER o que falta, e é essa frase que faz a tela recusar o caminho do CNPJ em vez de
+ * simular um cadastro que ninguém fez. */
+const cadastroEmissor = isSupabaseConfigured ? cadastroFocus : cadastroDemo;
 /**
  * O cadastro: quem atende, o que se vende, quem é cliente.
  *
@@ -526,6 +541,27 @@ export const app = {
   ligarNotaFiscal: criarLigarNotaFiscal({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),
   enviarCertificado: criarEnviarCertificado({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),
   liberarProducaoFiscal: criarLiberarProducaoFiscal({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),
+
+  /* ── o lote do Receita Saúde: quem atende como PESSOA FÍSICA ──
+   *
+   * Sem `emissor` na lista de dependências, e é o ponto: não há provedor, não há certificado
+   * e não há custo por linha. O caso de uso monta um CSV e prende as sessões; quem emite é
+   * ela, importando no e-CAC. Ver `dominio/recibo-saude.ts`. */
+  /* Sem `cadastro` fazendo chamada nenhuma: três campos e grava. O `cadastroEmissor` entra
+   * só porque `estado()` reporta `provedorFaltando` — que neste caminho é sempre irrelevante,
+   * e é justamente o que a tela precisa saber para não esconder o formulário. */
+  ligarReciboSaude: criarLigarReciboSaude({ fiscal: fiscalRepo, cadastro: cadastroEmissor }),
+  gerarLoteDeRecibos: criarGerarLoteDeRecibos({ recibos: recibosRepo, fiscal: fiscalRepo }),
+  /* Canal, negócio e assistente porque fechar o lote pode AVISAR os pacientes no WhatsApp —
+   * mesmas dependências do lembrete de 3h antes, e é o mesmo canal falando. */
+  fecharLoteDeRecibos: criarFecharLoteDeRecibos({ recibos: recibosRepo, canal, negocio, assistente }),
+  desligarReciboSaude: criarDesligarReciboSaude({ recibos: recibosRepo, fiscal: fiscalRepo }),
+
+  /* O que vai no próximo arquivo, e o lançamento do que a agenda não pegou. A MAISA cobre a
+   * maioria dos pagamentos, não todos — e o recibo é obrigatório igual. */
+  lerRecibosPendentes: criarLerRecibosPendentes({ recibos: recibosRepo }),
+  lancarPagamentoAvulso: criarLancarPagamentoAvulso({ recibos: recibosRepo, fiscal: fiscalRepo }),
+  excluirPagamentoAvulso: criarExcluirPagamentoAvulso({ recibos: recibosRepo }),
 };
 
 /** Exposto para as rotas relatarem configuração (o que falta, qual ambiente fiscal). */
