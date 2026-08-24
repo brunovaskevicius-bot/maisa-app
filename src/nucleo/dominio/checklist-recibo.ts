@@ -100,8 +100,14 @@ export type ItemDoChecklist = {
   passos?: string[];
 };
 
-/** Nome da profissão como ela aparece na lista do Carnê-Leão. */
-const NOME_DA_OCUPACAO: Record<OcupacaoSaude, string> = {
+/**
+ * Nome da profissão como ela aparece na lista do Carnê-Leão.
+ *
+ * ⚠️ EXPORTADO PARA A TELA ESCOLHER DAQUI, e não manter a sua própria lista. São seis, fechadas
+ * pela Receita (IN 2.240/2024) — duas listas divergindo dariam um rótulo na tela e outro no
+ * arquivo, para o mesmo código. Ver `CODIGO_OCUPACAO`.
+ */
+export const NOME_DA_OCUPACAO: Record<OcupacaoSaude, string> = {
   medico: "Médico",
   odontologo: "Cirurgião-dentista",
   fonoaudiologo: "Fonoaudiólogo",
@@ -110,8 +116,13 @@ const NOME_DA_OCUPACAO: Record<OcupacaoSaude, string> = {
   psicologo: "Psicólogo",
 };
 
-/** Como o conselho da profissão se chama — para a frase falar a língua dela. */
-const CONSELHO: Record<OcupacaoSaude, string> = {
+/**
+ * Como o conselho da profissão se chama — para a frase falar a língua dela.
+ *
+ * Exportado pelo mesmo motivo de `NOME_DA_OCUPACAO`: o rótulo do campo na tela muda enquanto
+ * ela escolhe a profissão, e não dá para ler do checklist (que reflete o que está SALVO).
+ */
+export const CONSELHO: Record<OcupacaoSaude, string> = {
   medico: "CRM",
   odontologo: "CRO",
   fonoaudiologo: "CRFa",

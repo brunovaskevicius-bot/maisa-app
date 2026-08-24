@@ -32,9 +32,11 @@ import { s, Btn, Card, Icon, SectionTitle, StatTile } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { cpfValido } from "@/nucleo/dominio/clientes";
 import {
-  LINK_CARNE_LEAO, checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
+  CONSELHO, LINK_CARNE_LEAO, NOME_DA_OCUPACAO, checklistDoRecibo, faltaNoChecklist,
+  seAindaRecusar,
   type ItemDoChecklist,
 } from "@/nucleo/dominio/checklist-recibo";
+import type { OcupacaoSaude } from "@/nucleo/dominio/recibo-saude";
 import { hojeISO } from "@/nucleo/dominio/tempo";
 import type { ConfigFiscal } from "@/nucleo/dominio/fiscal";
 import { mensagemDaFalha } from "@/ui/falhas";
@@ -154,6 +156,33 @@ const mascaraCpf = (v: string) =>
     .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
     .replace(/\.(\d{3})(\d)/, ".$1-$2");
 
+/**
+ * A partir de quantos pagamentos a lista começa fechada.
+ *
+ * ⚠️ SEIS, E NÃO ZERO: um mês de três sessões cabe inteiro na tela, e esconder três linhas atrás
+ * de um clique é cerimônia. O problema aparece no mês cheio — 44 pagamentos empurram o botão de
+ * gerar para fora da tela, e o cartão vira um paredão de nomes de paciente.
+ */
+const MUITOS_PAGAMENTOS = 6;
+
+/**
+ * O que a lista mostra, dobrada ou aberta.
+ *
+ * ★ FECHADA, ELA NÃO FICA VAZIA: sobram os pagamentos SEM CPF. São exatamente os que ficam de
+ * fora do arquivo, e são a única linha desta lista sobre a qual há o que fazer.
+ *
+ * ⚠️ Esconder tudo economizaria a mesma altura de tela e enterraria o item acionável junto — o
+ * dono geraria o arquivo do mês sem saber que perdeu três linhas, e descobriria no e-CAC ou
+ * nunca. Função pura e exportada para ter teste; ver `LoteReceitaSaude.test.ts`.
+ */
+export function pagamentosNaTela<T extends { cpf?: string | null }>(
+  todos: T[],
+  aberta: boolean,
+): { visiveis: T[]; dobravel: boolean } {
+  const dobravel = todos.length > MUITOS_PAGAMENTOS;
+  return { dobravel, visiveis: dobravel && !aberta ? todos.filter((p) => !p.cpf) : todos };
+}
+
 const CAMPO = "font-family:inherit;font-size:var(--t-sm);padding:10px 12px;border-radius:11px;border:1px solid var(--border);background:var(--bg);color:var(--ink);width:100%";
 
 export function LoteReceitaSaude() {
@@ -179,6 +208,23 @@ export function LoteReceitaSaude() {
   /* A config inteira, para o checklist. Já vinha na mesma resposta — só era descartada. */
   const [config, setConfig] = useState<ConfigFiscal | null>(null);
   const [checklistAberto, setChecklistAberto] = useState(false);
+  /* ── ★ EDITAR OS PRÓPRIOS DADOS, e o motivo de existir é um buraco de navegação ──
+   *
+   * CPF, profissão e registro só eram graváveis no onboarding (`LigarNotaFiscal`), e aquela
+   * tela faz `return null` assim que o caminho vira `recibo_saude` — de propósito, para não
+   * repetir cartão. O efeito colateral: o checklist dizia "preencha o seu CRP" e **não havia
+   * onde**. O único caminho era desligar o Receita Saúde e ligar de novo, que é destrutivo e
+   * recusado quando já existe lote importado.
+   *
+   * Então o conserto mora onde o problema é enunciado: dentro do próprio checklist. */
+  const [editando, setEditando] = useState(false);
+  const [fCpf, setFCpf] = useState("");
+  const [fOcupacao, setFOcupacao] = useState<OcupacaoSaude>("psicologo");
+  const [fRegistro, setFRegistro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erroDados, setErroDados] = useState<string | null>(null);
+  /* A lista longa começa fechada. Ver `MUITOS_PAGAMENTOS`. */
+  const [listaAberta, setListaAberta] = useState(false);
   const [pendentes, setPendentes] = useState<RecibosPendentes | null>(null);
   const [lote, setLote] = useState<Lote | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -224,6 +270,44 @@ export function LoteReceitaSaude() {
     })();
     return () => { vivo = false; };
   }, [lerPendentes]);
+
+  const abrirDados = () => {
+    setFCpf(mascaraCpf(config?.prestadorCpf ?? ""));
+    setFOcupacao((config?.ocupacaoSaude as OcupacaoSaude | null) ?? "psicologo");
+    setFRegistro(config?.registroProfissional ?? "");
+    setErroDados(null);
+    setEditando(true);
+  };
+
+  /**
+   * Salva os três campos.
+   *
+   * ⚠️ É O MESMO `POST /api/fiscal` QUE LIGA O RECIBO, de propósito. Os três campos **são** a
+   * configuração: ligar é gravá-los pela primeira vez, corrigir é gravá-los de novo, e o caso
+   * de uso já é idempotente. Um segundo caminho de escrita para os mesmos três campos daria
+   * duas validações de CPF para manter em sincronia — e a que ficasse para trás aceitaria
+   * dígito torto, que a Receita devolve recusando o arquivo inteiro.
+   */
+  const salvarDados = useCallback(async () => {
+    setSalvando(true);
+    setErroDados(null);
+    try {
+      const r = await fetch("/api/fiscal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cpf: fCpf, ocupacao: fOcupacao, registro: fRegistro.trim() || null }),
+      }).then((x) => x.json());
+      if (!r?.ok) throw new Error(mensagemDaFalha(r, "Não consegui salvar seus dados."));
+      setConfig(r.config ?? null);
+      setFalta(Array.isArray(r.falta) ? r.falta : []);
+      setCpfEmissor(typeof r.config?.prestadorCpf === "string" ? r.config.prestadorCpf : null);
+      setEditando(false);
+    } catch (e) {
+      setErroDados(e instanceof Error ? e.message : "Não consegui salvar seus dados.");
+    } finally {
+      setSalvando(false);
+    }
+  }, [fCpf, fOcupacao, fRegistro]);
 
   const gerar = useCallback(async () => {
     setOcupado(true);
@@ -405,6 +489,15 @@ export function LoteReceitaSaude() {
   const checklist = config ? checklistDoRecibo(config, hojeISO()) : [];
   const pendencias = faltaNoChecklist(checklist);
 
+  /* ── ★ A LISTA LONGA NÃO SOME INTEIRA: SOBRA O QUE PRECISA DE AÇÃO ──
+   *
+   * Fechada, ela mostra só os pagamentos SEM CPF — que são exatamente os que ficam de fora do
+   * arquivo. Esconder tudo atrás de um clique economizaria a mesma altura de tela e enterraria
+   * o único item acionável junto; o dono geraria o arquivo sem saber que perdeu três linhas. */
+  const pagamentos = pendentes?.pagamentos ?? [];
+  const { visiveis: pagamentosVisiveis, dobravel: listaLonga } =
+    pagamentosNaTela(pagamentos, listaAberta);
+
   return (
     <Card style={{ display: "grid", gap: 14 }}>
       <SectionTitle
@@ -445,6 +538,77 @@ export function LoteReceitaSaude() {
             <div style={s("display:grid;gap:2px;padding:4px 0 10px;border-top:1px solid var(--border)")}>
               {checklist.map((i) => <ItemChecklist key={i.id} item={i} />)}
 
+              {/* ── ★ O CONSERTO MORA ONDE A COBRANÇA É FEITA ──
+                  Sem isto, o checklist dizia "preencha o seu CRP" e a única forma era desligar
+                  o Receita Saúde e ligar de novo — destrutivo, e recusado quando já existe lote
+                  importado. Ver `editando`. */}
+              <div style={s("margin:8px 14px 0;display:grid;gap:9px")}>
+                {!editando ? (
+                  <Btn variant="ghost" icon="edit" onClick={abrirDados}>
+                    {pendencias > 0 ? "Preencher meus dados" : "Corrigir meus dados"}
+                  </Btn>
+                ) : (
+                  <div style={s("display:grid;gap:9px;padding:14px;border-radius:13px;border:1px dashed var(--border)")}>
+                    <span style={s("font-size:var(--t-label);color:var(--muted)")}>
+                      É o que vai no arquivo em todas as linhas. Muda quando você quiser — não
+                      mexe nos recibos que já saíram.
+                    </span>
+
+                    <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                      Seu CPF — o mesmo com que você entra no gov.br
+                      <input
+                        value={fCpf}
+                        onChange={(e) => setFCpf(mascaraCpf(e.target.value))}
+                        inputMode="numeric"
+                        placeholder="000.000.000-00"
+                        className="n m-focus"
+                        style={s(CAMPO)}
+                      />
+                    </label>
+
+                    <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                      Sua profissão
+                      {/* As seis da Receita, lidas do domínio: lista própria aqui daria um rótulo
+                          na tela e outro no arquivo para o mesmo código. */}
+                      <select
+                        value={fOcupacao}
+                        onChange={(e) => setFOcupacao(e.target.value as OcupacaoSaude)}
+                        className="n m-focus"
+                        style={s(CAMPO)}
+                      >
+                        {(Object.keys(NOME_DA_OCUPACAO) as OcupacaoSaude[]).map((o) => (
+                          <option key={o} value={o}>{NOME_DA_OCUPACAO[o]}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                      Seu {CONSELHO[fOcupacao]} — não bloqueia gerar o arquivo
+                      <input
+                        value={fRegistro}
+                        onChange={(e) => setFRegistro(e.target.value)}
+                        placeholder={`${CONSELHO[fOcupacao]} 00/000000`}
+                        maxLength={15}
+                        className="n m-focus"
+                        style={s(CAMPO)}
+                      />
+                    </label>
+
+                    {erroDados && (
+                      <span style={s("font-size:var(--t-label);color:var(--warn)")}>{erroDados}</span>
+                    )}
+
+                    {/* `Btn` não tem `disabled`, e a convenção da casa é o rótulo mudar — igual
+                        ao "Montando…" do botão de gerar. Clicar duas vezes aqui é inofensivo: são
+                        os mesmos três campos, e gravá-los de novo dá o mesmo resultado. */}
+                    <div style={s("display:flex;gap:9px;flex-wrap:wrap")}>
+                      <Btn onClick={salvarDados}>{salvando ? "Salvando…" : "Salvar"}</Btn>
+                      <Btn variant="ghost" onClick={() => setEditando(false)}>Cancelar</Btn>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* A escada do "e se recusar mesmo com tudo certo?". O último degrau é um e-mail
                   da Receita que quase ninguém sabe que existe — sem ele, a profissional com
                   registro ativo e recusa persistente conclui que o produto está quebrado. */}
@@ -481,7 +645,7 @@ export function LoteReceitaSaude() {
               </div>
 
               <div style={s("display:grid;gap:4px")}>
-                {pendentes.pagamentos.map((p: PagamentoPendente) => (
+                {pagamentosVisiveis.map((p: PagamentoPendente) => (
                   <div key={p.id} style={s(`display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:10px;background:${p.cpf ? "var(--surface-2, var(--bg))" : "var(--warn-soft)"}`)}>
                     <span style={s("font-size:var(--t-label);color:var(--muted);min-width:38px")}>{diaMes(p.data)}</span>
                     <span style={s("font-size:var(--t-sm);color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>
@@ -510,6 +674,24 @@ export function LoteReceitaSaude() {
                   </div>
                 ))}
               </div>
+
+              {/* O botão só existe quando há o que dobrar. Num mês de três sessões ele seria
+                  cerimônia sobre três linhas — ver `MUITOS_PAGAMENTOS`. */}
+              {listaLonga && (
+                <button
+                  type="button"
+                  onClick={() => setListaAberta((v) => !v)}
+                  className="m-press m-focus"
+                  style={s("display:flex;align-items:center;gap:7px;align-self:flex-start;padding:6px 2px;border:0;background:none;color:var(--muted);cursor:pointer;font-family:inherit;font-size:var(--t-label)")}
+                >
+                  <span style={s(`display:inline-flex;transition:transform .15s;transform:rotate(${listaAberta ? 90 : 0}deg)`)}>
+                    <Icon name="arrow-right" size={13} />
+                  </span>
+                  {listaAberta
+                    ? "Esconder a lista"
+                    : `Ver ${pagamentos.length === 1 ? "o pagamento" : `os ${pagamentos.length} pagamentos`}`}
+                </button>
+              )}
 
               {pendentes.semCpf > 0 && (
                 <span style={s("font-size:var(--t-label);color:var(--warn)")}>
