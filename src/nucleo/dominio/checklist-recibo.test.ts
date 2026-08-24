@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  EMAIL_RECEITA_SAUDE, LINK_CARNE_LEAO, LINK_ECAC_SERVICO,
+  EMAIL_RECEITA_SAUDE, LINK_ECAC, LINK_ECAC_SERVICO,
   checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
 } from "./checklist-recibo";
 import type { ConfigFiscal } from "./fiscal";
@@ -109,38 +109,59 @@ describe("★ o que está do outro lado do muro", () => {
     expect(passos).toContain("CRP");
   });
 
-  /* ★ O PASSO DE NAVEGAÇÃO SAIU EM 24/08/2026, e a ausência é a mudança. O link passou a cair
-   * DENTRO do Carnê-Leão — repetir "Declarações e Demonstrativos → Acessar Carnê-Leão" mandaria
-   * ela procurar um menu que já não está na frente dela, e duvidar de que chegou no lugar certo. */
-  it("não manda navegar até o Carnê-Leão, porque o link já entra lá", () => {
+  /* ★ ESTE TESTE JÁ AFIRMOU O CONTRÁRIO, POR ALGUMAS HORAS EM 24/08/2026: ele exigia que a
+   * navegação NÃO aparecesse, porque o link era deep link e supostamente caía dentro do
+   * Carnê-Leão. Aí alguém mediu o que o servidor responde:
+   *
+   *   /carneleao/escrituracao → 302 → /autenticacao/login   (sem retorno)
+   *   /ecac/                  → 302 → /autenticacao/login   (a MESMA URL)
+   *
+   * O 302 não carrega o destino, então ela sempre desemboca na home logada. O teste de antes
+   * prendia uma omissão que deixava a pessoa parada olhando um portal inteiro. */
+  it("manda navegar até o Carnê-Leão, porque o link para na home logada", () => {
     const passos = (item(carla(), "carne_leao").passos ?? []).join(" | ");
-    expect(passos).not.toContain("Acessar Carnê-Leão");
-    expect(passos).not.toContain("Declarações e Demonstrativos");
+    expect(passos).toContain("Declarações e Demonstrativos");
+    expect(passos).toContain("Acessar Carnê-Leão");
   });
 
-  /* O ensaio cai na própria escrituração: o primeiro passo é o botão que já está na tela. */
-  it("o ensaio começa no botão que já está na tela", () => {
+  /* O login vem primeiro e é nomeado pelo que ela reconhece. "Conta gov.br" é abstrato; "a mesma
+   * do Meu INSS" é a senha que ela já digitou alguma vez. */
+  it("o primeiro passo é entrar, e diz qual conta é", () => {
+    const passos = item(carla(), "carne_leao").passos ?? [];
+    expect(passos[0]).toContain("gov.br");
+    expect(passos[0]).toContain("Meu INSS");
+  });
+
+  /* O ensaio também começa navegando — ele parte do mesmo lugar. */
+  it("o ensaio começa navegando, não no botão de importar", () => {
     const passos = (item(carla(), "ensaio").passos ?? []);
-    expect(passos[0]).toBe("Clique em Importar Escrituração");
+    expect(passos[0]).toContain("Acessar Carnê-Leão");
+    expect(passos).toContain("Clique em Importar Escrituração");
   });
 
-  /* ⚠️ Deep link tem quebra silenciosa: deslogada, o e-CAC devolve para o login e pode não
-   * voltar. Sem a saída alternativa, "não abriu" vira "não funciona". */
-  it("todo deep link tem uma saída pela página de serviço", () => {
+  /* ⚠️ O sintoma real, visto em 24/08/2026: ela clicou, foi para o login, tentou entrar e parou
+   * em `/autenticacao/Login/Logout` — a tela de SAIR. A saída alternativa existe para esse
+   * beco, e o rótulo tem que descrever o beco, não um genérico "não abriu". */
+  it("todo link do portal tem uma saída fora do portal", () => {
     for (const id of ["carne_leao", "ensaio"]) {
       const i = item(carla(), id);
-      expect(i.link?.url).toBe(LINK_CARNE_LEAO);
+      expect(i.link?.url).toBe(LINK_ECAC);
       expect(i.linkAlternativo?.url).toBe(LINK_ECAC_SERVICO);
-      expect(i.linkAlternativo?.rotulo).toContain("Não abriu");
+      expect(i.linkAlternativo?.rotulo).toContain("login");
     }
   });
 
-  /* Só a URL que alguém abriu e viu funcionar. Todas as rotas de `/carneleao/` respondem 302
-   * para o login quando deslogado, então caminho de dentro não se verifica sem sessão — e
-   * inventar `/identificacao` daria um link que quebra calado. */
-  it("o deep link é a escrituração, e nenhuma rota adivinhada", () => {
-    expect(LINK_CARNE_LEAO).toBe("https://www3.cav.receita.fazenda.gov.br/carneleao/escrituracao");
-    expect(LINK_CARNE_LEAO).not.toMatch(/identificacao|configuracoes/);
+  /* ★ NENHUM LINK APONTA PARA DENTRO DO PORTAL AUTENTICADO. Rota interna do e-CAC não se
+   * verifica sem sessão — todas respondem 302 para o login — e, medido, ela não encurta nada:
+   * o redirect descarta o destino. Um deep link aqui é custo sem benefício. */
+  it("aponta para a porta da frente, e nunca para uma rota interna", () => {
+    expect(LINK_ECAC).toBe("https://cav.receita.fazenda.gov.br/ecac/");
+
+    const urls = checklistDoRecibo(carla(), HOJE)
+      .flatMap((i) => [i.link?.url, i.linkAlternativo?.url])
+      .filter(Boolean) as string[];
+
+    for (const u of urls) expect(u).not.toMatch(/carneleao|identificacao|configuracoes|www3\./);
   });
 
   it("o ensaio explica que não emite nada", () => {

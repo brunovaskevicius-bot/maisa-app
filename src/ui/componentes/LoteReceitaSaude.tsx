@@ -32,7 +32,7 @@ import { s, Btn, Card, Icon, SectionTitle, StatTile } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { cpfValido } from "@/nucleo/dominio/clientes";
 import {
-  LINK_CARNE_LEAO, checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
+  LINK_ECAC, checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
   type ItemDoChecklist,
 } from "@/nucleo/dominio/checklist-recibo";
 import { hojeISO } from "@/nucleo/dominio/tempo";
@@ -43,19 +43,15 @@ import type { PagamentoPendente, RecibosPendentes } from "@/nucleo/portas/entrad
 /**
  * O caminho no e-CAC, em link.
  *
- * ⚠️ ESTE COMENTÁRIO DIZIA O CONTRÁRIO ATÉ 24/08/2026, e a decisão foi revista de propósito.
- * A versão anterior apontava para a página de SERVIÇO do gov.br para não depender de URL
- * interna do portal autenticado — o argumento era que deep link quebra calado, levando para a
- * home logada e fazendo a pessoa achar que errou o caminho.
+ * ⚠️ ESTE COMENTÁRIO JÁ DEFENDEU UM DEEP LINK PARA `/carneleao/escrituracao`, POR ALGUMAS HORAS
+ * EM 24/08/2026. O deep link saiu quando alguém finalmente mediu: ele responde 302 para
+ * `/autenticacao/login` **sem parâmetro de retorno**, exatamente como `/ecac/`. Deslogada, ela
+ * cai no mesmo login pelos dois caminhos e chega na home logada de qualquer jeito.
  *
- * O argumento continua verdadeiro. O que mudou foi o peso do outro lado: cair numa página
- * institucional e ter que achar sozinha o caminho dentro do e-CAC é onde alguém com pouca
- * intimidade com computador desiste — e é exatamente o público deste produto.
- *
- * A quebra silenciosa está coberta pelo `linkAlternativo` do checklist ("Não abriu? Entre pelo
- * e-CAC"), que é a página de serviço de antes. Ver `LINK_CARNE_LEAO`.
+ * Ou seja, o atalho não encurtava nada — e ainda deu um jeito novo de a viagem terminar torta.
+ * Ver `LINK_ECAC`, que guarda a medição inteira.
  */
-const CARNE_LEAO = LINK_CARNE_LEAO;
+const CARNE_LEAO = LINK_ECAC;
 
 /**
  * Uma linha do "pronto para emitir?".
@@ -651,11 +647,16 @@ export function LoteReceitaSaude() {
             style={s("display:flex;align-items:center;gap:8px;align-self:flex-start;padding:10px 16px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--ink);font-size:var(--t-sm);font-weight:var(--w-title);text-decoration:none")}
           >
             <Icon name="link" size={15} sw={2.2} />
-            Abrir a escrituração no e-CAC
+            Abrir o e-CAC
           </a>
+          {/* ⚠️ A FRASE ANTERIOR PROMETIA QUE O LINK CAÍA "direto na escrituração". Não cai — o
+              e-CAC manda para o login e depois para a home. Promessa de navegação que não se
+              cumpre é pior que navegação nenhuma: ela procura uma tela que não apareceu e conclui
+              que clicou errado. Agora a frase descreve a viagem inteira. */}
           <span style={s("font-size:var(--t-label);color:var(--muted)")}>
-            O link cai direto na escrituração. Lá: <strong>Importar Escrituração → Analisar
-            Arquivo</strong> — a análise aponta linha e campo de qualquer erro{" "}
+            Entre com a conta gov.br e vá em <strong>Declarações e Demonstrativos → Acessar
+            Carnê-Leão</strong>. Lá: <strong>Importar Escrituração → Analisar Arquivo</strong> —
+            a análise aponta linha e campo de qualquer erro{" "}
             <strong>sem emitir nada</strong>. Só depois, Importar.
           </span>
 
