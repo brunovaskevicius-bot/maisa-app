@@ -43,8 +43,14 @@ function Stats({ linhas }: { linhas: [string, string][] }) {
 
 /* Campos editáveis. Grava a cada mudança (o `onChange` do campo já persiste no store), então
  * NÃO existe botão "Salvar" aqui — o app não tem save de mentira. O toast de confirmação sai no
- * blur, não a cada tecla: um toast por caractere digitado seria ruído. */
-function Campos({ campos }: { campos: CampoT[] }) {
+ * blur, não a cada tecla: um toast por caractere digitado seria ruído.
+ *
+ * ⚠️ A FRASE DO TOAST VEM DO BLOCO, e não está mais escrita aqui. Ela era o literal
+ * "Serviço atualizado" — correto enquanto a única gaveta com campos era a de serviço, e
+ * mentira no dia em que o cliente virou editável (24/08/2026): corrigir o CPF de alguém
+ * confirmava "Serviço atualizado". Bloco sem `avisoAoSair` não avisa nada, que é o certo
+ * para campo que ainda não gravou (o rascunho de atendimento). */
+function Campos({ campos, avisoAoSair }: { campos: CampoT[]; avisoAoSair?: string }) {
   return (
     <div style={s("display:flex;flex-direction:column;gap:14px")}>
       {campos.map((c) => (
@@ -64,7 +70,7 @@ function Campos({ campos }: { campos: CampoT[] }) {
                 value={c.valor}
                 inputMode={c.tipo === "numero" ? "numeric" : undefined}
                 onChange={(e) => c.onChange(e.target.value)}
-                onBlur={() => toast("Serviço atualizado")}
+                onBlur={avisoAoSair ? () => toast(avisoAoSair) : undefined}
                 className={c.tipo === "numero" ? "n" : undefined}
                 style={s(`${c.prefixo ? "padding-left:40px;" : ""}${c.sufixo ? "padding-right:52px;" : ""}`)}
               />
@@ -211,7 +217,7 @@ function RenderBloco({ b }: { b: Bloco }) {
   const corpo = (() => {
     switch (b.tipo) {
       case "stats": return <Stats linhas={b.linhas} />;
-      case "campos": return <Campos campos={b.campos} />;
+      case "campos": return <Campos campos={b.campos} avisoAoSair={b.avisoAoSair} />;
       case "chips": return (
         <div style={s("display:flex;flex-wrap:wrap;gap:8px")}>
           {b.chips.map((c) => <Chip key={c.label} tone={c.on ? "primary" : "neutral"}>{c.label}</Chip>)}

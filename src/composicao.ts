@@ -27,6 +27,7 @@ import {
 } from "@/nucleo/aplicacao/agenda";
 import { criarOferecerHorarios } from "@/nucleo/aplicacao/oferecer-horarios";
 import {
+  criarAjustarCliente,
   criarAjustarNegocio,
   criarAjustarProfissional,
   criarAjustarServico,
@@ -398,6 +399,15 @@ export const app = {
   ajustarServico: criarAjustarServico({ negocio }),
   removerServico: criarRemoverServico({ negocio }),
   ajustarProfissional: criarAjustarProfissional({ negocio }),
+
+  /**
+   * EDITAR CLIENTE — o par de escrita que faltou nove dias depois dos outros dois.
+   *
+   * Mesma dependência e mesma linha do arquivo porque é o mesmo agregado. Só EDITA: quem
+   * cria cliente é `garantirCliente`, dentro do repositório, chamado pelo agente quando
+   * alguém novo marca pelo WhatsApp — e é ele que deduplica por telefone.
+   */
+  ajustarCliente: criarAjustarCliente({ negocio }),
 
   /**
    * QUANTO JÁ ESTÁ DE PÉ — derivado do banco a cada leitura, nunca de uma flag.

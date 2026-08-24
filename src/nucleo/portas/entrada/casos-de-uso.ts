@@ -28,7 +28,9 @@ import type { Conexao } from "../saida/agenda-externa";
  * o que o repositório grava têm que ser a mesma forma, e duas declarações de "o que é um
  * serviço para gravar" divergem no primeiro campo novo. Mesmo arranjo do `AjustesParciais`
  * logo abaixo, que também vem da porta de saída. */
-import type { RascunhoDeProfissional, RascunhoDeServico } from "../saida/repositorio-negocio";
+import type {
+  RascunhoDeCliente, RascunhoDeProfissional, RascunhoDeServico,
+} from "../saida/repositorio-negocio";
 import type { AjustesDaAssistente, AjustesParciais } from "../saida/repositorio-assistente";
 import type { Canal, Pareamento } from "../../dominio/canal";
 import type { SemanaAnunciada } from "../../dominio/horarios";
@@ -235,6 +237,28 @@ export type AjustarProfissional = (
  * está no cabeçalho de `RepositorioNegocio`.
  */
 export type RemoverServico = (t: ContextoTenant, id: string) => Promise<void>;
+
+/* ───────────────────────────── e o cliente, que faltava ─────────────────────────────
+ * O terceiro par de escrita do `LerCadastro`, nove dias depois dos outros dois — e a
+ * mesma história contada por Bruno em 24/08/2026: *"acabei de perceber que é impossível
+ * editar clientes pelo front. não só na aba clientes mas na faturamento também."*
+ *
+ * Estava exato. As duas telas abriam a gaveta em leitura, e o único controle era um
+ * liga/desliga que gravava em `db.cliAtivo` — `localStorage`, o mesmo defeito que
+ * `svcEdit` tinha. Dois campos doíam mais que os outros:
+ *
+ *   • `telefone`, que É a identidade: `telefone_chave` é por onde o agente reconhece quem
+ *     está falando no WhatsApp. Um dígito errado transformava cliente antigo em
+ *     desconhecido, e consertar exigia SQL na mão;
+ *   • `cpf`, que é o que libera a nota. Sem ele a prefeitura recusa, o `emitiveis` tira a
+ *     pessoa do lote, e a tela de Faturamento escrevia "sem CPF — a prefeitura recusa sem
+ *     ele" sem oferecer onde escrever o CPF. Aviso sem porta.
+ *
+ * ⚠️ SÓ EDITA. Criar cliente é `garantirCliente`, no repositório, que deduplica por
+ * telefone — e é assim que quem marca pelo WhatsApp entra no cadastro. Um segundo caminho
+ * de criação, este sem deduplicação, daria o mesmo cliente duas vezes.
+ */
+export type AjustarCliente = (t: ContextoTenant, p: RascunhoDeCliente) => Promise<Cliente>;
 
 /* ───────────────────────────── quanto já está de pé ─────────────────────────────
  * O que o wizard usa para saber onde retomar, e o que a `FluxoHoje` usa para mostrar o

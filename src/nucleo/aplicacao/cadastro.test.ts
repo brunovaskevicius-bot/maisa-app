@@ -12,9 +12,12 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import { describe, expect, it, vi } from "vitest";
-import { criarAjustarNegocio, criarAjustarProfissional, criarAjustarServico } from "./cadastro";
+import {
+  criarAjustarCliente, criarAjustarNegocio, criarAjustarProfissional, criarAjustarServico,
+} from "./cadastro";
 import { NOME_NEGOCIO_MAX } from "../dominio/negocio";
 import { DURACAO_MAX, DURACAO_MIN, NOME_SERVICO_MAX, PRECO_MAX } from "../dominio/catalogo";
+import { NOME_CLIENTE_MAX } from "../dominio/clientes";
 import { DadoInvalido } from "../dominio/erros";
 import type { ContextoTenant } from "../dominio/tenant";
 import type { Negocio } from "../dominio/negocio";
@@ -302,5 +305,195 @@ describe("ajustar quem atende", () => {
       T,
       expect.not.objectContaining({ papel: expect.anything() }),
     );
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * O CLIENTE — a escrita que não existia nem fingindo.
+ *
+ * ★ Bruno, 24/08/2026: *"acabei de perceber que é impossível editar clientes pelo front.
+ *   não só na aba clientes mas na faturamento também."*
+ *
+ * O catálogo, pelo menos, tinha um formulário que mentia. Aqui não havia nem isso: a gaveta
+ * do cliente era `stats` puro, e o único controle era um liga/desliga que gravava em
+ * `db.cliAtivo` — `localStorage`. Duas consequências que estes testes existem para travar:
+ *
+ *   • **telefone é identidade.** `telefone_chave` é por onde o agente reconhece quem está
+ *     falando no WhatsApp, e a coluna NÃO tem `unique`. Dois clientes com a mesma chave
+ *     fazem `clientePorTelefone` devolver qualquer um dos dois, em silêncio — a MAISA passa
+ *     a atender uma pessoa pelo histórico da outra. É a única leitura-antes-de-escrever
+ *     deste arquivo, e é por isso.
+ *   • **CPF é o que libera a nota.** Conferido no DÍGITO, não no tamanho: foi assim que o
+ *     primeiro lote do Receita Saúde voltou reprovado do e-CAC, em 21/08/2026.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+const CLIENTE = {
+  id: "cl-1",
+  nome: "Fernanda Rocha",
+  telefone: "(11) 98123-4567",
+  email: "fe@exemplo.com",
+  cpf: "529.982.247-25",
+  canal: "Online" as const,
+  ativo: true,
+  desde: "ago/2026",
+  servicoId: "sv-1",
+  atendimentos: 3,
+  valor: 180,
+};
+
+/**
+ * `porTelefone` é quem `clientePorTelefone` acha — e o teste do telefone repetido depende
+ * dele para provar que a colisão NÃO impede a escrita.
+ *
+ * Devolve os mocks crus (sem intersecção com `RepositorioNegocio`, ao contrário do
+ * `repoServico` acima): a intersecção resolve `atualizarCliente` para o método da interface,
+ * e aí `.mock.calls` — que é como se inspeciona QUAIS campos foram enviados — não existe
+ * para o TypeScript. O cast fica no `ajustarCliente` logo abaixo, num lugar só.
+ */
+function repoCliente(porTelefone: typeof CLIENTE | null = null) {
+  return {
+    clientePorTelefone: vi.fn(async () => porTelefone),
+    atualizarCliente: vi.fn(async (_t: ContextoTenant, r: Record<string, unknown>) => ({
+      ...CLIENTE,
+      ...r,
+    })),
+  };
+}
+
+const ajustarCliente = (r: ReturnType<typeof repoCliente>) =>
+  criarAjustarCliente({ negocio: r as unknown as RepositorioNegocio });
+
+const cliBase = { id: "cl-1", nome: "Fernanda Rocha", telefone: "(11) 98123-4567" };
+
+describe("ajustar um cliente", () => {
+  it("grava e devolve a linha como o repositório a deixou", async () => {
+    const r = repoCliente();
+    const cliente = await ajustarCliente(r)(T, { ...cliBase, cpf: "52998224725" });
+
+    /* O CPF chega em dígitos e é gravado MASCARADO: a grafia livre deixaria o mesmo
+     * documento com duas caras na coluna. */
+    expect(r.atualizarCliente).toHaveBeenCalledWith(T, {
+      id: "cl-1", nome: "Fernanda Rocha", telefone: "(11) 98123-4567", cpf: "529.982.247-25",
+    });
+    expect(cliente.atendimentos).toBe(3);
+  });
+
+  it("recusa corpo sem id — este caso de uso não cria cliente", async () => {
+    const r = repoCliente();
+    /* Criar é `garantirCliente`, que deduplica por telefone. Interpretar id ausente como
+     * "cadastre um novo" daria dois caminhos de criação e o mesmo cliente duas vezes. */
+    await expect(ajustarCliente(r)(T, { ...cliBase, id: "  " }))
+      .rejects.toMatchObject({ campo: "id" });
+    expect(r.atualizarCliente).not.toHaveBeenCalled();
+  });
+
+  it("NÃO recusa telefone repetido — a família compartilha número, e isso é decisão do repositório", async () => {
+    const r = repoCliente({ ...CLIENTE, id: "cl-9", nome: "Marina Alves" });
+    /* ⚠️ ESTE TESTE TRAVA UMA VERSÃO ANTERIOR DESTE CÓDIGO, que recusava. A recusa parecia
+     * certa e contradizia uma decisão mais velha, escrita no adaptador: a coluna não tem
+     * `unique` "de propósito: número repetido acontece em família", e `clientePorTelefone`
+     * desempata pelo cadastro mais antigo. Bloquear aqui tornaria impossível editar — nem
+     * o nome, nem o liga/desliga — qualquer cliente que divida o número com um parente.
+     * Quem avisa da colisão é a gaveta, que vê o cadastro inteiro e não impede nada. */
+    await ajustarCliente(r)(T, cliBase);
+    expect(r.atualizarCliente).toHaveBeenCalled();
+  });
+
+  it("recusa telefone com menos de 8 dígitos, contando DÍGITO e não caractere", async () => {
+    const r = repoCliente();
+    /* `"(11) 9"` tem seis caracteres de sobra e passaria no `check` do banco, que mede
+     * texto. Seis dígitos viram uma `telefone_chave` de seis, que não casa com ninguém. */
+    await expect(ajustarCliente(r)(T, { ...cliBase, telefone: "(11) 9" }))
+      .rejects.toMatchObject({ campo: "telefone" });
+    expect(r.atualizarCliente).not.toHaveBeenCalled();
+  });
+
+  it("recusa CPF que não fecha no dígito verificador", async () => {
+    const r = repoCliente();
+    /* 111.222.333-44 tem onze dígitos e não fecha no módulo 11. Foi exatamente este tipo
+     * de CPF que o "Analisar Arquivo" do e-CAC reprovou em 21/08/2026. */
+    await expect(ajustarCliente(r)(T, { ...cliBase, cpf: "111.222.333-44" }))
+      .rejects.toMatchObject({ campo: "cpf" });
+    expect(r.atualizarCliente).not.toHaveBeenCalled();
+  });
+
+  it("CPF vazio é apagar, não erro — cliente sem CPF existe", async () => {
+    const r = repoCliente();
+    await ajustarCliente(r)(T, { ...cliBase, cpf: "" });
+    expect(r.atualizarCliente).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cpf: null }));
+  });
+
+  it("campo ausente é 'não mexe' — é o que deixa desativar cliente com CPF semeado inválido", async () => {
+    const r = repoCliente();
+    /* ⚠️ NÃO É DETALHE DE ESTILO. 15 dos 17 clientes de `008_seed_bruno.sql` têm CPF
+     * inventado que não fecha no módulo 11. Se um pedido carregasse sempre o cliente
+     * inteiro, ligar/desligar qualquer um deles bateria na recusa do CPF — e a frase falaria
+     * de dígito verificador para quem só queria tirar alguém do faturamento. */
+    await ajustarCliente(r)(T, { ...cliBase, cpf: "52998224725" });
+    const [, rascunho] = r.atualizarCliente.mock.calls[0];
+    expect("email" in rascunho).toBe(false);
+    expect("canal" in rascunho).toBe(false);
+    expect("servicoId" in rascunho).toBe(false);
+    expect("ativo" in rascunho).toBe(false);
+  });
+
+  it("e-mail vazio vira null; e-mail sem domínio é recusado", async () => {
+    const r = repoCliente();
+    const ajustar = ajustarCliente(r);
+
+    await ajustar(T, { ...cliBase, email: "   " });
+    expect(r.atualizarCliente).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ email: null }));
+
+    await expect(ajustar(T, { ...cliBase, email: "bruno@" })).rejects.toMatchObject({ campo: "email" });
+  });
+
+  it("colapsa espaço no nome e recusa nome em branco", async () => {
+    const r = repoCliente();
+    const ajustar = ajustarCliente(r);
+
+    await ajustar(T, { ...cliBase, nome: "  Fernanda   Rocha " });
+    expect(r.atualizarCliente).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ nome: "Fernanda Rocha" }),
+    );
+
+    await expect(ajustar(T, { ...cliBase, nome: "   " })).rejects.toMatchObject({ campo: "nome" });
+  });
+
+  it("recusa nome longo demais — é o teto do check da coluna", async () => {
+    const r = repoCliente();
+    await expect(ajustarCliente(r)(T, { ...cliBase, nome: "a".repeat(NOME_CLIENTE_MAX + 1) }))
+      .rejects.toThrow(DadoInvalido);
+    expect(r.atualizarCliente).not.toHaveBeenCalled();
+  });
+
+  it("recusa canal inventado — o check da coluna só conhece dois", async () => {
+    const r = repoCliente();
+    await expect(ajustarCliente(r)(T, { ...cliBase, canal: "Telepatia" as never }))
+      .rejects.toMatchObject({ campo: "canal" });
+    expect(r.atualizarCliente).not.toHaveBeenCalled();
+  });
+
+  it("serviço vazio vira null — a FK é `set null`, então sem serviço habitual é estado válido", async () => {
+    const r = repoCliente();
+    await ajustarCliente(r)(T, { ...cliBase, servicoId: "" });
+    expect(r.atualizarCliente).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ servicoId: null }));
+  });
+
+  it("desativar passa `ativo: false` adiante — é como alguém sai do faturamento", async () => {
+    const r = repoCliente();
+    /* O liga/desliga da gaveta. Antes ele gravava em `db.cliAtivo`: o dono desativava,
+     * dava F5, e a pessoa voltava para o fechamento do mês. */
+    await ajustarCliente(r)(T, { ...cliBase, ativo: false });
+    expect(r.atualizarCliente).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ativo: false }));
+  });
+
+  it("desativar não conta como mexer no CPF, mesmo com CPF inválido no cadastro", async () => {
+    const r = repoCliente();
+    /* O caminho exato do liga/desliga na tela de Clientes, para o cadastro semeado. O
+     * pedido não carrega `cpf`, então o bloco do dígito verificador nem roda. */
+    await ajustarCliente(r)(T, { ...cliBase, ativo: false });
+    const [, rascunho] = r.atualizarCliente.mock.calls[0];
+    expect("cpf" in rascunho).toBe(false);
   });
 });

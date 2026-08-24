@@ -180,6 +180,38 @@ export const repositorioDemo: RepositorioNegocio = {
     return [...CLIENTES];
   },
 
+  /* ── EDITAR CLIENTE ──
+   * Muta o fixture, pela mesma razão do `salvarServico` acima: aqui o fixture É o banco.
+   *
+   * Sem isto, o laboratório não exercitaria o conserto de telefone errado — que é
+   * justamente o caminho onde o defeito mora: `telefone_chave` é a identidade do cliente
+   * no WhatsApp, e um dígito trocado faz a MAISA tratar cliente antigo como desconhecido.
+   *
+   * `NaoEncontrado` e não silêncio quando o id não casa: aqui zero linhas significa que a
+   * EDIÇÃO se perdeu, e a tela precisa distinguir isso de "gravou". Mesma escolha do
+   * `salvarServico`. */
+  async atualizarCliente(_t, r) {
+    const i = CLIENTES.findIndex((c) => c.id === r.id);
+    if (i < 0) throw new NaoEncontrado("Cliente");
+
+    const atual = CLIENTES[i];
+    const novo: Cliente = {
+      ...atual,
+      nome: r.nome,
+      telefone: r.telefone,
+      /* `null` do rascunho é "apaga", e no domínio o vazio de `email`/`cpf` é `""` — não
+       * `null`, que o tipo nem admite. É a mesma tradução que o `paraCliente` do adaptador
+       * Supabase faz na volta (`l.email ?? ""`). */
+      ...(r.email === undefined ? {} : { email: r.email ?? "" }),
+      ...(r.cpf === undefined ? {} : { cpf: r.cpf ?? "" }),
+      ...(r.canal === undefined ? {} : { canal: r.canal }),
+      ...(r.servicoId === undefined ? {} : { servicoId: r.servicoId ?? "" }),
+      ...(r.ativo === undefined ? {} : { ativo: r.ativo }),
+    };
+    CLIENTES[i] = novo;
+    return novo;
+  },
+
   async agendasPermitidas() {
     return COLUNAS_AGENDA;
   },

@@ -15,6 +15,10 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as D from "@/adaptadores/saida/demo";
+/* Funções puras do domínio, não fixture: `emDigitacao` precisa da MESMA definição de
+ * "telefone tem dígitos suficientes" que o caso de uso usa, senão a tela espera por um fim
+ * que o servidor não reconhece (ou manda antes dele). Ver as regras de import no LEIA-ME. */
+import { TELEFONE_MIN_DIGITOS, emailPlausivel, soDigitos } from "@/nucleo/dominio/clientes";
 import type { Canal } from "@/nucleo/dominio/canal";
 import type { Faq } from "@/nucleo/dominio/faq";
 import type { Faturamento } from "@/nucleo/portas/entrada/casos-de-uso";
@@ -162,7 +166,18 @@ type Persistido = {
    * O que sobrou por cima do evento é `etapas`, chaveado por `ag:<eventId>`. Fica aqui e
    * não lá de propósito: pôr a etapa no Google transformaria cada arrasto do kanban num
    * PATCH numa agenda real. */
-  cliAtivo: Record<string, boolean>;
+  /* ⚠️ AQUI MORAVA `cliAtivo`, e a saída dele em 24/08/2026 é o conserto do MESMO defeito
+   * que tirou os quatro de cima — nove dias depois, porque este passou desapercebido.
+   *
+   * Ele guardava quem estava "em atendimento" no `localStorage`. O dono tirava alguém do
+   * faturamento, via a lista mudar, dava F5, e a pessoa voltava — e como `clientes.ativo`
+   * existia no banco desde o começo, o mapa local ainda ficava POR CIMA dele: quem
+   * desativasse num aparelho veria o cliente ativo no outro, para sempre.
+   *
+   * Agora `ativo` vem de `GET /api/cadastro` e volta por `PUT /api/clientes`, junto com o
+   * resto da ficha. O `__v` NÃO subiu, pelo mesmo motivo escrito acima: campo desconhecido
+   * é ignorado na leitura, então um `localStorage` antigo perde só o mapa — que é o
+   * resultado desejado. Subir a versão descartaria `etapas` e `notas`, que são do dia a dia. */
   /* Aqui moravam `assumidas` e `enviadas` — quem conduzia cada conversa e o que você tinha
    * respondido. Saíram na fatia das conversas reais, e o motivo é o mesmo dos atendimentos:
    * o dado tem dono, e o dono não é este navegador.
@@ -462,7 +477,6 @@ function uuid(): string {
 const INICIAL: Persistido = {
   __v: 3,
   etapas: {},
-  cliAtivo: {},
   resolvidos: {},
   notas: {},
   proximoNumero: D.PROXIMO_NUMERO,
@@ -669,6 +683,20 @@ export type StoreValue = {
   excluirServico: (id: string) => void;
   cliAtivo: (id: string) => boolean;
   alternarCli: (id: string) => void;
+  /**
+   * Grava um pedaço do cliente. Otimista, coalescido por `JANELA_AJUSTES`, com volta atrás.
+   *
+   * O PUT que sai leva `id`, `nome`, `telefone` (a rota exige) e **só os campos que
+   * mexeram** — mandar o cliente inteiro faria o CPF semeado inválido viajar em toda
+   * escrita e travar a edição de quase todo o cadastro. Ver o bloco no `enviarCliente`.
+   *
+   * Campo no meio da digitação (CPF pela metade, e-mail sem domínio) fica na tela e NÃO vai
+   * ao servidor até estar inteiro — senão a recusa apagaria o que o dono está escrevendo.
+   *
+   * Só EDITA: criar cliente é do agente de WhatsApp (`garantirCliente`), que deduplica por
+   * telefone.
+   */
+  editarCliente: (id: string, patch: Partial<D.Cliente>) => void;
   filtroSvc: string;
   setFiltroSvc: (f: string) => void;
   filtroCli: string;
@@ -1831,15 +1859,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [profissionalDe]);
 
   const cliAtivo = useCallback(
-    (id: string) => db.cliAtivo[id] ?? clienteDe(id)?.ativo ?? false,
-    [db.cliAtivo, clienteDe],
+    (id: string) => clienteDe(id)?.ativo ?? false,
+    [clienteDe],
   );
-  const alternarCli = useCallback((id: string) => {
-    setDb((d) => {
-      const atual = d.cliAtivo[id] ?? clienteDe(id)?.ativo ?? false;
-      return { ...d, cliAtivo: { ...d.cliAtivo, [id]: !atual } };
-    });
-  }, [clienteDe]);
+
+  /* ESCREVER CLIENTE desceu para depois do faturamento, junto de `recarregarFaturamento`.
+   *
+   * Não é organização: corrigir o CPF de alguém muda o que a tela de Faturamento pode
+   * emitir (sem CPF a prefeitura recusa, e `emitiveis` tira a pessoa do lote), então o
+   * envio TEM que recarregar o faturamento depois de gravar. Deixar o bloco aqui exigiria
+   * um ref só para furar a ordem dos hooks — e o lugar honesto de uma função que depende
+   * do faturamento é junto das outras que dependem. Mesmo argumento do
+   * `criarAtendimento`, que desceu para o bloco do Google. */
 
   /* ─────────────────────────────────────────────────────────────────────────────
    * NOTA FISCAL — servidor, não `localStorage`.
@@ -2056,6 +2087,167 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const pedirLote = useCallback(() => setLoteAberto(true), []);
   const fecharLote = useCallback(() => setLoteAberto(false), []);
   const confirmarLote = useCallback(() => { setLoteAberto(false); emitirPendentes(); }, [emitirPendentes]);
+
+  /* ─────────────────────────────────────────────────────────────────────────────
+   * ESCREVER CLIENTE — servidor, não `localStorage`.
+   *
+   * ★ A RECLAMAÇÃO DO BRUNO (24/08/2026) QUE ESTE BLOCO EXISTE PARA CONSERTAR:
+   *   "acabei de perceber que é impossível editar clientes pelo front. não só na aba
+   *    clientes mas na faturamento também. quero poder, toda vez que clicar em um cliente,
+   *    editar ele."
+   *
+   * O que estava aqui antes: `db.cliAtivo`, um mapa CLIENTE → ligado/desligado no disco do
+   * NAVEGADOR, e nada além dele. Nome, telefone, e-mail, CPF, canal e serviço habitual não
+   * tinham caminho de escrita nenhum — nem local. É a mesma história de `svcEdit`, e com
+   * dois campos que custam mais caro:
+   *
+   *   • `telefone` é a IDENTIDADE do cliente no WhatsApp (`telefone_chave`). Digitado
+   *     errado, a MAISA trata cliente antigo como desconhecido, e só SQL consertava;
+   *   • `cpf` é o que libera a nota. Sem ele o `emitiveis` tira a pessoa do lote de
+   *     propósito, e a tela avisava "sem CPF" sem oferecer onde escrever o CPF.
+   *
+   * ── OTIMISTA, COALESCIDO, COM VOLTA ATRÁS ──
+   *
+   * Igual ao `mexerNoServico`, e pela mesma razão: a gaveta grava a cada tecla (não há
+   * botão "Salvar"), então sem coalescer "Fernanda" seriam oito PUT e uma corrida em que a
+   * resposta de "Fernan" chega depois e repinta o campo para trás. Junta por
+   * `JANELA_AJUSTES` e manda UM pedido.
+   *
+   * ⚠️ O PUT MANDA SÓ O QUE MEXEU (mais `id`, `nome` e `telefone`, que a rota exige), e
+   * isso NÃO É ECONOMIA DE BYTES. Dos 17 clientes que `008_seed_bruno.sql` semeia, 15 têm
+   * CPF inventado que não fecha no módulo 11 — inclusive em produção. Um PUT com o cliente
+   * inteiro carregaria esse CPF em toda escrita, e o `criarAjustarCliente` recusaria com
+   * "esse CPF não fecha na conta do dígito" quem só queria desativar alguém ou corrigir um
+   * nome. Quase todo o cadastro ficaria impossível de editar. Por isso `cliPendente` guarda
+   * o PATCH junto do cliente: o patch diz o que enviar, o cliente diz o valor.
+   *
+   * ⚠️ E NÃO MANDA O QUE ESTÁ NO MEIO DA DIGITAÇÃO — ver `emDigitacao`. Sem isso, digitar
+   * um CPF com uma pausa no meio dispararia um PUT com 6 dígitos, o servidor recusaria (com
+   * razão), a volta atrás apagaria o que o dono estava escrevendo, e o campo se limparia
+   * sozinho na cara dele. Um formulário sem botão "Salvar" tem que saber esperar o fim.
+   * ────────────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Está no meio da digitação?
+   *
+   * ⚠️ NÃO É VALIDAÇÃO, e a diferença importa: quem julga continua sendo o servidor, e
+   * campo COMPLETO e errado (CPF de onze dígitos que não fecha, e-mail com domínio
+   * impossível) passa daqui e é recusado lá com a frase certa. O que esta função separa é
+   * "está errado" de "ainda não acabou" — e só o segundo não merece ida ao servidor.
+   */
+  const emDigitacao = useCallback((c: D.Cliente, patch: Partial<D.Cliente>): boolean => {
+    if (!c.nome.trim()) return true;
+    if (soDigitos(c.telefone).length < TELEFONE_MIN_DIGITOS) return true;
+    if ("cpf" in patch) {
+      const d = soDigitos(c.cpf);
+      /* Vazio é decisão ("não tenho o CPF dele"); 1 a 10 dígitos é meio caminho. */
+      if (d.length > 0 && d.length < 11) return true;
+    }
+    if ("email" in patch && c.email.trim() !== "" && !emailPlausivel(c.email.trim())) return true;
+    return false;
+  }, []);
+
+  /** O cliente como a tela o tem + quais campos opcionais mexeram. Um por id. */
+  const cliPendente = useRef(new Map<string, { cliente: D.Cliente; patch: Partial<D.Cliente> }>());
+  /** Como ele estava antes da primeira mexida pendente — para onde se volta se falhar. */
+  const cliAntes = useRef(new Map<string, D.Cliente>());
+  const cliTimer = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  const trocarClienteNaTela = useCallback((id: string, novo: D.Cliente) => {
+    setCadastro((c) => ({ ...c, clientes: c.clientes.map((x) => (x.id === id ? novo : x)) }));
+  }, []);
+
+  const enviarCliente = useCallback(async (id: string) => {
+    cliTimer.current.delete(id);
+    const pendente = cliPendente.current.get(id);
+    if (!pendente) return;
+
+    /* ⚠️ A SAÍDA ANTECIPADA VEM ANTES DE LIMPAR OS MAPAS. Sair depois de esvaziá-los
+     * perderia o acumulado e o "antes" — a próxima tecla começaria do zero, e a volta atrás
+     * de uma falha posterior devolveria o valor errado. */
+    const { cliente: alvo, patch } = pendente;
+    if (emDigitacao(alvo, patch)) return;
+
+    const antes = cliAntes.current.get(id);
+    cliPendente.current.delete(id);
+    cliAntes.current.delete(id);
+
+    const voltar = () => { if (antes) trocarClienteNaTela(id, antes); };
+
+    try {
+      const r = await fetch("/api/clientes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        /* `id`, `nome` e `telefone` sempre (a rota exige) + SÓ os opcionais que mexeram.
+         * Ver o ⚠️ do cabeçalho: mandar o cliente inteiro faria o CPF semeado inválido
+         * viajar em toda escrita e travar a edição de quase todo o cadastro.
+         *
+         * `atendimentos`, `valor` e `desde` não vão nunca: são derivados de `v_clientes`, e
+         * mandá-los daria a impressão de que a tela decide quanto o cliente deve. `teste`
+         * também não — é interruptor fiscal, não campo de ficha (ver a rota). */
+        body: JSON.stringify({
+          id: alvo.id, nome: alvo.nome, telefone: alvo.telefone,
+          ...("email" in patch ? { email: alvo.email } : {}),
+          ...("cpf" in patch ? { cpf: alvo.cpf } : {}),
+          ...("canal" in patch ? { canal: alvo.canal } : {}),
+          ...("servicoId" in patch ? { servicoId: alvo.servicoId } : {}),
+          ...("ativo" in patch ? { ativo: alvo.ativo } : {}),
+        }),
+      }).then((x) => x.json());
+
+      if (!r?.ok) {
+        /* A frase do SERVIDOR: "esse CPF não fecha na conta do dígito — confira os
+         * números" é o que diz ao dono o que corrigir. Um genérico mandaria ele adivinhar,
+         * e num campo de onze dígitos isso é caro. */
+        voltar();
+        toast(r?.info ?? "Não foi possível salvar o cliente.");
+        return;
+      }
+      /* Pinta o que o BANCO gravou: o CPF volta mascarado e o e-mail vazio volta como `""`,
+       * e a normalização acontece do outro lado. */
+      if (r.cliente) trocarClienteNaTela(id, r.cliente);
+
+      /* ⚠️ E RECARREGA O FATURAMENTO. `st.fechamento` monta `cpf`, `nome` e `semCpf` a
+       * partir de `/api/faturamento`, não do cadastro — sem esta linha o dono digita o CPF,
+       * vê o campo preenchido, e a tabela continua dizendo "sem CPF — não entra no lote".
+       * Foi metade da reclamação: editar na aba Faturamento tem que MUDAR o faturamento. */
+      void recarregarFaturamento();
+    } catch {
+      voltar();
+      toast("Sem conexão com o servidor — o cliente não foi salvo.");
+    }
+  }, [trocarClienteNaTela, recarregarFaturamento, emDigitacao]);
+
+  const mexerNoCliente = useCallback((id: string, p: Partial<D.Cliente>) => {
+    setCadastro((c) => {
+      const i = c.clientes.findIndex((x) => x.id === id);
+      if (i < 0) return c;
+      if (!cliAntes.current.has(id)) cliAntes.current.set(id, c.clientes[i]);
+      const novo = { ...c.clientes[i], ...p };
+      /* O patch ACUMULA entre teclas e entre campos: quem mexeu no CPF e depois no canal
+       * manda os dois num pedido só. Zerá-lo aqui mandaria só o último, e o primeiro
+       * ficaria na tela sem ter ido a lugar nenhum. */
+      const anterior = cliPendente.current.get(id)?.patch ?? {};
+      cliPendente.current.set(id, { cliente: novo, patch: { ...anterior, ...p } });
+      const copia = [...c.clientes];
+      copia[i] = novo;
+      return { ...c, clientes: copia };
+    });
+
+    const t = cliTimer.current.get(id);
+    if (t) clearTimeout(t);
+    cliTimer.current.set(id, setTimeout(() => { void enviarCliente(id); }, JANELA_AJUSTES));
+  }, [enviarCliente]);
+
+  const editarCliente = useCallback((id: string, p: Partial<D.Cliente>) => {
+    mexerNoCliente(id, p);
+  }, [mexerNoCliente]);
+
+  const alternarCli = useCallback((id: string) => {
+    const atual = clienteDe(id);
+    if (!atual) return;
+    mexerNoCliente(id, { ativo: !atual.ativo });
+  }, [clienteDe, mexerNoCliente]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
    * OS AJUSTES DA MAISA — servidor, não localStorage.
@@ -3300,7 +3492,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cadastro, cadastroErro, cadastroCarregado,
     profissionalDe, clienteDe, nomeDoProfissional, nomeDoCliente,
     pidAgenda, atendeNoDia, podeComecarEm,
-    profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
+    profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, setFiltroSvc, filtroCli, setFiltroCli,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
@@ -3329,7 +3521,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cadastro, cadastroErro, cadastroCarregado,
     profissionalDe, clienteDe, nomeDoProfissional, nomeDoCliente,
     pidAgenda, atendeNoDia, podeComecarEm,
-    profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli,
+    profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, filtroCli,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,

@@ -81,6 +81,20 @@ as substitui:
 e `st.devolver` escrevem no banco: é o que faz a MAISA calar (ou voltar a falar) naquela
 conversa. Nenhum dos três é otimista à toa — ver o comentário de `mudarPosse` no store.
 
+**Editar cliente é do store, não da tela** (desde 24/08/2026). `st.editarCliente(id, patch)`
+grava otimista, coalesce por 500 ms e manda **um** `PUT /api/clientes` com o cliente inteiro;
+`st.alternarCli` passa por ele. A gaveta não tem botão "Salvar" — ela só chama `editarCliente`
+a cada tecla, como já fazia com `editarServico`.
+
+⚠️ **`st.cliAtivo` não lê mais `localStorage`.** `db.cliAtivo` saiu do `Persistido`: era um mapa
+que ficava POR CIMA de `clientes.ativo`, então quem desativasse alguém num aparelho veria o
+cliente ativo no outro para sempre. Quem manda agora é o banco.
+
+⚠️ **`editarCliente` recarrega o faturamento depois de gravar**, e isso é contrato, não zelo:
+`st.fechamento` monta `cpf`, `nome` e `semCpf` a partir de `/api/faturamento`, não do cadastro.
+Sem o recarregar, corrigir um CPF preenchia o campo e a tabela continuava dizendo "sem CPF —
+não entra no lote".
+
 Duas coisas que o store passou a exigir:
 
 - **`st.pidAgenda` pode ser `""`** na primeira passada — o cadastro é assíncrono. Guarde

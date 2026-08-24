@@ -31,12 +31,28 @@ Definidos em [`src/adaptadores/entrada/http/contexto.ts`](../src/adaptadores/ent
 | `/api/ativacao` | GET | `sessaoOuDemo` | `LerAtivacao` — quantos dos 5 passos estão feitos. **Derivado do banco a cada leitura**, nunca de uma flag de progresso |
 | `/api/servicos` | PUT · DELETE | `sessaoOuDemo` | `AjustarServico` — cria ou edita pelo `id` · `RemoverServico` |
 | `/api/equipe` | PUT | `sessaoOuDemo` | `AjustarProfissional` — cria ou edita quem atende. **Não mexe em expediente**: aquilo manda na grade inteira e pede caso de uso próprio |
+| `/api/clientes` | PUT | `sessaoOuDemo` | `AjustarCliente` — **só edita**, `id` obrigatório. Nome, telefone, e-mail, CPF, canal, serviço habitual e `ativo` |
 
 ⚠️ **Serviço tem DELETE e profissional não**, e a assimetria vem do esquema, não de gosto:
 `atendimentos.servico_id` é snapshot **sem FK** (ao lado de `servico_nome` e `servico_valor`),
 então apagar um serviço não toca faturamento fechado — enquanto `atendimentos.profissional_id`
 tem **`on delete cascade`**, e apagar a pessoa levaria os atendimentos dela junto. Quem sai da
 equipe vira `ativo: false`.
+
+⚠️ **`/api/clientes` não cria**, ao contrário de `/api/servicos` e `/api/faqs`: corpo sem `id`
+é recusado, não interpretado como "cadastre um". Quem cria cliente é `garantirCliente`, dentro
+do repositório, chamado quando alguém novo marca pelo WhatsApp — e é ele que **deduplica por
+telefone**. Um segundo caminho de criação, sem deduplicação, daria o mesmo cliente duas vezes.
+
+Dois campos desta rota não são cadastro comum. **`telefone` é identidade**: a coluna gerada
+`telefone_chave` (8 últimos dígitos) é por onde o agente reconhece quem está falando. Ela
+**não tem `unique` de propósito** — número repetido acontece em família — então nem a rota nem
+o caso de uso recusam telefone repetido: `clientePorTelefone` desempata pelo cadastro mais
+antigo, e bloquear tornaria ineditável quem divide número com um parente. Quem avisa é a
+gaveta, em `hint`, sem impedir de salvar. **`cpf` é o que libera a nota**: sem ele a prefeitura recusa
+e o lote do Faturamento pula a pessoa de propósito. `teste` **não é aceito** — marcar tomador
+de teste faz a nota real dele se cancelar sozinha, e isso não pertence ao formulário onde se
+conserta um telefone digitado errado.
 | `/api/assistente` | GET · PATCH | `sessaoOuDemo` | `LerAssistente` · `AjustarAssistente` — nome, tom, o que não falar |
 | `/api/horarios` | GET · PUT | `sessaoOuDemo` | `LerHorarios` · `AjustarHorarios` — o expediente que a MAISA anuncia |
 | `/api/faqs` | GET · PUT · DELETE | `sessaoOuDemo` | `LerFaqs` · `AjustarFaq` · `RemoverFaq` — as respostas prontas. Não há rota de BUSCA: quem busca é o agente, pelo caso de uso `ResponderDuvida`, no mesmo processo |

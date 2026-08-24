@@ -659,7 +659,59 @@ export const repositorioSupabase: RepositorioNegocio = {
   },
 
   /**
-   * Acha ou cria. É a única ESCRITA deste adaptador.
+   * Edita o cliente e relê pela view.
+   *
+   * ⚠️ RELÊ, e não monta o `Cliente` da resposta do update — mesmo motivo escrito no
+   * `garantirCliente` logo abaixo: `atendimentos` e `valor` são contagens que só
+   * `v_clientes` sabe calcular. Devolver zeros fabricados faria a gaveta pintar "0
+   * atendimentos · R$ 0,00" depois de o dono corrigir um telefone.
+   *
+   * ⚠️ `telefone_chave` NÃO ENTRA no update: é coluna gerada (`right(regexp_replace(...),
+   * 8)`), e mandá-la é erro do Postgres. Ela se recalcula sozinha quando `telefone` muda —
+   * que é justamente o que faz o conserto de telefone valer no WhatsApp.
+   */
+  async atualizarCliente(t, r): Promise<Cliente> {
+    if (!PARECE_UUID.test(r.id)) {
+      /* Id que não é uuid nunca existiu no banco. Ver o bloco do `PARECE_UUID`: deixar
+       * seguir daria `22P02 invalid input syntax` e uma frase sobre sintaxe de tipo para
+       * quem só queria corrigir um CPF. */
+      throw new NaoEncontrado("Cliente");
+    }
+
+    const supabase = clienteDoContexto(t);
+    const campos = {
+      nome: r.nome,
+      telefone: r.telefone,
+      ...(r.email === undefined ? {} : { email: r.email }),
+      ...(r.cpf === undefined ? {} : { cpf: r.cpf }),
+      ...(r.canal === undefined ? {} : { canal: r.canal }),
+      ...(r.servicoId === undefined ? {} : { servico_id: r.servicoId }),
+      ...(r.ativo === undefined ? {} : { ativo: r.ativo }),
+    };
+
+    /* O `.eq("tenant_id")` não é redundante com a RLS — ver o bloco acima do
+     * `salvarServico`: no caminho do agente o cliente é service role e a RLS está
+     * desligada, e ali o filtro no código é a única barreira. */
+    const { data, error } = await supabase
+      .from("clientes")
+      .update(campos)
+      .eq("id", r.id)
+      .eq("tenant_id", t.tenantId)
+      .select("id");
+
+    exigirSemErro("o cliente", error);
+    /* Zero linhas é "não era deste inquilino" ou "não existe" — e aqui o silêncio ENGANA:
+     * sem esta linha a tela diria "salvo" e reverteria no próximo reload. */
+    if (!data || data.length === 0) throw new NaoEncontrado("Cliente deste negócio");
+
+    const salvo = await repositorioSupabase.cliente(t, r.id);
+    if (!salvo) throw new NaoEncontrado("Cliente");
+    return salvo;
+  },
+
+  /**
+   * Acha ou cria — a escrita que o AGENTE faz, ao contrário do `atualizarCliente` acima,
+   * que é a que a TELA faz.
    *
    * Lê primeiro, de propósito, e não um `upsert` direto: `clientes` não tem `unique` no
    * telefone (número repetido acontece em família — ver `clientePorTelefone`), então não

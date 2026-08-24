@@ -43,8 +43,9 @@ export type Campo = {
 export type Bloco =
   /** Pares label/valor em duas colunas — ficha de leitura. */
   | { tipo: "stats"; key: string; label?: string; linhas: [string, string][] }
-  /** Campos editáveis — grava direto, sem botão de salvar. */
-  | { tipo: "campos"; key: string; label?: string; campos: Campo[] }
+  /** Campos editáveis — grava direto, sem botão de salvar.
+   *  `avisoAoSair` é o toast que sai no blur; sem ele, o campo grava calado. Ver `Gaveta`. */
+  | { tipo: "campos"; key: string; label?: string; campos: Campo[]; avisoAoSair?: string }
   /** Chips de leitura; `on` destaca o que está ativo. */
   | { tipo: "chips"; key: string; label?: string; chips: { label: string; on?: boolean }[] }
   /** Parágrafo de contexto em caixa. */
@@ -90,6 +91,39 @@ export function useDetalhe(id: string | null): Detalhe | null {
   if (!id) return null;
 
   const fecharAcao: Acao = { label: "Fechar", primaria: true, onClick: st.fechar };
+
+  /**
+   * O que dizer embaixo do campo de CPF.
+   *
+   * O CPF só vai ao servidor completo (ver `emDigitacao`, no store), e um campo que grava
+   * calado precisa dizer que ainda não gravou — senão o dono digita metade, sai da gaveta e
+   * acha que salvou. A frase conta os dígitos que faltam em vez de dizer "incompleto":
+   * quem colou um CPF truncado não sabe quanto falta.
+   */
+  const dicaDeCpf = (cpf: string, completo: string): string => {
+    const d = D.soDigitos(cpf);
+    if (d.length === 0) return "A prefeitura recusa a nota sem CPF, e sem ele este cliente fica fora do lote.";
+    if (d.length < 11) return `Faltam ${11 - d.length} dígitos — só salvo quando o CPF estiver completo.`;
+    return completo;
+  };
+
+  /**
+   * Alguém MAIS tem este telefone?
+   *
+   * Aviso, nunca bloqueio: a coluna não tem `unique` de propósito ("número repetido
+   * acontece em família"), e `clientePorTelefone` desempata pelo cadastro mais ANTIGO. Quem
+   * divide o número com um parente continua editável — o que não pode é o dono não saber
+   * que a MAISA vai reconhecer o outro. A gaveta é o lugar do aviso porque só ela tem o
+   * cadastro inteiro em mãos.
+   */
+  const divideTelefone = (cli: D.Cliente): string | null => {
+    const chave = D.soDigitos(cli.telefone).slice(-8);
+    if (chave.length < 8) return null;
+    const outro = st.cadastro.clientes.find(
+      (x) => x.id !== cli.id && D.soDigitos(x.telefone).slice(-8) === chave,
+    );
+    return outro ? outro.nome : null;
+  };
 
   /* Abre a conversa do cliente na tela de Conversas, se existir uma. Do store: hoje é uma
      conversa de WhatsApp de verdade, e quem tem uma é quem já escreveu. */
@@ -152,6 +186,38 @@ export function useDetalhe(id: string | null): Detalhe | null {
     if (!c) return null;
     const nota = st.notaDe(c.id);
 
+    /* ── QUEM É O TOMADOR, EDITÁVEL AQUI (24/08/2026) ──
+     *
+     * Bruno: *"é impossível editar clientes pelo front. não só na aba clientes mas na
+     * faturamento também."* A metade do faturamento é esta, e ela tem uma razão própria
+     * além da simetria: **sem CPF a prefeitura recusa a nota**, e por isso o `emitiveis`
+     * tira a pessoa do lote. A tabela escrevia "sem CPF — não entra no lote", a gaveta
+     * repetia em `stats`, e não havia onde escrever o CPF. Aviso sem porta — o mesmo
+     * defeito que fez a tela de Contatos nascer em 17/08.
+     *
+     * São DOIS campos e não a ficha inteira: nome e CPF são o que identifica o tomador no
+     * documento. Canal, e-mail e serviço habitual não mudam nota nenhuma, e ficam onde
+     * sempre estiveram — na ficha, a um clique pela ação do rodapé.
+     *
+     * ⚠️ Só quando `cad` existe. Uma linha de faturamento pode vir de cliente que não está
+     * no cadastro (nota antiga cujo cliente foi apagado), e um campo apontando para um id
+     * que o `PARECE_UUID` do adaptador recusa gravaria em ninguém, calado. */
+    const dadosDoTomador: Bloco[] = cad ? [{
+      tipo: "campos", key: "tomador", label: "Dados do tomador",
+      avisoAoSair: "Cliente atualizado",
+      campos: [
+        {
+          id: "nome", label: "Nome", valor: cad.nome,
+          onChange: (v) => st.editarCliente(cad.id, { nome: v }),
+        },
+        {
+          id: "cpf", label: "CPF", valor: cad.cpf,
+          hint: dicaDeCpf(cad.cpf, "Confira antes de emitir — depois só cancelando."),
+          onChange: (v) => st.editarCliente(cad.id, { cpf: v }),
+        },
+      ],
+    }] : [];
+
     const recibo: Bloco = {
       tipo: "recibo", key: "recibo", label: "Prévia da nota",
       recibo: {
@@ -160,7 +226,13 @@ export function useDetalhe(id: string | null): Detalhe | null {
         total: fmt(c.valor),
         linhas: [
           ["Tomador", c.nome],
-          ["CPF", c.cpf],
+          /* O CPF do CADASTRO na frente do da linha de faturamento, ao contrário do valor
+             logo acima. O motivo do valor vir da linha é dinheiro ("desde a última
+             emissão"); o CPF não tem essa natureza — a nota lê o cadastro na transação da
+             emissão, então o cadastro É a prévia mais fiel. E é o que faz o campo editável
+             acima e esta prévia concordarem na mesma tecla, em vez de esperar o recarregar
+             do faturamento. */
+          ["CPF", cad?.cpf || c.cpf],
           ["Serviço", c.servico ?? st.nomeServico(c.servicoId)],
           ["Atendimentos sem nota", String(c.atendimentos)],
           ["Competência", D.PERIODO],
@@ -168,6 +240,14 @@ export function useDetalhe(id: string | null): Detalhe | null {
         ],
       },
     };
+
+    /* O atalho para o resto da ficha. Existe em TODAS as faixas da nota, inclusive na
+     * emitida: o e-mail ou o telefone estarem errados não muda o documento que já saiu, e é
+     * na tela de Faturamento que o dono repara nisso. `abrir` troca o id da gaveta — a de
+     * cliente abre no lugar desta, sem passar pela lista. */
+    const abrirFicha: Acao[] = cad
+      ? [{ label: "Abrir ficha do cliente", onClick: () => st.abrir(cad.id) }]
+      : [];
 
     if (nota.status === "emitida") {
       return {
@@ -190,6 +270,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
           /* Pela REF, e não pelo cliente: a partir do segundo mês um cliente tem VÁRIAS notas,
              e cancelar "a nota do cliente" cancelaria a errada. */
           ...(nota.ref ? [{ label: "Cancelar nota", tone: "danger" as const, onClick: () => st.cancelarNota(nota.ref!) }] : []),
+          ...abrirFicha,
         ],
       };
     }
@@ -201,7 +282,10 @@ export function useDetalhe(id: string | null): Detalhe | null {
           recibo,
           { tipo: "texto", key: "st", label: "Situação", texto: "A prefeitura está processando. O número aparece aqui sozinho em alguns minutos — você não precisa fazer nada, nem manter esta gaveta aberta." },
         ],
-        acoes: [fecharAcao],
+        /* Sem os campos do tomador AQUI, de propósito: a nota está em voo, e um CPF
+           trocado no meio do caminho não entra nela — o documento já foi montado. Ver o
+           bloco `dadosDoTomador`. O atalho para a ficha fica, para depois. */
+        acoes: [fecharAcao, ...abrirFicha],
       };
     }
 
@@ -211,10 +295,14 @@ export function useDetalhe(id: string | null): Detalhe | null {
         sub: nota.numero ? `Nota ${nota.numero} cancelada` : "Nota cancelada",
         blocos: [
           { tipo: "texto", key: "st", label: "Situação", texto: "Esta nota foi cancelada. O valor do mês continua fechado, então você pode emitir de novo quando quiser." },
+          /* Antes do recibo: quem cancelou uma nota costuma ter cancelado JUSTAMENTE porque
+             o tomador estava errado, e "emitir de novo" sem corrigir repete o erro. */
+          ...dadosDoTomador,
           recibo,
         ],
         acoes: [
           { label: "Emitir de novo", primaria: true, onClick: () => { st.emitirNota(c.id); st.fechar(); } },
+          ...abrirFicha,
           { label: "Fechar", onClick: st.fechar },
         ],
       };
@@ -222,17 +310,36 @@ export function useDetalhe(id: string | null): Detalhe | null {
 
     // pendente ou erro
     return {
-      titulo: c.nome, seed: c.id, sub: `Fechamento de ${D.PERIODO}`,
+      /* O nome do CADASTRO no título, e não o da linha de faturamento: enquanto o dono
+         digita, `linha.nome` é o que o servidor tinha antes do primeiro caractere — o
+         cabeçalho ficaria brigando com o campo logo abaixo até o envio pousar. */
+      titulo: cad?.nome || c.nome, seed: c.id, sub: `Fechamento de ${D.PERIODO}`,
       blocos: [
+        /* O que falta para poder emitir vem ANTES de tudo. Sem CPF o `emitiveis` tira a
+           pessoa do lote, então o botão "Emitir as N pendentes" simplesmente não a conta —
+           e sem esta frase o dono não tem como saber por que ela ficou de fora. */
+        /* ⚠️ A CONDIÇÃO É `c.cpf` — O QUE O SERVIDOR TEM — e não o `cad.cpf` otimista que o
+           campo abaixo mostra. É a mesma pergunta que o `emitiveis` faz para montar o lote,
+           então o aviso e o botão concordam com quem de fato decide. Com o valor otimista, um
+           CPF pela metade (que não foi salvo, e nem vai ser até estar completo) apagaria o
+           aviso e liberaria o botão — e a recusa viria da prefeitura. */
+        ...(!c.cpf
+          ? [{
+            tipo: "aviso" as const, key: "sem-cpf", tone: "warn" as const,
+            texto: "A prefeitura recusa a nota sem o CPF do tomador, então este cliente fica fora do lote. Preencha abaixo — assim que o CPF estiver salvo, ele entra.",
+          }]
+          : []),
         {
           tipo: "stats", key: "conf", label: "Confira antes de emitir",
+          /* O CPF saiu daqui e virou campo logo abaixo — mesmo dado em dois blocos vizinhos,
+             um editável e um não, é a hora em que o dono digita no que não grava. */
           linhas: [
             ["Valor da nota", fmt(c.valor)],
             ["Atendimentos", String(c.atendimentos)],
-            ["CPF do tomador", c.cpf],
             ["Serviço prestado", st.nomeServico(c.servicoId)],
           ],
         },
+        ...dadosDoTomador,
         recibo,
         nota.status === "erro" && nota.erro
           ? { tipo: "aviso", key: "er", texto: nota.erro, tone: "danger" }
@@ -244,7 +351,17 @@ export function useDetalhe(id: string | null): Detalhe | null {
             : { tipo: "aviso", key: "av", texto: "Emitir é irreversível: a nota vai para a prefeitura na hora. Para corrigir depois, só cancelando." },
       ],
       acoes: [
-        { label: nota.status === "erro" ? "Tentar de novo" : "Emitir nota", primaria: true, onClick: () => { st.emitirNota(c.id); st.fechar(); } },
+        {
+          label: nota.status === "erro" ? "Tentar de novo" : "Emitir nota",
+          primaria: true,
+          /* Desabilitado sem CPF em vez de deixar clicar e falhar. A prefeitura recusaria de
+             qualquer jeito, e o erro voltaria como frase de provedor — longe do campo que
+             resolve, que agora está nesta mesma gaveta. `c.cpf` e não `cad.cpf`: ver o aviso
+             no topo dos blocos. */
+          desabilitada: !c.cpf,
+          onClick: () => { st.emitirNota(c.id); st.fechar(); },
+        },
+        ...abrirFicha,
         { label: "Fechar", onClick: st.fechar },
       ],
     };
@@ -271,19 +388,74 @@ export function useDetalhe(id: string | null): Detalhe | null {
     }
     if (!acoes.length) acoes.push(fecharAcao);
 
+    /* Só os serviços ATIVOS na lista, mais o que este cliente já tem — mesmo arranjo do
+       select do rascunho. Um cliente cujo serviço habitual saiu do catálogo continuaria
+       apontando para ele, e um select que não contém o próprio valor se repinta sozinho
+       para a primeira opção no primeiro render: o serviço mudaria sem ninguém tocar. */
+    const svcCliente = st.servicoDe(cli.servicoId);
+    const svcOpcoes = st.servicos.filter((sv) => st.svcAtivo(sv.id) || sv.id === cli.servicoId);
+
     return {
       titulo: cli.nome, seed: cli.id,
       sub: `${st.nomeServico(cli.servicoId)} · ${cli.canal} · desde ${cli.desde}`,
       blocos: [
+        /* ── A FICHA VIROU FORMULÁRIO (24/08/2026) ──
+         *
+         * Era um bloco `stats` — seis linhas de leitura. Bruno: *"é impossível editar
+         * clientes pelo front… quero poder, toda vez que clicar em um cliente, editar
+         * ele."* E dois desses campos não eram enfeite de cadastro:
+         *
+         *   • `telefone` é a IDENTIDADE no WhatsApp (`telefone_chave`). Errado, a MAISA
+         *     trata cliente antigo como desconhecido — e só SQL consertava;
+         *   • `cpf` é o que libera a nota. Sem ele a prefeitura recusa e o lote pula a
+         *     pessoa. A tela de Faturamento dizia isso e não oferecia onde escrever.
+         *
+         * Grava a cada tecla, coalescido no store — como os ajustes da MAISA e o catálogo.
+         * `desde`, `atendimentos` e `valor` continuam em leitura no bloco do mês: são
+         * derivados de `v_clientes`, e campo derivado editável é campo que mente. */
         {
-          tipo: "stats", key: "ficha", label: "Ficha",
-          linhas: [
-            ["Telefone", cli.telefone],
-            ["E-mail", cli.email],
-            ["CPF", cli.cpf],
-            ["Atendimento", cli.canal],
-            ["Serviço principal", st.nomeServico(cli.servicoId)],
-            ["Cliente desde", cli.desde],
+          tipo: "campos", key: "ficha", label: "Ficha",
+          avisoAoSair: "Cliente atualizado",
+          campos: [
+            {
+              id: "nome", label: "Nome", valor: cli.nome,
+              onChange: (v) => st.editarCliente(cli.id, { nome: v }),
+            },
+            {
+              id: "telefone", label: "Telefone", valor: cli.telefone,
+              /* O hint diz a CONSEQUÊNCIA, não o formato: este campo não é contato, é a
+                 chave pela qual o agente reconhece quem manda mensagem. */
+              hint: divideTelefone(cli)
+                ? `${divideTelefone(cli)} também tem este número — a MAISA reconhece quem está no cadastro há mais tempo.`
+                : "É por ele que a MAISA reconhece a pessoa no WhatsApp. Com DDD.",
+              onChange: (v) => st.editarCliente(cli.id, { telefone: v }),
+            },
+            {
+              id: "cpf", label: "CPF", valor: cli.cpf,
+              hint: dicaDeCpf(cli.cpf, "Vai no tomador da nota fiscal."),
+              onChange: (v) => st.editarCliente(cli.id, { cpf: v }),
+            },
+            {
+              id: "email", label: "E-mail", valor: cli.email,
+              onChange: (v) => st.editarCliente(cli.id, { email: v }),
+            },
+            {
+              id: "canal", label: "Atendimento", valor: cli.canal, tipo: "select",
+              opcoes: ["Online", "Presencial"],
+              onChange: (v) => st.editarCliente(cli.id, { canal: v as D.Cliente["canal"] }),
+            },
+            {
+              id: "servico", label: "Serviço principal", valor: cli.servicoId, tipo: "select",
+              opcoes: ["", ...svcOpcoes.map((sv) => sv.id)],
+              rotuloOpcao: (v) => {
+                const sv = svcOpcoes.find((x) => x.id === v);
+                return sv ? `${sv.nome} · ${fmt(sv.preco)}` : "Nenhum";
+              },
+              hint: svcCliente && !st.svcAtivo(svcCliente.id)
+                ? `${svcCliente.nome} está fora do catálogo — a MAISA não o oferece.`
+                : "O que ela costuma marcar para esta pessoa.",
+              onChange: (v) => st.editarCliente(cli.id, { servicoId: v }),
+            },
           ],
         },
         {
@@ -475,6 +647,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
       blocos: [
         {
           tipo: "campos", key: "dados", label: "Dados do serviço",
+          avisoAoSair: "Serviço atualizado",
           campos: [
             {
               id: "nome", label: "Nome", valor: sv.nome,

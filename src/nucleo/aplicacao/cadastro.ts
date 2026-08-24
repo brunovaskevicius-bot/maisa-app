@@ -14,6 +14,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type {
+  AjustarCliente,
   AjustarNegocio,
   AjustarProfissional,
   AjustarServico,
@@ -24,6 +25,17 @@ import type {
 import type { RepositorioNegocio } from "../portas/saida/repositorio-negocio";
 import type { Negocio } from "../dominio/negocio";
 import type { Profissional, Servico } from "../dominio/catalogo";
+import type { Cliente } from "../dominio/clientes";
+import {
+  EMAIL_MAX,
+  NOME_CLIENTE_MAX,
+  NOME_CLIENTE_MIN,
+  TELEFONE_MIN_DIGITOS,
+  cpfMascarado,
+  cpfValido,
+  emailPlausivel,
+  soDigitos,
+} from "../dominio/clientes";
 import { NOME_NEGOCIO_MAX, NOME_NEGOCIO_MIN, normalizarNomeDoNegocio } from "../dominio/negocio";
 import {
   DURACAO_MAX,
@@ -222,4 +234,147 @@ export function criarAjustarProfissional(deps: {
       ...(p.ativo === undefined ? {} : { ativo: p.ativo }),
     });
   };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * AJUSTAR UM CLIENTE — o terceiro par de escrita do `lerCadastro`.
+ *
+ * ★ A RECLAMAÇÃO DO BRUNO (24/08/2026) QUE ESTE BLOCO EXISTE PARA CONSERTAR:
+ *   *"acabei de perceber que é impossível editar clientes pelo front. não só na aba
+ *    clientes mas na faturamento também. quero poder, toda vez que clicar em um cliente,
+ *    editar ele."*
+ *
+ * Ele estava certo, e o buraco tinha a forma de sempre: existia tabela, existia RLS
+ * (`clientes` está no grupo uniforme do `003_rls.sql`), existiam duas telas que abriam a
+ * gaveta do cliente — e não existia caminho entre elas. O único controle era um
+ * liga/desliga que gravava em `db.cliAtivo`, no `localStorage`: o dono tirava alguém do
+ * faturamento, via a lista mudar, dava F5, e a pessoa voltava.
+ *
+ * ── DOIS CAMPOS SÃO MAIS QUE CADASTRO ──
+ *
+ * `telefone` é IDENTIDADE: a coluna gerada `telefone_chave` (8 últimos dígitos) é por onde
+ * `clientePorTelefone` reconhece quem está falando no WhatsApp. Digitado errado, a MAISA
+ * trata cliente antigo como desconhecido — e até aqui só SQL consertava.
+ *
+ * ⚠️ E MESMO ASSIM ESTE CASO DE USO NÃO RECUSA TELEFONE REPETIDO. A primeira versão
+ * recusava, com uma leitura antes de escrever, e estava errada: o repositório já decidiu o
+ * contrário, por escrito, e a decisão é mais velha que esta tela. A coluna não tem `unique`
+ * "de propósito: número repetido acontece em família" — e `clientePorTelefone` resolve a
+ * ambiguidade pegando o cadastro mais ANTIGO, deterministicamente. Bloquear aqui criaria
+ * uma segunda regra por cima dessa, e o preço seria alto: qualquer cliente que já
+ * compartilhe número com um parente ficaria impossível de editar, inclusive para trocar o
+ * nome ou sair do faturamento. Quem avisa que dois clientes dividem o número é a GAVETA,
+ * que tem o cadastro inteiro em mãos e pode dizer isso sem impedir nada.
+ *
+ * `cpf` é o que LIBERA A NOTA. Sem ele a prefeitura recusa, e o `emitiveis` da tela de
+ * Faturamento tira a pessoa do lote de propósito. A tela dizia "sem CPF — a prefeitura
+ * recusa sem ele" e não oferecia onde escrever o CPF; agora oferece, e o dígito
+ * verificador é conferido aqui — o mesmo `cpfValido` que nasceu de um erro real do e-CAC
+ * em 21/08/2026, e pelo mesmo motivo: erro de digitação descoberto na prefeitura é erro
+ * descoberto longe de quem digitou.
+ *
+ * ⚠️ MAS SÓ QUANDO O CPF VEM NO PEDIDO. É por isso que ele é opcional aqui e que quem
+ * chama manda só o que mexeu: os 17 clientes que `008_seed_bruno.sql` semeia têm CPF
+ * INVENTADO, e 15 deles não fecham no módulo 11. Se um pedido que só liga/desliga o cliente
+ * carregasse o CPF atual junto, a recusa deste bloco travaria a edição de quase todo o
+ * cadastro — com uma frase sobre dígito verificador para quem só queria desativar alguém.
+ * ────────────────────────────────────────────────────────────────────────────── */
+export function criarAjustarCliente(deps: { negocio: RepositorioNegocio }): AjustarCliente {
+  return async (t, p): Promise<Cliente> => {
+    const id = String(p?.id ?? "").trim();
+    if (!id) {
+      /* Recusa antes de tocar o banco, igual ao `RemoverServico`: id vazio é pedido
+       * malformado, não "não achei" — e este caso de uso NÃO CRIA, então um id ausente
+       * nunca significa "cadastre um novo". Quem cria é `garantirCliente`. */
+      throw new DadoInvalido("Diga qual cliente editar.", "id");
+    }
+
+    const nome = colapsarEspaco(p?.nome);
+    if (!temConteudo(nome) || nome.length < NOME_CLIENTE_MIN) {
+      throw new DadoInvalido("Diga o nome do cliente.", "nome");
+    }
+    if (nome.length > NOME_CLIENTE_MAX) {
+      throw new DadoInvalido(`O nome passa de ${NOME_CLIENTE_MAX} caracteres.`, "nome");
+    }
+
+    /* O telefone guardado é o TEXTO como a pessoa escreveu — a coluna é assim de propósito
+     * ("(11) 98123-4567"), e quem compara é a coluna gerada. Aqui só se colapsa espaço e
+     * se conta DÍGITO: o `check` do banco mede caracteres, então "(11) 9" passaria lá com
+     * seis dígitos e viraria uma chave de telefone de seis. */
+    const telefone = colapsarEspaco(p?.telefone);
+    if (soDigitos(telefone).length < TELEFONE_MIN_DIGITOS) {
+      throw new DadoInvalido(
+        "O telefone precisa dos 8 dígitos do número, com DDD — é por ele que a MAISA reconhece quem está falando no WhatsApp.",
+        "telefone",
+      );
+    }
+
+    /* ── os opcionais: `undefined` é "não mexe", `null` é "apaga" ──
+     *
+     * A distinção é o que faz "desativar o cliente" ser um pedido diferente de "trocar o
+     * CPF do cliente". Sem ela existiria um pedido só — o cliente inteiro — e ele carregaria
+     * o CPF semeado inválido em toda escrita, fazendo o bloco do CPF recusar edições que
+     * nem tocam CPF. Quem chama manda o que mexeu; ver o `mexerNoCliente` no store. */
+
+    const email = p?.email === undefined ? undefined : limparEmail(p.email);
+    if (typeof email === "string" && !emailPlausivel(email)) {
+      throw new DadoInvalido("Esse e-mail está incompleto — confira o @ e o domínio.", "email");
+    }
+    if (typeof email === "string" && email.length > EMAIL_MAX) {
+      throw new DadoInvalido(`O e-mail passa de ${EMAIL_MAX} caracteres.`, "email");
+    }
+
+    let cpf: string | null | undefined;
+    if (p?.cpf !== undefined) {
+      const bruto = colapsarEspaco(p.cpf);
+      if (!bruto) {
+        cpf = null;
+      } else {
+        /* Confere o DÍGITO VERIFICADOR, não o tamanho. Ver o bloco de `cpfValido` em
+         * `dominio/clientes.ts`: o primeiro lote do Receita Saúde voltou reprovado do
+         * e-CAC com CPFs de onze dígitos que não fechavam no módulo 11. */
+        if (!cpfValido(bruto)) {
+          throw new DadoInvalido("Esse CPF não fecha na conta do dígito — confira os números.", "cpf");
+        }
+        /* Guarda mascarado. A grafia livre ("12345678909" ou "123.456.789-09") deixaria o
+         * mesmo documento com duas caras na coluna; quem emite aplica `soDigitos` de
+         * qualquer jeito, então o formato guardado é o que a tela mostra sem traduzir. */
+        cpf = cpfMascarado(bruto);
+      }
+    }
+
+    if (p?.canal !== undefined && p.canal !== "Online" && p.canal !== "Presencial") {
+      /* O `check` da coluna só conhece dois. Deixar passar daria `check_violation` — 500
+       * genérico para quem só escolheu numa lista. */
+      throw new DadoInvalido("O atendimento é Online ou Presencial.", "canal");
+    }
+
+    /* Serviço habitual: string vazia é o `""` que o `<select>` manda quando o dono escolhe
+     * "nenhum", e vira `null` (a FK é `on delete set null`, então nulo é estado legítimo).
+     *
+     * ⚠️ NÃO CONFERE se o serviço é deste inquilino, e isso é deliberado: a FK
+     * `clientes.servico_id → servicos.id` recusa id que não existe, e a RLS impede
+     * enxergar serviço de outro negócio para saber o id. Uma checagem aqui seria uma
+     * segunda cópia da autorização, que é o que este repositório evita. */
+    const servicoId = p?.servicoId === undefined
+      ? undefined
+      : (colapsarEspaco(p.servicoId) || null);
+
+    return deps.negocio.atualizarCliente(t, {
+      id,
+      nome,
+      telefone,
+      ...(email === undefined ? {} : { email }),
+      ...(cpf === undefined ? {} : { cpf }),
+      ...(p.canal === undefined ? {} : { canal: p.canal }),
+      ...(servicoId === undefined ? {} : { servicoId }),
+      ...(p.ativo === undefined ? {} : { ativo: p.ativo }),
+    });
+  };
+}
+
+/** `""` (ou só espaço) vira `null` — "apaga o e-mail", não "grava vazio". */
+function limparEmail(bruto: string | null): string | null {
+  const t = colapsarEspaco(bruto);
+  return t === "" ? null : t;
 }

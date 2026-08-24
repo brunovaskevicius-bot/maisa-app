@@ -90,3 +90,60 @@ export function telefoneBonito(v?: string | null): string {
   }
   return d;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * OS LIMITES DE UM CLIENTE EDITADO À MÃO.
+ *
+ * Entraram em 24/08/2026, junto com a primeira tela que ESCREVE cliente. Até então o
+ * cadastro só nascia por dois caminhos automáticos — `provisionar_negocio()` e o
+ * `garantirCliente` do agente de WhatsApp — e nenhum dos dois passa por teclado. Um
+ * telefone digitado errado ficava errado para sempre, e o sintoma era o pior possível:
+ * a MAISA não reconhecia a pessoa e tratava cliente antigo como desconhecido.
+ *
+ * Os números são os `check` das colunas de `clientes` (`002_multitenant.sql`), repetidos
+ * aqui para a recusa virar frase em vez de `check_violation` 500. Divergir deles é criar
+ * uma segunda regra — o teto que a tela mostra tem que ser o teto que o banco aceita.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+/** `check (length(btrim(nome)) between 1 and 160)`. O chão é 1, e não 2 como no
+ *  profissional: quem tem apelido de uma letra na agenda do dono é problema dele. */
+export const NOME_CLIENTE_MIN = 1;
+export const NOME_CLIENTE_MAX = 160;
+
+/** `check (length(btrim(telefone)) >= 8)`, medido em DÍGITOS e não em caracteres: a
+ *  coluna conta o texto cru, então `"(11) 9"` passaria no banco com seis dígitos. */
+export const TELEFONE_MIN_DIGITOS = 8;
+
+/** O teto do RFC 5321 para um endereço inteiro. A coluna não tem `check`, e é por isso
+ *  que o limite mora aqui: sem ele, `email` é um campo de texto livre sem fim. */
+export const EMAIL_MAX = 254;
+
+/**
+ * CPF em `000.000.000-00`, ou `""` quando não são onze dígitos.
+ *
+ * Existe por causa da escrita: o dono digita "12345678909" ou "123.456.789-09" e as duas
+ * grafias iriam para a coluna como digitadas — o mesmo documento com duas caras, e a
+ * comparação "esse CPF já está em outro cliente?" quebrando por causa de ponto.
+ *
+ * A máscara e não os dígitos crus porque todo consumidor do CPF já aplica `soDigitos`
+ * (`focus/nfsen.ts`, `dominio/recibo-saude.ts`), então o formato guardado é livre — e
+ * entre dois formatos livres, o que se guarda é o que a tela mostra sem traduzir.
+ */
+export function cpfMascarado(v?: string | null): string {
+  const d = soDigitos(v);
+  if (d.length !== 11) return "";
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
+/**
+ * Tem cara de e-mail?
+ *
+ * ⚠️ NÃO valida endereço — isso só o servidor de e-mail do outro lado sabe, e a regex
+ * completa do RFC 5322 é um monstro que rejeita endereços válidos. O que se pega aqui é
+ * digitação interrompida ("bruno@", "bruno.com"), que é o erro real de um campo de
+ * formulário. E-mail de cliente não recebe nada hoje: é anotação de ficha, então recusar
+ * demais custaria mais que aceitar um endereço estranho.
+ */
+export function emailPlausivel(v: string): boolean {
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(v);
+}

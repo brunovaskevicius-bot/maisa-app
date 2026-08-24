@@ -53,6 +53,42 @@ export type RascunhoDeProfissional = {
   ativo?: boolean;
 };
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * O RASCUNHO DE CLIENTE — e por que ele é o único com `id` OBRIGATÓRIO.
+ *
+ * Porque criar cliente já tem porta, e é outra: `garantirCliente`, lá embaixo, que
+ * deduplica por telefone. Um `id?` aqui daria DOIS caminhos de criação com regras
+ * diferentes — este sem deduplicação nenhuma — e o resultado seria o mesmo cliente duas
+ * vezes no cadastro, um pelo WhatsApp e um pela tela. A dedução por telefone não é
+ * detalhe do outro método: é o que faz a MAISA reconhecer quem está falando.
+ *
+ * ⚠️ `teste` NÃO ENTRA, de propósito. Marcar um tomador como teste faz a nota REAL dele
+ * se cancelar sozinha segundos depois de autorizada (ver `dominio/clientes.ts`). É um
+ * interruptor de comportamento fiscal, e ele não pertence ao mesmo formulário onde se
+ * conserta um telefone digitado errado — um clique torto ali cancela documento de gente
+ * de verdade. Quando precisar de tela, que seja tela própria, com a consequência escrita.
+ *
+ * ⚠️ `desde` também não. A tela lê `"ago/2026"` (formato de exibição, montado pelo
+ * adaptador), não a `date` da coluna — aceitá-lo aqui obrigaria a desfazer uma
+ * formatação, e um mês digitado errado reescreveria a antiguidade do cliente sem que
+ * ninguém tivesse pedido.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+export type RascunhoDeCliente = {
+  /** Obrigatório: esta porta só EDITA. Ver o bloco acima. */
+  id: string;
+  nome: string;
+  /** Como a pessoa escreveu. É o que gera `telefone_chave`, por onde o agente reconhece. */
+  telefone: string;
+  /** `null` = apagar o que estava lá. Ausente = não mexe. */
+  email?: string | null;
+  cpf?: string | null;
+  canal?: "Online" | "Presencial";
+  /** `null` = sem serviço habitual. */
+  servicoId?: string | null;
+  ativo?: boolean;
+};
+
 export interface RepositorioNegocio {
   negocio(t: ContextoTenant): Promise<Negocio>;
 
@@ -192,6 +228,37 @@ export interface RepositorioNegocio {
    * a fechar a agenda de alguém sem querer.
    */
   salvarProfissional(t: ContextoTenant, rascunho: RascunhoDeProfissional): Promise<Profissional>;
+
+  /**
+   * Atualiza um cliente e devolve a linha como ficou.
+   *
+   * ── POR QUE PRECISOU EXISTIR (24/08/2026) ──
+   *
+   * Porque NENHUMA tela escrevia cliente. As duas que o mostram — Clientes e Faturamento —
+   * abriam a gaveta em modo leitura, e o único controle era um liga/desliga que gravava em
+   * `db.cliAtivo`, no `localStorage`. É a mesma história do catálogo em 15/08/2026, e com
+   * dois agravantes próprios:
+   *
+   *   • **O telefone é a identidade.** `telefone_chave` é por onde o agente de WhatsApp
+   *     reconhece quem está falando. Um dígito errado no cadastro faz a MAISA tratar
+   *     cliente antigo como desconhecido — e não havia como consertar sem SQL.
+   *   • **O CPF é o que libera a nota.** Sem ele a prefeitura recusa, então `emitiveis` tira
+   *     a pessoa do lote (ver `store.tsx`). A tela dizia "sem CPF — a prefeitura recusa sem
+   *     ele" e não oferecia onde escrever o CPF. Aviso sem porta é o defeito que a tela de
+   *     Contatos já tinha corrigido uma vez.
+   *
+   * ⚠️ O ADAPTADOR TEM QUE DISTINGUIR "não era deste inquilino" DE "gravou". Um `update`
+   * com id de outro tenant não dá erro: dá sucesso com zero linhas. Mesma disciplina do
+   * `salvarServico` — sem pedir as linhas de volta, a tela diz "salvo" e reverte no reload.
+   *
+   * ⚠️ NÃO DEDUPLICA — E O CASO DE USO TAMBÉM NÃO. A coluna não tem `unique` de propósito
+   * ("número repetido acontece em família", logo abaixo), e `clientePorTelefone` desempata
+   * pegando o cadastro mais ANTIGO, deterministicamente. Recusar telefone repetido aqui ou
+   * em `criarAjustarCliente` tornaria ineditável — inclusive para renomear ou desativar —
+   * todo cliente que já divide número com um parente. Quem avisa que dois cadastros dividem
+   * o número é a GAVETA, que tem o cadastro inteiro em mãos e diz isso sem impedir nada.
+   */
+  atualizarCliente(t: ContextoTenant, rascunho: RascunhoDeCliente): Promise<Cliente>;
 
   /**
    * Acha o cliente por telefone ou cria.
