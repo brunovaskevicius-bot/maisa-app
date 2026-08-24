@@ -37,29 +37,36 @@ import { CODIGO_OCUPACAO, type OcupacaoSaude } from "./recibo-saude";
 import { soDigitos } from "./clientes";
 
 /**
- * A porta da frente do e-CAC.
+ * O Carnê-Leão — pelo login COM CÓDIGO DE SERVIÇO, que é o único formato que sobrevive à
+ * autenticação.
  *
- * ★ AQUI HOUVE UM DEEP LINK PARA `/carneleao/escrituracao`, POR ALGUMAS HORAS EM 24/08/2026, E
- * ELE SAIU COM MEDIÇÃO NA MÃO. O argumento a favor era poupar a navegação de quem tem pouca
- * intimidade com computador — bom argumento, premissa falsa:
+ * ★ QUATRO URLS FORAM MEDIDAS EM 24/08/2026, E O QUE AS SEPARA É UM PARÂMETRO. Hop a hop:
  *
- *   /carneleao/escrituracao  → 302 → /autenticacao/login     (sem parâmetro de retorno)
- *   /ecac/                   → 302 → /autenticacao/login     (idêntico, mesma URL)
+ *   /carneleao/escrituracao          → 302 → /autenticacao/login                   ✗
+ *   /carneleao/demonstrativo         → 302 → /autenticacao/login                   ✗
+ *   /ecac/                           → 302 → /autenticacao/login                   ✗
+ *   /autenticacao/login/index/10028  → 302 → servicos.receitafederal.gov.br/login
+ *                                             ?redirectUrl=…/login.aspx?sistema=10028   ✓
  *
- * ⚠️ **O 302 NÃO CARREGA O DESTINO.** Quem não está logada — o caso normal, porque ninguém fica
- * sentada dentro do e-CAC — cai no mesmo login pelos dois caminhos e, depois de entrar, chega na
- * home logada de qualquer jeito. O deep link economizava **zero clique** e só acrescentava um
- * lugar a mais para a viagem terminar torta: naquele dia ela terminou em
- * `/autenticacao/Login/Logout` — a tela de SAIR — depois de tentar entrar.
+ * ⚠️ **AS TRÊS PRIMEIRAS CAEM NUM LOGIN SEM PARÂMETRO DE RETORNO.** O destino é descartado: ela
+ * entra e chega na home do e-CAC, tendo que achar o caminho sozinha. Não adianta apontar para
+ * uma tela "mais funda" — `/demonstrativo` e `/escrituracao` morrem no mesmo lugar que `/ecac/`.
  *
- * A lição não é "deep link é ruim": é que o atalho foi trocado pelo caminho certo **sem medir se
- * ele encurtava alguma coisa**. Não encurtava.
+ * A quarta carrega `redirectUrl` **e** `sistema=10028` até o SSO de verdade
+ * (`servicos.receitafederal.gov.br`, host diferente do portal), e o destino atravessa o login.
+ *
+ * ★ O `10028` É O SERVIÇO, NÃO ENFEITE — e não foi adivinhado: é o que o botão *Iniciar* da
+ * página oficial do Carnê-Leão no gov.br usa. "Limpar" a URL tirando o código é exatamente o
+ * que quebrou naquela manhã. O sintoma de tirar é ela cair na home logada e não achar nada; o
+ * pior visto naquele dia foi terminar em `/autenticacao/Login/Logout` — a tela de SAIR — depois
+ * de tentar entrar pelo login sem código.
  */
-export const LINK_ECAC = "https://cav.receita.fazenda.gov.br/ecac/";
+export const LINK_CARNE_LEAO = "https://cav.receita.fazenda.gov.br/autenticacao/login/index/10028";
 
 /**
- * A página de serviço do gov.br. Não pertence ao portal autenticado: não expira, não desloga e
- * não redireciona. É a saída para o sintoma real — cair no login e não voltar de lá.
+ * A mesma porta, pela página pública do gov.br — é dela que o código de serviço saiu. Não
+ * pertence ao portal autenticado: não expira, não desloga e não redireciona. É a saída para
+ * quando o login trava.
  */
 export const LINK_ECAC_SERVICO = "https://www.gov.br/pt-br/servicos/apurar-carne-leao";
 
@@ -164,17 +171,18 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
       + `quem fez em ${Number(ano) - 1} e não refez está de fora. É daqui que vêm os dois erros `
       + `que mais aparecem, "Ocupação não cadastrada" e "Registro profissional não informado `
       + `pelo conselho".`,
-    link: { url: LINK_ECAC, rotulo: "Abrir o e-CAC" },
-    linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Caiu no login e não voltou? Entre por aqui" },
+    link: { url: LINK_CARNE_LEAO, rotulo: "Abrir meu Carnê-Leão" },
+    linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Travou no login? Entre pelo gov.br" },
     /* Os nomes dos botões são os que aparecem na tela dela. Instrução que não usa as mesmas
      * palavras do site é instrução que faz a pessoa desistir no meio.
      *
-     * ★ O PASSO DE NAVEGAÇÃO VOLTOU, no mesmo dia em que saiu. Ele foi removido de manhã sob a
-     * ideia de que o link caía dentro do Carnê-Leão; medido à tarde, o link SEMPRE desemboca na
-     * home logada. Sem este passo ela chega no e-CAC e para ali, olhando um portal inteiro. */
+     * ★ O PASSO DE NAVEGAÇÃO É CONDICIONAL, e a condição é o que a gente não consegue verificar:
+     * com `sistema=10028` ela DEVE cair dentro do Carnê-Leão, mas o que acontece depois do login
+     * não se mede sem sessão. Afirmar que cai seria mentir se não cair; mandar navegar sempre
+     * faria ela procurar um menu que já não está na frente dela. Então a frase cobre os dois. */
     passos: [
       "Entre com a conta gov.br — é a mesma do Meu INSS",
-      "Em Declarações e Demonstrativos, clique em Acessar Carnê-Leão",
+      "Não caiu direto no Carnê-Leão? Em Declarações e Demonstrativos, clique em Acessar Carnê-Leão",
       "No menu, abra Configurações e marque que você é trabalhador autônomo",
       `Em Identificação → Ocupações, escolha "${profissao ?? "sua profissão"}", digite o ${conselho} e clique em Adicionar`,
       "Salvar Identificação",
@@ -188,10 +196,10 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
     detalhe:
       "O e-CAC tem uma conferência que **aponta os erros sem emitir recibo nenhum** — de graça e "
       + "quantas vezes você quiser. Vale sempre fazer antes: se voltar sem erro, aí sim importe.",
-    link: { url: LINK_ECAC, rotulo: "Abrir o e-CAC" },
-    linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Caiu no login e não voltou? Entre por aqui" },
+    link: { url: LINK_CARNE_LEAO, rotulo: "Abrir meu Carnê-Leão" },
+    linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Travou no login? Entre pelo gov.br" },
     passos: [
-      "Em Declarações e Demonstrativos, clique em Acessar Carnê-Leão",
+      "Entre com o gov.br — se não cair no Carnê-Leão, Declarações e Demonstrativos → Acessar Carnê-Leão",
       "Clique em Importar Escrituração",
       "Escolha o arquivo e clique em Analisar Arquivo",
       "Voltou sem erro? Então importe de verdade",

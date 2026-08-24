@@ -32,7 +32,7 @@ import { s, Btn, Card, Icon, SectionTitle, StatTile } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { cpfValido } from "@/nucleo/dominio/clientes";
 import {
-  LINK_ECAC, checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
+  LINK_CARNE_LEAO, checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
   type ItemDoChecklist,
 } from "@/nucleo/dominio/checklist-recibo";
 import { hojeISO } from "@/nucleo/dominio/tempo";
@@ -43,15 +43,14 @@ import type { PagamentoPendente, RecibosPendentes } from "@/nucleo/portas/entrad
 /**
  * O caminho no e-CAC, em link.
  *
- * ⚠️ ESTE COMENTÁRIO JÁ DEFENDEU UM DEEP LINK PARA `/carneleao/escrituracao`, POR ALGUMAS HORAS
- * EM 24/08/2026. O deep link saiu quando alguém finalmente mediu: ele responde 302 para
- * `/autenticacao/login` **sem parâmetro de retorno**, exatamente como `/ecac/`. Deslogada, ela
- * cai no mesmo login pelos dois caminhos e chega na home logada de qualquer jeito.
+ * ⚠️ NÃO TROQUE POR UMA URL "MAIS DIRETA". Já se tentou `/carneleao/escrituracao`,
+ * `/carneleao/demonstrativo` e `/ecac/` em 24/08/2026: as três respondem 302 para
+ * `/autenticacao/login` **sem parâmetro de retorno**, e o destino é descartado no login.
  *
- * Ou seja, o atalho não encurtava nada — e ainda deu um jeito novo de a viagem terminar torta.
- * Ver `LINK_ECAC`, que guarda a medição inteira.
+ * O que funciona é o login com código de serviço — ver `LINK_CARNE_LEAO`, que guarda a medição
+ * inteira e o porquê do `10028`.
  */
-const CARNE_LEAO = LINK_ECAC;
+const CARNE_LEAO = LINK_CARNE_LEAO;
 
 /**
  * Uma linha do "pronto para emitir?".
@@ -647,16 +646,16 @@ export function LoteReceitaSaude() {
             style={s("display:flex;align-items:center;gap:8px;align-self:flex-start;padding:10px 16px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--ink);font-size:var(--t-sm);font-weight:var(--w-title);text-decoration:none")}
           >
             <Icon name="link" size={15} sw={2.2} />
-            Abrir o e-CAC
+            Abrir meu Carnê-Leão
           </a>
-          {/* ⚠️ A FRASE ANTERIOR PROMETIA QUE O LINK CAÍA "direto na escrituração". Não cai — o
-              e-CAC manda para o login e depois para a home. Promessa de navegação que não se
-              cumpre é pior que navegação nenhuma: ela procura uma tela que não apareceu e conclui
-              que clicou errado. Agora a frase descreve a viagem inteira. */}
+          {/* ⚠️ A FRASE PROMETIA QUE O LINK CAÍA "direto na escrituração". O login fica no meio,
+              sempre — e promessa de navegação que não se cumpre é pior que navegação nenhuma:
+              ela procura uma tela que não apareceu e conclui que clicou errado. Agora a frase
+              nomeia o login primeiro e deixa a navegação como plano B. */}
           <span style={s("font-size:var(--t-label);color:var(--muted)")}>
-            Entre com a conta gov.br e vá em <strong>Declarações e Demonstrativos → Acessar
-            Carnê-Leão</strong>. Lá: <strong>Importar Escrituração → Analisar Arquivo</strong> —
-            a análise aponta linha e campo de qualquer erro{" "}
+            Entre com a conta gov.br. Se não cair no Carnê-Leão, vá em <strong>Declarações e
+            Demonstrativos → Acessar Carnê-Leão</strong>. Lá: <strong>Importar Escrituração →
+            Analisar Arquivo</strong> — a análise aponta linha e campo de qualquer erro{" "}
             <strong>sem emitir nada</strong>. Só depois, Importar.
           </span>
 

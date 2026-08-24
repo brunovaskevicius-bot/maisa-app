@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  EMAIL_RECEITA_SAUDE, LINK_ECAC, LINK_ECAC_SERVICO,
+  EMAIL_RECEITA_SAUDE, LINK_CARNE_LEAO, LINK_ECAC_SERVICO,
   checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
 } from "./checklist-recibo";
 import type { ConfigFiscal } from "./fiscal";
@@ -145,17 +145,32 @@ describe("★ o que está do outro lado do muro", () => {
   it("todo link do portal tem uma saída fora do portal", () => {
     for (const id of ["carne_leao", "ensaio"]) {
       const i = item(carla(), id);
-      expect(i.link?.url).toBe(LINK_ECAC);
+      expect(i.link?.url).toBe(LINK_CARNE_LEAO);
       expect(i.linkAlternativo?.url).toBe(LINK_ECAC_SERVICO);
       expect(i.linkAlternativo?.rotulo).toContain("login");
     }
+  });
+
+  /* ★ O TESTE QUE PRENDE O PARÂMETRO, e é o único deste arquivo cuja ausência custaria a viagem
+   * inteira. Medido em 24/08/2026:
+   *
+   *   /carneleao/escrituracao   → 302 → /autenticacao/login                      destino perdido
+   *   /carneleao/demonstrativo  → 302 → /autenticacao/login                      destino perdido
+   *   /ecac/                    → 302 → /autenticacao/login                      destino perdido
+   *   …/login/index/10028       → 302 → …/login?redirectUrl=…&sistema=10028      destino atravessa
+   *
+   * Apontar para uma tela "mais funda" NÃO ajuda: as três primeiras morrem no mesmo login. O que
+   * carrega o destino é o código de serviço — e é ele que alguém "limpando" a URL apagaria. */
+  it("o link leva o código do serviço, senão o login descarta o destino", () => {
+    expect(LINK_CARNE_LEAO).toContain("/autenticacao/login/index/");
+    expect(LINK_CARNE_LEAO).toContain("10028");
   });
 
   /* ★ NENHUM LINK APONTA PARA DENTRO DO PORTAL AUTENTICADO. Rota interna do e-CAC não se
    * verifica sem sessão — todas respondem 302 para o login — e, medido, ela não encurta nada:
    * o redirect descarta o destino. Um deep link aqui é custo sem benefício. */
   it("aponta para a porta da frente, e nunca para uma rota interna", () => {
-    expect(LINK_ECAC).toBe("https://cav.receita.fazenda.gov.br/ecac/");
+    expect(LINK_CARNE_LEAO).toBe("https://cav.receita.fazenda.gov.br/autenticacao/login/index/10028");
 
     const urls = checklistDoRecibo(carla(), HOJE)
       .flatMap((i) => [i.link?.url, i.linkAlternativo?.url])
