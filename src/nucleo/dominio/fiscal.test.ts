@@ -37,6 +37,7 @@ const meiPronto: ConfigFiscal = {
   registroProfissional: null,
   procuradorDocumento: null,
   procuracaoValidaAte: null,
+  procuracaoAceitaEm: null,
   inscricaoMunicipal: null,
   itemListaServico: null,
   aliquotaIss: null,
@@ -211,7 +212,38 @@ describe("representação", () => {
   const HOJE = "2026-08-24";
   const PJ = "62025689000166";
 
-  const cfg = (over: Partial<ConfigFiscal> = {}): ConfigFiscal => ({ ...pfBase, ...over });
+  /* ⚠️ `procuracaoAceitaEm` VEM PREENCHIDO NO PADRÃO destes casos. Sem ele tudo cai em
+   * `aguardando_aceite` — que é o certo, e tem bloco próprio abaixo. Aqui o assunto é o que
+   * acontece DEPOIS do aceite. */
+  const cfg = (over: Partial<ConfigFiscal> = {}): ConfigFiscal =>
+    ({ ...pfBase, procuracaoAceitaEm: "2026-08-20", ...over });
+
+  /* ★ O ESTADO QUE A RECEITA CRIOU EM 2025 E A GENTE SÓ DESCOBRIU NA TELA, EM 24/08/2026.
+   * A autorização nasce "Em Análise" e o e-CAC recusa a troca de perfil até o procurador aceitar
+   * na aba Recebidas — com uma mensagem que fala de "unidade de atendimento" e manda procurar um
+   * posto da Receita, quando o botão que falta é nosso.
+   *
+   * Tratar isso como `representada` faria a tela prometer um botão que falha. */
+  it("outorgada mas sem o nosso aceite: NÃO é representada", () => {
+    const r = representacao(cfg({ procuradorDocumento: PJ, procuracaoAceitaEm: null }), HOJE);
+
+    expect(r).toEqual({ modo: "aguardando_aceite", procurador: PJ, ate: null });
+  });
+
+  it("o aceite é o que vira a chave", () => {
+    const sem = cfg({ procuradorDocumento: PJ, procuracaoValidaAte: "2027-01-01", procuracaoAceitaEm: null });
+    expect(representacao(sem, HOJE).modo).toBe("aguardando_aceite");
+    expect(representacao({ ...sem, procuracaoAceitaEm: "2026-08-24" }, HOJE).modo).toBe("representada");
+  });
+
+  /* Vencida vem antes do aceite: aceitar não ressuscita uma outorga morta, e a frase útil para
+   * quem está nesse estado é a do vencimento. */
+  it("vencida sem aceite continua vencida, não `aguardando`", () => {
+    const r = representacao(
+      cfg({ procuradorDocumento: PJ, procuracaoValidaAte: "2026-08-01", procuracaoAceitaEm: null }), HOJE,
+    );
+    expect(r.modo).toBe("vencida");
+  });
 
   it("sem procurador, ela mesma emite", () => {
     expect(representacao(cfg(), HOJE).modo).toBe("propria");
@@ -252,8 +284,10 @@ describe("representação", () => {
 describe("aviso de procuração a vencer", () => {
   const HOJE = "2026-08-24";
   const PJ = "62025689000166";
-  const em = (ate: string | null) =>
-    representacao({ ...pfBase, procuradorDocumento: PJ, procuracaoValidaAte: ate }, HOJE);
+  const em = (ate: string | null) => representacao(
+    { ...pfBase, procuradorDocumento: PJ, procuracaoValidaAte: ate, procuracaoAceitaEm: "2026-08-20" },
+    HOJE,
+  );
 
   it("dentro de 30 dias, avisa", () => {
     expect(procuracaoAVencer(em("2026-09-20"))).toBe(true);   // 27 dias

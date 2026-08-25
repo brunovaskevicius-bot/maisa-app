@@ -33,6 +33,7 @@ const carla = (over: Partial<ConfigFiscal> = {}): ConfigFiscal => ({
   registroProfissional: "CRP 06/123456",
   procuradorDocumento: null,
   procuracaoValidaAte: null,
+  procuracaoAceitaEm: null,
   inscricaoMunicipal: null, itemListaServico: null,
   aliquotaIss: null, codigoTributarioMunicipio: null,
   ...over,
@@ -238,11 +239,27 @@ describe("a escada de quando recusa mesmo com tudo certo", () => {
 
 
 const PJ = "62025689000166";
-const comProcuracao = (ate: string | null) => carla({ procuradorDocumento: PJ, procuracaoValidaAte: ate });
+/* Aceite preenchido: aqui o assunto é o depois. O antes tem teste próprio. */
+const comProcuracao = (ate: string | null) =>
+  carla({ procuradorDocumento: PJ, procuracaoValidaAte: ate, procuracaoAceitaEm: "2026-08-20" });
 
 describe("★ a procuração", () => {
   it("sem outorga, o item não existe", () => {
     expect(checklistDoRecibo(carla(), HOJE).find((i) => i.id === "procuracao")).toBeUndefined();
+  });
+
+  /* ★ O ESTADO QUE NÃO PODE COBRAR DELA. Ela já fez a parte dela; o botão que falta é nosso.
+   * Se isto virasse `falta`, o contador diria "1 item para você preencher" e ela procuraria, na
+   * tela dela, algo que não existe do lado dela. */
+  it("outorgada e sem o nosso aceite: fica com a gente, e não conta como pendência dela", () => {
+    const c = carla({ procuradorDocumento: PJ, procuracaoValidaAte: "2027-05-12" });
+    const i = item(c, "procuracao");
+
+    expect(i.estado).toBe("com_a_gente");
+    expect(i.detalhe).toContain("não precisa fazer mais nada");
+    /* Sem passos e sem link: não há o que ela clicar. */
+    expect(i.passos).toBeUndefined();
+    expect(faltaNoChecklist(checklistDoRecibo(c, HOJE))).toBe(0);
   });
 
   it("outorgada e no prazo, fica pronta e diz até quando", () => {
@@ -278,8 +295,26 @@ describe("★ a procuração", () => {
 
 describe("★ os seis cliques da outorga", () => {
   /* O TESTE QUE JUSTIFICA A FUNÇÃO. Ver o cabeçalho. */
-  it("nomeia a permissão exata, com o travessão da Receita", () => {
-    expect(passosDaProcuracao(PJ).join(" | ")).toContain('"IRPF – Carnê Leão Web"');
+  /* ⚠️ HÍFEN, NÃO TRAVESSÃO — e este teste já afirmou o contrário. A primeira versão copiava a
+   * FAQ de um conselho, que escreve "–". A tela usa "-", e o passo manda a pessoa DIGITAR na
+   * busca: um travessão colado num campo de busca não encontra nada, e ela conclui que a
+   * permissão não existe. Visto na tela em 25/08/2026. */
+  it("nomeia a permissão com hífen, e traz o código", () => {
+    const p = passosDaProcuracao(PJ).join(" | ");
+    expect(p).toContain("IRPF - Carnê Leão Web");
+    expect(p).not.toContain("IRPF – Carnê Leão Web");
+    expect(p).toContain("00204");
+  });
+
+  /* ★ "Todos" é um atalho na mesma tela, e marcá-lo entrega poder sobre declaração, dívida e
+   * pagamento da cliente por até cinco anos. O passo tem que desaconselhar em voz alta. */
+  it("desaconselha a opção Todos", () => {
+    expect(passosDaProcuracao(PJ).join(" | ")).toContain('não use a opção "Todos"');
+  });
+
+  /* Buscar em vez de rolar: a lista tem dezenas de serviços e a busca reduz a uma linha. */
+  it("manda buscar, e diz o que digitar", () => {
+    expect(passosDaProcuracao(PJ).join(" | ")).toContain('digite "carn"');
   });
 
   it("mostra o documento formatado, do jeito que ela vai conferir na tela", () => {
@@ -294,9 +329,18 @@ describe("★ os seis cliques da outorga", () => {
   });
 
   /* ★ O link é 51. Se um dia alguém "unificar" com o do Carnê-Leão, isto quebra aqui. */
-  it("o link é o serviço de procurações, e não o do Carnê-Leão", () => {
-    expect(LINK_PROCURACAO).toBe("https://cav.receita.fazenda.gov.br/autenticacao/login/index/51");
+  /* ★ ESTE TESTE JÁ PRENDEU A URL ERRADA. Ele exigia `/autenticacao/login/index/51`, tirada da
+   * página oficial do gov.br — e o 51 existe, funciona, e leva às procurações do **e-Processo**,
+   * que é outro sistema. O link não quebrava: levava ao lugar quase certo, que é pior, porque a
+   * pessoa chega numa tela plausível e conclui que ela é que não entendeu.
+   *
+   * A URL de agora foi percorrida à mão até criar uma autorização de verdade. */
+  it("o link é o de Autorizações de Acesso, e não o do e-Processo nem o do Carnê-Leão", () => {
+    expect(LINK_PROCURACAO)
+      .toBe("https://servicos.receitafederal.gov.br/servico/autorizacoes/minhas-autorizacoes");
     expect(LINK_PROCURACAO).not.toBe(LINK_CARNE_LEAO);
+    expect(LINK_PROCURACAO).not.toContain("eprocesso");
+    expect(LINK_PROCURACAO).not.toContain("index/51");
     expect(item(comProcuracao("2026-08-01"), "procuracao").link?.url).toBe(LINK_PROCURACAO);
   });
 });

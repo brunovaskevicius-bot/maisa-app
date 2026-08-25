@@ -72,19 +72,37 @@ export const LINK_CARNE_LEAO = "https://cav.receita.fazenda.gov.br/autenticacao/
 export const LINK_ECAC_SERVICO = "https://www.gov.br/pt-br/servicos/apurar-carne-leao";
 
 /**
- * As procurações do e-CAC — **serviço 51**, não 10028.
+ * Onde a cliente autoriza a MAISA.
  *
- * Mesmo mecanismo do `LINK_CARNE_LEAO` e mesma verificação, em 24/08/2026:
+ * ★ ESTA URL JÁ ESTEVE ERRADA, E O ERRO É INSTRUTIVO. Por algumas horas em 24/08/2026 ela era
+ * `/autenticacao/login/index/51`, tirada da página oficial do gov.br. O `51` existe e funciona —
+ * mas leva às procurações do **e-Processo**, que é outro sistema, e a própria tela avisa que ali
+ * só aparecem as autorizações do serviço "Processos Digitais".
  *
- *   /autenticacao/login/index/51 → 302 → servicos.receitafederal.gov.br/login
- *                                         ?redirectUrl=…/login.aspx?sistema=51   ✓
+ * Ou seja: o link não quebrava, ele levava ao lugar quase certo. Esse é o pior tipo de erro de
+ * navegação, porque a pessoa chega numa tela plausível, não acha o que precisa e conclui que
+ * ela é que não entendeu.
  *
- * ⚠️ NÃO REAPROVEITE O LINK DO CARNÊ-LEÃO AQUI. Outorgar procuração é outro serviço do portal;
- * mandar `sistema=10028` levaria ela para a escrituração e o passo a passo falaria de um menu
- * que não está na tela. O `51` saiu da página oficial `gov.br/pt-br/servicos/
- * cadastrar-ou-cancelar-procuracao-para-acesso-ao-e-cac`, não de tentativa.
+ * Esta URL foi percorrida à mão em 25/08/2026, até criar uma autorização de verdade.
  */
-export const LINK_PROCURACAO = "https://cav.receita.fazenda.gov.br/autenticacao/login/index/51";
+export const LINK_PROCURACAO = "https://servicos.receitafederal.gov.br/servico/autorizacoes/minhas-autorizacoes";
+
+/**
+ * O serviço que a autorização precisa conceder — nome e código, **lidos na tela**.
+ *
+ * ⚠️ O NOME LEVA HÍFEN, NÃO TRAVESSÃO. A primeira versão daqui escrevia "IRPF – Carnê Leão Web"
+ * copiando a FAQ de um conselho profissional. A tela usa `-`. Parece implicância, mas a
+ * instrução manda a pessoa **buscar** por esse texto: um travessão colado num campo de busca não
+ * encontra nada, e ela conclui que a permissão não existe.
+ *
+ * O código é o que não muda quando a Receita reescrever o rótulo.
+ */
+export const PERMISSAO_CARNE_LEAO = "IRPF - Carnê Leão Web";
+export const PERMISSAO_CARNE_LEAO_CODIGO = "00204";
+
+/** A página pública do gov.br. Fora do portal logado: não expira nem desloga. */
+export const LINK_PROCURACAO_SERVICO =
+  "https://www.gov.br/pt-br/servicos/cadastrar-ou-cancelar-procuracao-para-acesso-ao-e-cac";
 
 /** O e-mail da Receita para o caso em que tudo está certo e ainda recusa. Fonte: CRP-MG. */
 export const EMAIL_RECEITA_SAUDE = "receitasaude.cofis@rfb.gov.br";
@@ -98,7 +116,16 @@ export type EstadoDoItem =
    * ⚠️ ESTÁ DO OUTRO LADO DO MURO. Não é "não checamos ainda": é impossível checar daqui.
    * O item vira instrução, nunca selo verde.
    */
-  | "nao_da_para_saber";
+  | "nao_da_para_saber"
+  /**
+   * ★ A BOLA ESTÁ COM A GENTE, e por isso ele NÃO conta como pendência dela.
+   *
+   * Sem este estado, "falta a MAISA aceitar sua autorização" apareceria no contador de coisas
+   * que ELA precisa resolver — e ela iria procurar, na tela dela, um botão que não existe do
+   * lado dela. Cobrar do cliente uma tarefa nossa é o jeito mais rápido de perder a confiança
+   * que a tela toda existe para construir.
+   */
+  | "com_a_gente";
 
 export type ItemDoChecklist = {
   id: "cpf" | "profissao" | "registro" | "procuracao" | "carne_leao" | "ensaio";
@@ -155,23 +182,28 @@ function documentoFormatado(d: string): string {
 }
 
 /**
- * Os seis cliques da outorga, com os nomes dos menus do e-CAC.
+ * Os passos da outorga, com os nomes que estão na tela — percorridos à mão em 25/08/2026.
  *
- * ⚠️ A PERMISSÃO É "IRPF – Carnê Leão Web", E ELA É O PASSO QUE TODO MUNDO ERRA. A tela do e-CAC
- * lista dezenas de serviços; marcar o errado gera uma procuração válida que **não serve**, e a
- * descoberta acontece só na primeira emissão, dias depois.
+ * ⚠️ A PERMISSÃO É O PASSO QUE TODO MUNDO ERRA. A lista tem dezenas de serviços e um atalho
+ * "Todos" logo acima; marcar o errado gera uma autorização **válida que não serve**, e a
+ * descoberta acontece na primeira emissão, dias depois. Por isso o passo manda **buscar** em vez
+ * de rolar: o campo de busca reduz a lista a uma linha, e some a chance de errar.
  *
- * Exportado porque o onboarding pede a mesma coisa que a renovação — e duas listas divergindo
- * dariam instruções diferentes para o mesmo ato.
+ * ★ "NÃO MARQUE TODOS" É REGRA DE SEGURANÇA, NÃO DE BUROCRACIA. Com "Todos", a cliente entrega à
+ * MAISA poder sobre declaração, dívida, parcelamento e pagamento dela — por até cinco anos. A
+ * gente precisa de um serviço; pedir o resto é guardar um risco que não nos serve para nada.
+ *
+ * Exportado porque o onboarding e a renovação pedem o mesmo ato, e duas listas divergindo dariam
+ * instruções diferentes para a mesma coisa.
  */
 export function passosDaProcuracao(procurador: string): string[] {
   return [
-    "Entre com a conta gov.br — precisa ser nível prata ou ouro",
-    "Não caiu em Procurações? Abra Senhas e Procurações → Cadastro, Consulta e Cancelamento · Procuração para e-CAC",
-    "Clique em Cadastrar Procuração",
-    `No CPF/CNPJ do procurador, informe ${documentoFormatado(procurador)}`,
-    `Marque a permissão "IRPF – Carnê Leão Web"`,
-    "Confirme clicando em Cadastrar Procuração",
+    "Entre com a sua conta gov.br — precisa ser nível prata ou ouro",
+    "Clique em + Nova Autorização",
+    `Em "Pessoa", informe ${documentoFormatado(procurador)}`,
+    `Em "Serviços", digite "carn" na busca e marque só ${PERMISSAO_CARNE_LEAO} (cód. ${PERMISSAO_CARNE_LEAO_CODIGO}) — não use a opção "Todos"`,
+    "Escolha a validade — o máximo é 5 anos",
+    "Assine para concluir",
   ];
 }
 
@@ -222,42 +254,56 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
    * produto que ela comprou, e o de baixo vira "a MAISA cuida". Para quem não outorgou, ele
    * não existe e nada muda. */
   const rep = representacao(c, hoje);
+  const saidas = {
+    link: { url: LINK_PROCURACAO, rotulo: "Abrir no site da Receita" },
+    linkAlternativo: { url: LINK_PROCURACAO_SERVICO, rotulo: "Travou no login? Entre pelo gov.br" },
+  };
 
+  /* ⚠️ NA TELA SE CHAMA "AUTORIZAÇÃO DE ACESSO", e no código continua `procuracao`. A Receita
+   * renomeou — o menu do e-CAC hoje diz "Autorizações de Acesso (Procurações)", com o nome velho
+   * entre parênteses. O texto que a cliente lê tem que bater com o botão que ela vai clicar; o
+   * nome interno não importa para ela. */
   if (rep.modo === "vencida") {
     itens.push({
       id: "procuracao",
-      titulo: "Sua procuração venceu",
-      /* `falta`, não `nao_da_para_saber`: isto a gente sabe, é acionável, e sem ele a emissão
+      titulo: "Sua autorização de acesso venceu",
+      /* `falta`, e não `nao_da_para_saber`: isto a gente sabe, é acionável, e sem ele a emissão
        * para. É a única pendência deste checklist que faz o botão deixar de funcionar. */
       estado: "falta",
       detalhe:
         `Venceu em ${rotuloBR(rep.ate)}. Enquanto não for renovada, a MAISA não consegue emitir `
-        + `no seu nome e os recibos ficam parados. Renovar leva um minuto e é você quem faz — `
-        + `a Receita exige que a autorização venha de você.`,
-      link: { url: LINK_PROCURACAO, rotulo: "Renovar no e-CAC" },
-      linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Travou no login? Entre pelo gov.br" },
+        + `no seu nome e os recibos ficam parados. Renovar leva um minuto e é você quem faz — a `
+        + `Receita exige que a autorização venha de você.`,
+      ...saidas,
       passos: passosDaProcuracao(rep.procurador),
+    });
+  } else if (rep.modo === "aguardando_aceite") {
+    itens.push({
+      id: "procuracao",
+      titulo: "Sua autorização está com a gente",
+      /* ★ `com_a_gente`, e é o ponto do estado: ela já fez tudo. Marcar `falta` mandaria a
+       * cliente procurar, na tela dela, um botão que só existe do nosso lado. */
+      estado: "com_a_gente",
+      detalhe:
+        "Você autorizou a MAISA no site da Receita — essa parte está feita. Falta a gente "
+        + "confirmar do nosso lado, e é o que estamos fazendo. **Você não precisa fazer mais "
+        + "nada**; avisamos quando os recibos puderem sair.",
     });
   } else if (rep.modo === "representada") {
     const aVencer = procuracaoAVencer(rep);
     itens.push({
       id: "procuracao",
-      titulo: aVencer ? "Sua procuração está para vencer" : "Sua procuração",
+      titulo: aVencer ? "Sua autorização está para vencer" : "Sua autorização de acesso",
       estado: aVencer ? "falta" : "pronto",
       detalhe: rep.ate
         ? (aVencer
           ? `Vale até ${rotuloBR(rep.ate)} — faltam ${rep.diasParaVencer} dias. Renove antes de `
             + `vencer: depois disso a emissão para até você autorizar de novo.`
-          : `A MAISA emite seus recibos no seu nome, com a procuração que você deu no e-CAC. `
-            + `Vale até ${rotuloBR(rep.ate)}.`)
-        : "A MAISA emite seus recibos no seu nome, com a procuração que você deu no e-CAC. "
-          + "Você não pôs prazo, então ela vale até você cancelar.",
-      ...(aVencer
-        ? {
-            link: { url: LINK_PROCURACAO, rotulo: "Renovar no e-CAC" },
-            passos: passosDaProcuracao(rep.procurador),
-          }
-        : {}),
+          : `A MAISA emite seus recibos no seu nome, com a autorização que você deu no site da `
+            + `Receita. Vale até ${rotuloBR(rep.ate)}.`)
+        : "A MAISA emite seus recibos no seu nome, com a autorização que você deu no site da "
+          + "Receita. Você não pôs prazo, então ela vale até você cancelar.",
+      ...(aVencer ? { ...saidas, passos: passosDaProcuracao(rep.procurador) } : {}),
     });
   }
 

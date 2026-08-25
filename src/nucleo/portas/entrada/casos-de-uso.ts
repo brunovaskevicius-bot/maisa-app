@@ -699,7 +699,24 @@ export type GerarLoteDeRecibos = (
  */
 export type LigarReciboSaude = (
   t: ContextoTenant,
-  p: { cpf: string; ocupacao: OcupacaoSaude; registro?: string | null },
+  p: {
+    cpf: string;
+    ocupacao: OcupacaoSaude;
+    registro?: string | null;
+    /**
+     * ── quem emite por ela, quando ela autorizou a MAISA ──
+     *
+     * ⚠️ CHAVE AUSENTE NÃO MEXE; `null` APAGA. É a mesma distinção do `RemendoFiscal`, e ela
+     * importa aqui porque este caso de uso é chamado por dois caminhos: o onboarding, que não
+     * sabe nada de autorização, e a correção de dados, que sabe. Se ausência apagasse, corrigir
+     * um CPF de digitação derrubaria a autorização junto — e a emissão pararia sem ninguém
+     * entender por quê.
+     */
+    procurador?: string | null;
+    procuracaoAte?: string | null;
+    /** Quando NÓS confirmamos na aba *Recebidas*. Ver `ConfigFiscal.procuracaoAceitaEm`. */
+    procuracaoAceitaEm?: string | null;
+  },
 ) => Promise<EstadoFiscal>;
 
 /**

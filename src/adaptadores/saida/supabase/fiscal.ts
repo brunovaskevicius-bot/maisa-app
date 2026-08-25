@@ -48,6 +48,7 @@ type Linha = {
   registro_profissional: string | null;
   procurador_documento: string | null;
   procuracao_valida_ate: string | null;
+  procuracao_aceita_em: string | null;
   inscricao_municipal: string | null;
   item_lista_servico: string | null;
   aliquota_iss: number | string | null;
@@ -76,6 +77,7 @@ const VAZIA: ConfigFiscal = {
   registroProfissional: null,
   procuradorDocumento: null,
   procuracaoValidaAte: null,
+  procuracaoAceitaEm: null,
   inscricaoMunicipal: null,
   itemListaServico: null,
   aliquotaIss: null,
@@ -103,6 +105,7 @@ const paraConfig = (l: Linha): ConfigFiscal => ({
   registroProfissional: l.registro_profissional,
   procuradorDocumento: l.procurador_documento,
   procuracaoValidaAte: l.procuracao_valida_ate,
+  procuracaoAceitaEm: l.procuracao_aceita_em,
   inscricaoMunicipal: l.inscricao_municipal,
   itemListaServico: l.item_lista_servico,
   /* `numeric` volta como string no supabase-js — `Number(null)` é 0, e alíquota 0 é
@@ -128,6 +131,7 @@ function paraLinha(r: RemendoFiscal): Record<string, unknown> {
   if ("registroProfissional" in r) l.registro_profissional = r.registroProfissional;
   if ("procuradorDocumento" in r) l.procurador_documento = r.procuradorDocumento;
   if ("procuracaoValidaAte" in r) l.procuracao_valida_ate = r.procuracaoValidaAte;
+  if ("procuracaoAceitaEm" in r) l.procuracao_aceita_em = r.procuracaoAceitaEm;
   if ("inscricaoMunicipal" in r) l.inscricao_municipal = r.inscricaoMunicipal;
   if ("itemListaServico" in r) l.item_lista_servico = r.itemListaServico;
   if ("aliquotaIss" in r) l.aliquota_iss = r.aliquotaIss;

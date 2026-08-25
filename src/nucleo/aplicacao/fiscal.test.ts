@@ -37,6 +37,7 @@ const VAZIA: ConfigFiscal = {
   registroProfissional: null,
   procuradorDocumento: null,
   procuracaoValidaAte: null,
+  procuracaoAceitaEm: null,
   inscricaoMunicipal: null, itemListaServico: null, aliquotaIss: null,
   codigoTributarioMunicipio: null,
 };

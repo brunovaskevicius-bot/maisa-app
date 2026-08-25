@@ -263,10 +263,21 @@ export function criarLigarReciboSaude(deps: DepsFiscal): LigarReciboSaude {
       );
     }
 
+    /* ⚠️ O DOCUMENTO DO PROCURADOR É VALIDADO, e o motivo é o mesmo do CPF acima: ele vai ser
+     * digitado na tela "Alterar perfil de acesso" do e-CAC, e um dígito a mais faz a troca de
+     * perfil falhar com uma mensagem que fala de procuração, não de digitação. */
+    const procurador = p.procurador === undefined ? undefined : soDigitos(p.procurador ?? "") || null;
+    if (procurador && procurador.length !== 11 && procurador.length !== 14) {
+      throw new DadoInvalido("O documento de quem emite por você tem que ser um CPF ou um CNPJ.", "procurador");
+    }
+
     const salvo = await deps.fiscal.salvar(t, {
       prestadorCpf: cpf,
       ocupacaoSaude: p.ocupacao,
       registroProfissional: p.registro?.trim().slice(0, 15) || null,
+      ...(procurador !== undefined ? { procuradorDocumento: procurador } : {}),
+      ...("procuracaoAte" in p ? { procuracaoValidaAte: p.procuracaoAte || null } : {}),
+      ...("procuracaoAceitaEm" in p ? { procuracaoAceitaEm: p.procuracaoAceitaEm || null } : {}),
       ambiente: "producao",
     });
     return estado(salvo, deps.cadastro.faltando());

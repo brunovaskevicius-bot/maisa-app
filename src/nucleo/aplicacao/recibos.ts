@@ -432,6 +432,7 @@ export function criarDesligarReciboSaude({ recibos, fiscal }: DepsRecibo): Desli
        * ninguém lembra de ter dado, e que talvez nem exista mais no e-CAC. */
       procuradorDocumento: null,
       procuracaoValidaAte: null,
+      procuracaoAceitaEm: null,
       /* Volta para homologação junto: `producao` era verdade só porque o recibo não tem
        * ambiente de teste. Deixá-lo aceso faria o próximo caminho — se for o do CNPJ —
        * nascer valendo, e nota fiscal em produção é documento que não se apaga. */

@@ -35,6 +35,7 @@ const carla: ConfigFiscal = {
   registroProfissional: "CRP 06/123456",
   procuradorDocumento: null,
   procuracaoValidaAte: null,
+  procuracaoAceitaEm: null,
   inscricaoMunicipal: null, itemListaServico: null,
   aliquotaIss: null, codigoTributarioMunicipio: null,
 };

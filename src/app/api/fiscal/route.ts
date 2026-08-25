@@ -64,7 +64,10 @@ export async function POST(request: Request) {
   if (barrou(porteiro)) return porteiro.barrado;
 
   const corpo = await request.json().catch(() => null) as
-    { cnpj?: unknown; cpf?: unknown; ocupacao?: unknown; registro?: unknown; email?: unknown } | null;
+    {
+      cnpj?: unknown; cpf?: unknown; ocupacao?: unknown; registro?: unknown; email?: unknown;
+      procurador?: unknown; procuracaoAte?: unknown; procuracaoAceitaEm?: unknown;
+    } | null;
 
   try {
     /* ── ⚠️ A BIFURCAÇÃO DO ONBOARDING FISCAL MORA AQUI, E É UM CAMPO ──
@@ -77,10 +80,16 @@ export async function POST(request: Request) {
      * as duas respostas terminam no mesmo lugar: `EstadoFiscal`. Duas rotas fariam a tela
      * escolher URL, e o dia em que aparecer o terceiro regime seriam três telas. */
     if (typeof corpo?.cpf === "string" && corpo.cpf.replace(/\D/g, "").length > 0) {
+      /* Só repassa a chave que veio. Ver o comentário de `LigarReciboSaude`: ausente não mexe,
+       * `null` apaga — e a rota não pode inventar nenhum dos dois. */
+      const texto = (v: unknown) => (typeof v === "string" ? v : null);
       const estado = await app.ligarReciboSaude(porteiro.tenant, {
         cpf: corpo.cpf,
         ocupacao: String(corpo.ocupacao ?? "") as never,
         registro: typeof corpo.registro === "string" ? corpo.registro : null,
+        ...("procurador" in corpo ? { procurador: texto(corpo.procurador) } : {}),
+        ...("procuracaoAte" in corpo ? { procuracaoAte: texto(corpo.procuracaoAte) } : {}),
+        ...("procuracaoAceitaEm" in corpo ? { procuracaoAceitaEm: texto(corpo.procuracaoAceitaEm) } : {}),
       });
       return NextResponse.json({ ok: true, status: "ok", ...estado });
     }

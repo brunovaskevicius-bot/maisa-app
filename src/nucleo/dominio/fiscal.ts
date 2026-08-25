@@ -213,6 +213,14 @@ export type CadastroDoCnpj = {
 export type Representacao =
   /** Ela mesma entra no e-CAC. Continua válido, e é o padrão de quem não outorgou nada. */
   | { modo: "propria" }
+  /**
+   * ★ ELA JÁ FEZ A PARTE DELA. A bola está com a gente — falta aceitar na aba *Recebidas*.
+   *
+   * ⚠️ NÃO É `representada`. Enquanto não aceitarmos, a Receita recusa a troca de perfil com
+   * "pendente de aprovação", e a emissão não sai. Tratar como representada faria a tela
+   * prometer um botão que falha — e o cliente esperando uma emissão que nunca começou.
+   */
+  | { modo: "aguardando_aceite"; procurador: string; ate: string | null }
   /** Nós emitimos por ela. `ate: null` = outorgada sem prazo. */
   | { modo: "representada"; procurador: string; ate: string | null; diasParaVencer: number | null }
   /**
@@ -236,7 +244,11 @@ export function representacao(c: ConfigFiscal, hoje: string): Representacao {
   if (!procurador) return { modo: "propria" };
 
   const ate = c.procuracaoValidaAte;
+  /* Vencida vem ANTES do aceite: uma outorga que venceu sem a gente aceitar está morta de duas
+   * formas, e a frase útil é a do vencimento — aceitar não ressuscita. */
   if (ate && ate < hoje) return { modo: "vencida", procurador, ate };
+
+  if (!c.procuracaoAceitaEm) return { modo: "aguardando_aceite", procurador, ate };
 
   return {
     modo: "representada",
@@ -334,6 +346,18 @@ export type ConfigFiscal = {
   procuradorDocumento: string | null;
   /** Data civil do fim da procuração. `null` = outorgada sem prazo — o e-CAC permite. */
   procuracaoValidaAte: string | null;
+  /**
+   * Quando NÓS aceitamos a autorização. `null` = ela outorgou e a bola está do nosso lado.
+   *
+   * ★ ESTE CAMPO EXISTE PORQUE A RECEITA MUDOU A REGRA. A autorização nasce "Em Análise" e só
+   * passa a valer depois que o procurador **confirma que assume a função**, na aba *Recebidas*
+   * de "Minhas Autorizações de Acesso". Descoberto na tela, em 25/08/2026.
+   *
+   * Parece burocracia a mais e é o contrário: como o aceite é nosso, a gente sabe o instante
+   * exato em que a emissão passou a ser possível — sem adivinhar se a cliente fez certo. E é o
+   * momento de conferir se ela marcou o serviço certo, antes de prometer que funciona.
+   */
+  procuracaoAceitaEm: string | null;
 
   /* ── caminho municipal ── */
   inscricaoMunicipal: string | null;

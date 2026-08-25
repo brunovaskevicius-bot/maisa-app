@@ -57,6 +57,7 @@ export type RemendoFiscal = Partial<
     | "registroProfissional"
     | "procuradorDocumento"
     | "procuracaoValidaAte"
+    | "procuracaoAceitaEm"
     | "inscricaoMunicipal"
     | "itemListaServico"
     | "aliquotaIss"

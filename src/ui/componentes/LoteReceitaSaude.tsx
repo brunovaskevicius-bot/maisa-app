@@ -63,13 +63,18 @@ const CARNE_LEAO = LINK_CARNE_LEAO;
  * Então ele vira instrução, com seta em vez de selo.
  */
 function ItemChecklist({ item }: { item: ItemDoChecklist }) {
+  /* ⚠️ `com_a_gente` NÃO CAI NO CINZA. O cinza é do item que está do outro lado do muro — algo
+   * que ninguém aqui controla. "A MAISA está resolvendo" é o oposto: é trabalho em andamento, do
+   * nosso lado, e pintá-lo de desligado faria parecer abandonado. Relógio, na cor da marca. */
   const cor =
     item.estado === "pronto" ? "var(--ok, var(--brand))"
     : item.estado === "falta" ? "var(--warn)"
+    : item.estado === "com_a_gente" ? "var(--brand)"
     : "var(--muted)";
   const icone =
     item.estado === "pronto" ? "check"
     : item.estado === "falta" ? "alert"
+    : item.estado === "com_a_gente" ? "clock"
     : "link";
 
   return (
@@ -221,6 +226,9 @@ export function LoteReceitaSaude() {
   const [fCpf, setFCpf] = useState("");
   const [fOcupacao, setFOcupacao] = useState<OcupacaoSaude>("psicologo");
   const [fRegistro, setFRegistro] = useState("");
+  const [fProc, setFProc] = useState("");
+  const [fProcAte, setFProcAte] = useState("");
+  const [fProcAceita, setFProcAceita] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erroDados, setErroDados] = useState<string | null>(null);
   /* A lista longa começa fechada. Ver `MUITOS_PAGAMENTOS`. */
@@ -275,6 +283,9 @@ export function LoteReceitaSaude() {
     setFCpf(mascaraCpf(config?.prestadorCpf ?? ""));
     setFOcupacao((config?.ocupacaoSaude as OcupacaoSaude | null) ?? "psicologo");
     setFRegistro(config?.registroProfissional ?? "");
+    setFProc(config?.procuradorDocumento ?? "");
+    setFProcAte(config?.procuracaoValidaAte ?? "");
+    setFProcAceita(!!config?.procuracaoAceitaEm);
     setErroDados(null);
     setEditando(true);
   };
@@ -295,7 +306,14 @@ export function LoteReceitaSaude() {
       const r = await fetch("/api/fiscal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf: fCpf, ocupacao: fOcupacao, registro: fRegistro.trim() || null }),
+        body: JSON.stringify({
+          cpf: fCpf, ocupacao: fOcupacao, registro: fRegistro.trim() || null,
+          procurador: fProc.trim() || null,
+          procuracaoAte: fProcAte || null,
+          /* A data do aceite é derivada do "sim/não": ninguém digita quando aceitou, e guardar o
+           * dia serve para saber desde quando a emissão está liberada. */
+          procuracaoAceitaEm: fProcAceita ? (config?.procuracaoAceitaEm ?? hojeISO()) : null,
+        }),
       }).then((x) => x.json());
       if (!r?.ok) throw new Error(mensagemDaFalha(r, "Não consegui salvar seus dados."));
       setConfig(r.config ?? null);
@@ -307,7 +325,7 @@ export function LoteReceitaSaude() {
     } finally {
       setSalvando(false);
     }
-  }, [fCpf, fOcupacao, fRegistro]);
+  }, [fCpf, fOcupacao, fRegistro, fProc, fProcAte, fProcAceita, config]);
 
   const gerar = useCallback(async () => {
     setOcupado(true);
@@ -593,6 +611,52 @@ export function LoteReceitaSaude() {
                         style={s(CAMPO)}
                       />
                     </label>
+
+                    {/* ── ★ QUEM EMITE POR ELA ──
+                        Dois campos e um sim/não, e os três só existem porque a Receita exige que
+                        a autorização venha DELA e o aceite venha de NÓS. O terceiro é operado
+                        pela MAISA, não pela cliente — está escrito no rótulo, porque campo que
+                        parece do usuário e não é vira dado errado. */}
+                    <div style={s("display:grid;gap:9px;padding-top:9px;border-top:1px solid var(--border)")}>
+                      <strong style={s("font-size:var(--t-sm);color:var(--ink)")}>Quem emite por você</strong>
+
+                      <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                        CPF ou CNPJ de quem você autorizou no site da Receita
+                        <input
+                          value={fProc}
+                          onChange={(e) => setFProc(e.target.value)}
+                          inputMode="numeric"
+                          placeholder="deixe vazio se você mesma emite"
+                          className="n m-focus"
+                          style={s(CAMPO)}
+                        />
+                      </label>
+
+                      <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                        Até quando a autorização vale
+                        <input
+                          value={fProcAte}
+                          onChange={(e) => setFProcAte(e.target.value)}
+                          type="date"
+                          className="n m-focus"
+                          style={s(CAMPO)}
+                        />
+                      </label>
+
+                      <label style={s("display:flex;gap:9px;align-items:flex-start;font-size:var(--t-label);color:var(--muted);cursor:pointer")}>
+                        <input
+                          type="checkbox"
+                          checked={fProcAceita}
+                          onChange={(e) => setFProcAceita(e.target.checked)}
+                          style={s("margin-top:2px")}
+                        />
+                        <span>
+                          <strong style={s("color:var(--ink)")}>A MAISA já confirmou no e-CAC.</strong>{" "}
+                          Quem marca isto somos nós, depois de aceitar a autorização na aba
+                          Recebidas — antes disso a Receita não deixa emitir.
+                        </span>
+                      </label>
+                    </div>
 
                     {erroDados && (
                       <span style={s("font-size:var(--t-label);color:var(--warn)")}>{erroDados}</span>
