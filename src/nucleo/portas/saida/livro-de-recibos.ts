@@ -53,6 +53,16 @@ export type ReciboAberto = {
   valor: number;
 };
 
+/** Para quem vai o aviso de um recibo — ver `LivroDeRecibos.destinatario`. */
+export type DestinatarioDoRecibo = {
+  nome: string | null;
+  /** `null` quando não há para onde mandar. Quem chama conta, não falha. */
+  telefone: string | null;
+  /** Data do pagamento, ISO. É ela que vira dd/mm na mensagem. */
+  data: string;
+  valor: number;
+};
+
 export interface LivroDeRecibos {
   /**
    * A CLAIM. Tranca o pagamento e cria a linha do razão, na mesma transação.
@@ -153,4 +163,20 @@ export interface LivroDeRecibos {
 
   /** O histórico, mais recente primeiro. Para a tela. */
   listar(t: ContextoTenant, p?: { limite?: number }): Promise<ReciboEmitido[]>;
+
+  /**
+   * ★ QUEM AVISAR quando este recibo sair — nome, telefone, data e valor do pagamento.
+   *
+   * O livro-razão guarda o desfecho, não a pessoa: `ReciboEmitido` tem protocolo e chave, e nada
+   * de nome. Quem tem nome é o PAGAMENTO que a linha trancou, e é ele que esta consulta alcança
+   * (o atendimento, ou o avulso), passando pelo cadastro para chegar ao telefone.
+   *
+   * ⚠️ `null` = ninguém a avisar, e isso NÃO é erro. O avulso de quem não é cadastro não tem
+   * telefone; um pagamento apagado depois não tem nada. Quem chama não manda mensagem e segue —
+   * o recibo já existe, e falhar aqui faria a rota do callback pedir reentrega de algo gravado.
+   *
+   * ⚠️ E `telefone` pode ser `null` com o resto preenchido: cliente cadastrado sem telefone. Mesma
+   * distinção de `DestinatarioDeRecibo` no lote, e pelo mesmo motivo — quem chama conta, não falha.
+   */
+  destinatario(t: ContextoTenant, reciboId: string): Promise<DestinatarioDoRecibo | null>;
 }

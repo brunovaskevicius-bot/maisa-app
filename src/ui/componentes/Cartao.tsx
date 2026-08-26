@@ -191,9 +191,29 @@ export function Hero({
    É ele o contêiner de rolagem — o shell só dá a caixa; cada tela decide o que
    rola. Sem isso, telas de altura fixa (Agenda, Conversas) ganhariam duas
    barras de rolagem aninhadas. */
-export function TelaGrade({ children }: { children: React.ReactNode }) {
+/**
+ * A moldura de uma tela de grade: rola, respira, e empilha os blocos.
+ *
+ * ── ★ `preencher` — A EXCEÇÃO, COM LIMITE (26/08/2026) ──
+ *
+ * Bruno, sobre a tela Fiscal: *"o vazio fica melhor dentro dos cards do que na tela em si"*. Com
+ * poucos clientes na lista, o cartão terminava no meio da tela e sobrava um bloco branco enorme
+ * do lado de fora — página inacabada, não respiro.
+ *
+ * `preencher` diz "esta tela administra a própria altura": o filho estica até o fim da faixa e a
+ * folga passa a morar dentro dos cartões. O respiro de baixo cai de 32px para os 24px das
+ * laterais, para o cartão não parecer flutuando acima do fim do rail.
+ *
+ * ⚠️ O QUE ELE **NÃO** FAZ: não tira a rolagem. Se o conteúdo passar da faixa (janela baixa, painel
+ * grande), a tela rola como sempre. Trocar por `overflow:hidden` cortaria o CTA — e CTA cortado é
+ * pior que rolagem.
+ *
+ * ⚠️ E ele só serve para tela cujo filho sabe encolher (`flex:1;min-height:0` na cadeia inteira,
+ * com a lista rolando por dentro). Numa tela de blocos empilhados, esticar não significa nada.
+ */
+export function TelaGrade({ children, preencher }: { children: React.ReactNode; preencher?: boolean }) {
   return (
-    <div className="m-enter" style={s("flex:1;min-height:0;overflow-y:auto;padding:22px 24px 32px;display:flex;flex-direction:column;gap:18px")}>
+    <div className="m-enter" style={s(`flex:1;min-height:0;overflow-y:auto;padding:22px 24px ${preencher ? 24 : 32}px;display:flex;flex-direction:column;gap:18px`)}>
       {children}
     </div>
   );

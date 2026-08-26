@@ -25,8 +25,23 @@ import { FalhaDoProvedor, NaoEncontrado } from "@/nucleo/dominio/erros";
 import { clienteDoContexto } from "./contexto-cliente";
 
 /** As colunas, na ordem da DDL. Explícitas para o `select` não trazer o que não se usa. */
-const COLS =
+/* ⚠️ AS DUAS LISTAS EXISTEM POR CAUSA DA JANELA ENTRE O DEPLOY E O `Run` NO SQL EDITOR.
+ *
+ * Rodar migração aqui é um humano abrindo o painel do Supabase. Entre o código novo subir e ele
+ * clicar, um `select` com a coluna nova responde `42703` — e como esta leitura alimenta a tela de
+ * ajustes INTEIRA (nome, tom, saudação, os toggles), o erro derrubaria a tela por causa de um
+ * interruptor que ninguém ligou ainda.
+ *
+ * Então: tenta com a coluna, e em erro de coluna inexistente relê sem ela. Ver `ler`. */
+const COLS_BASE =
   "nome, tom, saudacao, ativa, confirmar, lembrete, remarcar, encaixe, encaminhar, preco_catalogo, pix";
+
+const COLS = `${COLS_BASE}, avisar_recibo`;
+
+/** `42703` coluna inexistente · `PGRST204` coluna fora do cache de schema do PostgREST. */
+const colunaNaoExiste = (e: { code?: string; message?: string } | null): boolean =>
+  Boolean(e) && (["42703", "PGRST204"].includes(e!.code ?? "")
+    || /column .* does not exist|could not find the .* column/i.test(e!.message ?? ""));
 
 type Linha = {
   nome: string;
@@ -40,6 +55,7 @@ type Linha = {
   encaminhar: boolean;
   preco_catalogo: boolean;
   pix: boolean;
+  avisar_recibo: boolean;
 };
 
 /**
@@ -49,7 +65,10 @@ type Linha = {
  * iguais sincronizadas à toa. Assim, acrescentar um toggle cujo nome bate nos dois lados
  * não exige tocar neste arquivo — e um que não bata exige, que é o comportamento certo.
  */
-const COLUNA_DE: Partial<Record<ChaveCfg, string>> = { precoCatalogo: "preco_catalogo" };
+const COLUNA_DE: Partial<Record<ChaveCfg, string>> = {
+  precoCatalogo: "preco_catalogo",
+  avisarRecibo: "avisar_recibo",
+};
 
 const coluna = (c: ChaveCfg): string => COLUNA_DE[c] ?? c;
 
@@ -75,6 +94,10 @@ function paraAjustes(l: Linha): AjustesDaAssistente {
     precoCatalogo: l.preco_catalogo,
     pix: l.pix,
     encaixe: l.encaixe,
+    /* `?? false` porque a 024 pode não ter rodado ainda: coluna ausente vira `undefined`, e
+     * `undefined` num toggle deixaria a tela mostrar o switch em estado indefinido. Falha para o
+     * lado de NÃO mandar mensagem para paciente nenhum, que é o lado barato. */
+    avisarRecibo: l.avisar_recibo ?? false,
   };
 
   return { assistente, cfg };
@@ -83,11 +106,25 @@ function paraAjustes(l: Linha): AjustesDaAssistente {
 export const assistenteSupabase: RepositorioAssistente = {
   async ler(t: ContextoTenant): Promise<AjustesDaAssistente | null> {
     const supabase = clienteDoContexto(t);
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("assistente")
       .select(COLS)
       .eq("tenant_id", t.tenantId)
       .maybeSingle<Linha>();
+
+    /* A 024 ainda não rodou neste banco: relê sem a coluna, e `paraAjustes` resolve o resto com
+     * `?? false`. Degrada para "não avisar ninguém", que é o lado barato de errar. */
+    if (colunaNaoExiste(error)) {
+      console.warn(
+        `[supabase/assistente] o inquilino ${t.tenantId} leu ajustes antes de `
+        + `supabase/024_avisar_recibo.sql rodar — o aviso de recibo fica desligado. Rode a migração.`,
+      );
+      ({ data, error } = await supabase
+        .from("assistente")
+        .select(COLS_BASE)
+        .eq("tenant_id", t.tenantId)
+        .maybeSingle<Linha>());
+    }
 
     if (error) {
       throw new FalhaDoProvedor(`Não foi possível ler os ajustes da assistente: ${error.message}`);

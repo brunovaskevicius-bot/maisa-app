@@ -627,6 +627,11 @@ export const app = {
   fecharReciboDoCallback: criarFecharReciboDoCallback({
     livro: livroRecibos,
     guarda: guardaComprovante,
+    /* ⚠️ AS TRÊS PORTAS DO AVISO AO PACIENTE, e elas são as MESMAS do caminho do lote (linha 602):
+     * uma notícia, uma voz. O que muda é o gatilho — lá é um clique com alguém olhando, aqui é o
+     * callback de um servidor. Por isso lá o opt-in é por envio e aqui é um interruptor do
+     * inquilino (`avisarRecibo`, migração 024, padrão `false`). */
+    aviso: { canal, negocio, assistente },
   }),
 };
 

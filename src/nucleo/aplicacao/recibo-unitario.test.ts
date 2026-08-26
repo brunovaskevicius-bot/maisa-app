@@ -25,6 +25,9 @@ import type {
   DesfechoDeRecibo, ReciboAceito, ReciboEmitido,
 } from "../dominio/recibo-unitario";
 import type { ContextoTenant } from "../dominio/tenant";
+import type { CanalDeMensagens } from "../portas/saida/canal-mensagens";
+import type { RepositorioNegocio } from "../portas/saida/repositorio-negocio";
+import type { RepositorioAssistente } from "../portas/saida/repositorio-assistente";
 
 const t: ContextoTenant = { tenantId: "t1", usuarioId: "u1", ator: { tipo: "usuario", id: "u1" } };
 
@@ -72,6 +75,12 @@ function ambiente(p: {
   guardaFalha?: boolean;
   /** O canal usa a NOSSA referência como protocolo (é o caso da Rebots). */
   protocoloNosso?: boolean;
+  /** O interruptor `avisarRecibo` do inquilino. Padrão desligado, como no banco (024). */
+  avisarRecibo?: boolean;
+  /** Telefone de quem foi atendido. `null` = ninguém para avisar. */
+  telefoneDoPaciente?: string | null;
+  /** O canal de mensagens estoura — telefone que mudou de dono, WhatsApp fora do ar. */
+  envioQuebra?: boolean;
 } = {}) {
   const ordem: string[] = [];
   const protocolos: { reciboId: string; protocolo: string }[] = [];
@@ -102,6 +111,15 @@ function ambiente(p: {
     },
     async descartar(_t, x) { ordem.push("descartar"); descartados.push(x); },
     async soltar(_t, id) { ordem.push("soltar"); soltos.push(id); return true; },
+    async destinatario() {
+      ordem.push("destinatario");
+      return {
+        nome: "Patrícia Mendes",
+        telefone: p.telefoneDoPaciente === undefined ? "11999990000" : p.telefoneDoPaciente,
+        data: "2026-08-07",
+        valor: 250,
+      };
+    },
     async porProtocolo() { return null; },
     async pendentes() { return p.pendentesDoLivro ?? []; },
     async listar() { return []; },
@@ -138,6 +156,33 @@ function ambiente(p: {
     async linkParaBaixar() { return null; },
   };
 
+  /* ── as três portas do aviso ao paciente ── */
+  const enviadas: { para: string; textos: string[] }[] = [];
+  const canal = {
+    async enviar(_t: unknown, para: string, textos: string[]) {
+      ordem.push("enviar");
+      if (p.envioQuebra) throw new Error("o WhatsApp recusou");
+      enviadas.push({ para, textos });
+    },
+    async escalar() {},
+  } as unknown as CanalDeMensagens;
+
+  const negocio = { async negocio() { return { nome: "Consultório Carla Guth" }; } } as unknown as RepositorioNegocio;
+
+  const assistente = {
+    async ler() {
+      return {
+        assistente: { nome: "MAISA", tom: "amigável", saudacao: "", ativa: true },
+        cfg: {
+          confirmar: true, lembrete: true, remarcar: true, encaminhar: true,
+          precoCatalogo: true, pix: false, encaixe: false,
+          avisarRecibo: p.avisarRecibo === true,
+        },
+      };
+    },
+    async salvar() { throw new Error("não usado"); },
+  } as unknown as RepositorioAssistente;
+
   const recibos = {
     async pendentes() { return p.pendentes ?? [sessao()]; },
   } as unknown as RepositorioRecibos;
@@ -145,8 +190,10 @@ function ambiente(p: {
   return {
     emitir: criarEmitirRecibo({ livro, emissor, recibos, fiscal: fiscalDe(carla), guarda }),
     reconciliar: criarReconciliarRecibos({ livro, emissor }),
-    fecharDoCallback: criarFecharReciboDoCallback({ livro, guarda }),
-    ordem, protocolos, descartados, soltos, fechados, consultados, arquivados,
+    fecharDoCallback: criarFecharReciboDoCallback({ livro, guarda, aviso: { canal, negocio, assistente } }),
+    /* Sem as portas do aviso: é o mesmo caso de uso de antes, e tem que continuar mudo. */
+    fecharSemAviso: criarFecharReciboDoCallback({ livro, guarda }),
+    ordem, protocolos, descartados, soltos, fechados, consultados, arquivados, enviadas,
     get pedido() { return pedidoEmitido; },
   };
 }
@@ -543,5 +590,97 @@ describe("★ protocolo gravado antes da chamada, quando é a nossa referência"
     await expect(a.emitir(t, { fonte: "atendimento", id: "at1" })).rejects.toThrow();
 
     expect(a.descartados).toHaveLength(1);
+  });
+});
+
+
+/* ── ★ O AVISO AO PACIENTE ────────────────────────────────────────────────────
+ *
+ * A MAISA manda uma mensagem quando o recibo sai. É a primeira coisa neste domínio que fala com um
+ * TERCEIRO — não com o dono — e sai do WhatsApp pessoal de quem a usa.
+ *
+ * ⚠️ Por isso três coisas são travadas aqui, e nenhuma é detalhe:
+ *
+ *   · **É opt-in.** `avisarRecibo` nasce `false` no banco (024). Sem ele, silêncio.
+ *   · **Só quando o recibo EXISTE.** Recusa e cancelamento não viram mensagem.
+ *   · **Nunca derruba a gravação.** A rota do callback responde 200 para o canal descartar o
+ *     desfecho; um erro de envio virando exceção faria a rota responder 500, o canal reentregaria,
+ *     e a mesma pessoa receberia a mensagem de novo — ou o laço não terminaria. */
+describe("★ avisar o paciente quando o recibo sai", () => {
+  it("com o interruptor ligado, manda a notícia para quem foi atendido", async () => {
+    const a = ambiente({ avisarRecibo: true });
+    await a.fecharDoCallback(t, desfechoDe());
+
+    expect(a.enviadas).toHaveLength(1);
+    expect(a.enviadas[0].para).toBe("11999990000");
+    /* A frase é a do domínio (`avisoDeRecibo`), a mesma do lote — uma notícia, uma voz. */
+    expect(a.enviadas[0].textos[0]).toContain("Patrícia");
+    expect(a.enviadas[0].textos[0]).toContain("Receita Saúde");
+  });
+
+  /* ★ O PADRÃO É NÃO FALAR. */
+  it("com o interruptor desligado, não manda nada", async () => {
+    const a = ambiente({ avisarRecibo: false });
+    await a.fecharDoCallback(t, desfechoDe());
+
+    expect(a.enviadas).toEqual([]);
+  });
+
+  it("sem as portas do aviso, o caso de uso continua mudo", async () => {
+    const a = ambiente({ avisarRecibo: true });
+    await a.fecharSemAviso(t, desfechoDe());
+
+    expect(a.enviadas).toEqual([]);
+  });
+
+  /* ⚠️ Recusa não é notícia para o paciente: é problema de dado, e quem resolve é o dono. */
+  it("recibo recusado não vira mensagem", async () => {
+    const a = ambiente({ avisarRecibo: true });
+    await a.fecharDoCallback(t, desfechoDe({ situacao: "recusado", chave: null, erro: "CPF inválido" }));
+
+    expect(a.enviadas).toEqual([]);
+  });
+
+  /* Cancelamento o dono já sabe — foi ele quem pediu. */
+  it("cancelamento não vira mensagem", async () => {
+    const a = ambiente({ avisarRecibo: true });
+    await a.fecharDoCallback(t, desfechoDe({ situacao: "cancelado" }));
+
+    expect(a.enviadas).toEqual([]);
+  });
+
+  /* ★ REENTREGA NÃO MANDA DUAS MENSAGENS. `fechar` devolve `null` quando a linha já não estava na
+   * situação de partida, e é isso que corta o caminho antes do aviso. Sem esta garantia, um
+   * callback reentregue (que a doc deles prevê) mandaria a mesma notícia de novo. */
+  it("callback reentregue não avisa de novo", async () => {
+    const a = ambiente({ avisarRecibo: true, fecharDevolveNull: true });
+    await a.fecharDoCallback(t, desfechoDe());
+
+    expect(a.enviadas).toEqual([]);
+  });
+
+  it("sem telefone, ninguém é avisado — e não é erro", async () => {
+    const a = ambiente({ avisarRecibo: true, telefoneDoPaciente: null });
+    const r = await a.fecharDoCallback(t, desfechoDe());
+
+    expect(a.enviadas).toEqual([]);
+    expect(r.desfecho).toBe("emitido");
+  });
+
+  /* ★ O TESTE QUE PROTEGE O 200 DA ROTA. */
+  it("⚠️ falha no envio NÃO derruba o fechamento", async () => {
+    const a = ambiente({ avisarRecibo: true, envioQuebra: true });
+    const r = await a.fecharDoCallback(t, desfechoDe());
+
+    expect(r.desfecho).toBe("emitido");
+    expect(a.fechados).toHaveLength(1);
+  });
+
+  /* A ordem importa: a mensagem promete um recibo, e a promessa só é verdade depois de gravado. */
+  it("avisa DEPOIS de gravar o desfecho", async () => {
+    const a = ambiente({ avisarRecibo: true });
+    await a.fecharDoCallback(t, desfechoDe());
+
+    expect(a.ordem.indexOf("fechar")).toBeLessThan(a.ordem.indexOf("enviar"));
   });
 });

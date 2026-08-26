@@ -26,12 +26,17 @@
  * e aí o lote do mês o pegaria enquanto o recibo talvez existisse.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { LivroDeRecibos, ReciboAberto } from "@/nucleo/portas/saida/livro-de-recibos";
+import type { LivroDeRecibos, ReciboAberto, DestinatarioDoRecibo } from "@/nucleo/portas/saida/livro-de-recibos";
 import type {
   CanalDeEmissao, DesfechoDeRecibo, ReciboEmitido, SituacaoDoRecibo,
 } from "@/nucleo/dominio/recibo-unitario";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import { clienteDoContexto } from "./contexto-cliente";
+import { civilSP } from "@/nucleo/dominio/tempo";
+
+/* A data que vai na mensagem é a CIVIL em São Paulo: `inicio` é timestamptz, e uma sessão das 21h
+ * lida em UTC cai no dia seguinte — o paciente receberia "recibo do dia 13" de uma sessão do 12. */
+const dataCivil = (iso: string) => civilSP(iso)?.data ?? String(iso).slice(0, 10);
 
 /* ⚠️ UMA STRING LITERAL, NUNCA CONCATENADA — e a linha longa é o preço. O `supabase-js` deriva o
  * tipo da resposta do texto do `select` como tipo literal; quebrar isto em duas partes com `+`
@@ -279,6 +284,54 @@ export const livroDeRecibosSupabase: LivroDeRecibos = {
 
     estourar(error);
     return (data ?? []).map((l) => doBanco(l as LinhaRazao));
+  },
+
+  /**
+   * Quem avisar — ver a porta.
+   *
+   * ⚠️ SÃO DUAS LEITURAS PORQUE SÃO DUAS TABELAS. O pagamento preso por este recibo é um
+   * atendimento OU um avulso, e não há view que una os dois já emitidos (a `v_a_recibar` mostra o
+   * que está FORA de recibo, que é o oposto disto). A primeira que responder ganha.
+   *
+   * ⚠️ O TELEFONE VEM DO CADASTRO, sempre. O atendimento tem `cliente_tel` congelado no momento da
+   * marcação — número velho manda a mensagem para quem trocou de número. Quem manda é a ficha.
+   */
+  async destinatario(t: ContextoTenant, reciboId: string): Promise<DestinatarioDoRecibo | null> {
+    const supabase = clienteDoContexto(t);
+
+    const { data: atend } = await supabase
+      .from("atendimentos")
+      .select("inicio, servico_valor, clientes(nome, telefone)")
+      .eq("tenant_id", t.tenantId)
+      .eq("recibo_id", reciboId)
+      .maybeSingle<{ inicio: string; servico_valor: number | null; clientes: { nome: string; telefone: string | null } | null }>();
+
+    if (atend) {
+      return {
+        nome: atend.clientes?.nome ?? null,
+        telefone: atend.clientes?.telefone ?? null,
+        data: dataCivil(atend.inicio),
+        valor: Number(atend.servico_valor ?? 0),
+      };
+    }
+
+    const { data: avulso } = await supabase
+      .from("pagamentos_avulsos")
+      .select("data, valor, nome, clientes(nome, telefone)")
+      .eq("tenant_id", t.tenantId)
+      .eq("recibo_id", reciboId)
+      .maybeSingle<{ data: string; valor: number | null; nome: string | null; clientes: { nome: string; telefone: string | null } | null }>();
+
+    if (!avulso) return null;
+
+    return {
+      /* O nome do cadastro na frente do nome digitado: quem lançou à mão pode ter escrito
+       * "Ana" para uma Ana Beatriz que já existe. */
+      nome: avulso.clientes?.nome ?? avulso.nome ?? null,
+      telefone: avulso.clientes?.telefone ?? null,
+      data: String(avulso.data).slice(0, 10),
+      valor: Number(avulso.valor ?? 0),
+    };
   },
 };
 

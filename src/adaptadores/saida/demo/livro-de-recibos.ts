@@ -17,7 +17,7 @@
  * ⚠️ MUTÁVEL, com o limite dos outros demos: vive enquanto o processo viver.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { LivroDeRecibos, ReciboAberto } from "@/nucleo/portas/saida/livro-de-recibos";
+import type { LivroDeRecibos, ReciboAberto, DestinatarioDoRecibo } from "@/nucleo/portas/saida/livro-de-recibos";
 import type { DesfechoDeRecibo, ReciboEmitido } from "@/nucleo/dominio/recibo-unitario";
 import type { FontePagamento } from "@/nucleo/portas/saida/repositorio-recibos";
 
@@ -165,4 +165,30 @@ export const livroDeRecibosDemo: LivroDeRecibos = {
   async listar(_t, p): Promise<ReciboEmitido[]> {
     return linhas.slice(0, p?.limite ?? 50).map(semInternos);
   },
+
+  /**
+   * Quem avisar, na versão de mentira.
+   *
+   * ⚠️ TELEFONE `null` DE PROPÓSITO no padrão. O demo roda em ambiente sem Supabase, e o caminho
+   * que ele precisa exercitar é o de NÃO ter para onde mandar — que é o caso comum de verdade (o
+   * avulso de quem não é cadastro). Quem quiser o outro caminho usa `porADemoTerTelefone`.
+   */
+  async destinatario(_t, reciboId): Promise<DestinatarioDoRecibo | null> {
+    const l = linhas.find((x) => x.id === reciboId);
+    if (!l) return null;
+    return {
+      nome: `Cliente ${l.pagamentoId}`,
+      telefone: telefoneDoDemo,
+      data: l.criadoEm.slice(0, 10),
+      valor: l.valor,
+    };
+  },
 };
+
+/** O telefone que o demo devolve em `destinatario`. `null` = ninguém a avisar. */
+let telefoneDoDemo: string | null = null;
+
+/** Liga o caminho "tem telefone" no demo. Só para teste — ver o ⚠️ de `destinatario`. */
+export function porADemoTerTelefone(tel: string | null): void {
+  telefoneDoDemo = tel;
+}

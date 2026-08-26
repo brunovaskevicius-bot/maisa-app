@@ -18,7 +18,12 @@ export type Dia = { nome: string; aberto: boolean; de: string; ate: string };
 /** Chaves dos toggles de comportamento — o store guarda um booleano por chave. */
 export type ChaveCfg =
   | "confirmar" | "lembrete" | "remarcar"
-  | "encaminhar" | "precoCatalogo" | "pix" | "encaixe";
+  | "encaminhar" | "precoCatalogo" | "pix" | "encaixe"
+  /* ⚠️ O ÚNICO QUE DISPARA SEM NINGUÉM POR PERTO. Os outros seis governam a conversa: existe
+   * alguém do outro lado tendo escrito. Este é acionado pelo CALLBACK do canal de emissão, minutos
+   * depois de um clique — e a mensagem vai para o paciente, do número pessoal de quem usa a MAISA.
+   * Daí o padrão `false` no banco (024). Ver `criarFecharReciboDoCallback`. */
+  | "avisarRecibo";
 
 export type SecaoAjuste = { id: string; titulo: string; sub: string };
 

@@ -26,7 +26,7 @@ const INICIAL = (): AjustesDaAssistente => ({
   assistente: { nome: "MAISA", tom: "amigável", saudacao: "Oi!", ativa: true },
   cfg: {
     confirmar: true, lembrete: true, remarcar: true, encaminhar: true,
-    precoCatalogo: true, pix: false, encaixe: false,
+    precoCatalogo: true, pix: false, encaixe: false, avisarRecibo: false,
   },
 });
 

@@ -214,8 +214,10 @@ export function Faturamento() {
   }
 
   if (!voz.emiteNota) {
+    /* `preencher`: os cartões da emissão vão até o fim da faixa, e a folga fica dentro deles. Ver
+       `TelaGrade` — a exceção está escrita lá, com os limites. */
     return (
-      <TelaGrade>
+      <TelaGrade preencher>
         <EmitirRecibos />
       </TelaGrade>
     );

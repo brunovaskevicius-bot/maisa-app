@@ -53,7 +53,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import React, { useState } from "react";
-import { s, Icon, Btn, Card, SectionTitle } from "@/ui/primitivos";
+import { s, Icon, Btn, Card, SectionTitle, Toggle } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { TelaGrade } from "@/ui/componentes/Cartao";
 import { LigarNotaFiscal } from "@/ui/componentes/LigarNotaFiscal";
@@ -169,8 +169,10 @@ export function DocumentoFiscal() {
         </div>
         {/* ⚠️ SAÍDA EXPLÍCITA. Esta tela não está no rail (é decisão de uma vez só), e sem um jeito
             de voltar ela parece um beco — foi a segunda coisa que o Bruno relatou em 26/08. */}
+        {/* O rótulo é "Fiscal" e o id é `faturamento` — a tela foi renomeada em 26/08/2026 e o id
+            ficou por causa dos links já compartilhados. Ver o registro no `AppShell`. */}
         <Btn variant="ghost" icon="chevron-left" onClick={() => st.irPara("faturamento")}>
-          Faturamento
+          Fiscal
         </Btn>
       </div>
 
@@ -251,6 +253,11 @@ export function DocumentoFiscal() {
         )}
       </Card>
 
+      {/* ── ★ AVISAR O PACIENTE ──
+          Só no caminho do recibo, e só depois de escolhido: no caminho da nota fiscal esta
+          mensagem não existe (quem recebe nota recebe o PDF da prefeitura, por outro caminho). */}
+      {modo === "recibo" && <AvisarPaciente />}
+
       {/* Os dois fluxos. ⚠️ O `LigarNotaFiscal` vai CONTROLADO: a pergunta é o seletor acima, e
           duas perguntas na mesma tela foi o defeito de 26/08. O `LoteReceitaSaude` decide sozinho
           (ele só aparece quando o caminho JÁ é recibo). */}
@@ -260,5 +267,38 @@ export function DocumentoFiscal() {
       />
       <LoteReceitaSaude />
     </TelaGrade>
+  );
+}
+
+
+/**
+ * O interruptor da mensagem automática ao paciente.
+ *
+ * ★ POR QUE ELE MORA AQUI, e não em "Ajustes da MAISA" com os outros seis toggles: os outros
+ * governam a CONVERSA — existe alguém do outro lado tendo escrito. Este dispara sozinho, no
+ * callback do canal de emissão, minutos depois de um clique em outra tela. O lugar de decidir isso
+ * é onde se pensa em recibo.
+ *
+ * ⚠️ A FRASE DIZ DE QUAL NÚMERO SAI. A MAISA roda no WhatsApp pessoal de quem a usa, então ligar
+ * isto é mandar mensagem de assunto fiscal, do número dela, para pacientes. Um toggle que dissesse
+ * só "avisar o paciente" esconderia justamente a parte que faz alguém pensar duas vezes.
+ */
+function AvisarPaciente() {
+  const st = useStore();
+  const on = st.cfg.avisarRecibo;
+
+  return (
+    <Card style={s("display:flex;align-items:center;gap:16px")}>
+      <span style={s("flex:1;min-width:0")}>
+        <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>
+          Avisar o paciente quando o recibo sair
+        </span>
+        <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:3px;line-height:var(--lh-prose)")}>
+          Uma mensagem por recibo, com a data e o valor — <strong>do seu WhatsApp</strong>, assim que
+          a Receita confirmar. Quem não tem telefone no cadastro fica de fora, sem erro.
+        </span>
+      </span>
+      <Toggle on={on} onChange={() => st.alternarCfg("avisarRecibo")} rotulo="Avisar o paciente quando o recibo sair" />
+    </Card>
   );
 }

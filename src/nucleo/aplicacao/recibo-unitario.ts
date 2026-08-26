@@ -30,6 +30,14 @@ import type {
 } from "../portas/entrada/casos-de-uso";
 import type { GuardaDeComprovante } from "../portas/saida/guarda-de-comprovante";
 import type { LivroDeRecibos } from "../portas/saida/livro-de-recibos";
+import type { ContextoTenant } from "../dominio/tenant";
+import type { CanalDeMensagens } from "../portas/saida/canal-mensagens";
+import type { RepositorioNegocio } from "../portas/saida/repositorio-negocio";
+import type { RepositorioAssistente } from "../portas/saida/repositorio-assistente";
+/* A frase é a MESMA do caminho do lote, de propósito: dois textos para a mesma notícia dariam
+ * duas MAISAs. Ver `avisoDeRecibo` — inclusive a parte que explica a pré-preenchida, que existe
+ * para o paciente não responder "me manda o PDF". */
+import { avisoDeRecibo } from "../dominio/recibo-saude";
 import type { EmissorDeReciboSaude } from "../portas/saida/emissor-recibo";
 import type { RepositorioRecibos } from "../portas/saida/repositorio-recibos";
 import type { RepositorioFiscal } from "../portas/saida/repositorio-fiscal";
@@ -290,8 +298,20 @@ export function criarReconciliarRecibos(
  * (ver a porta). Se a cópia falhar, o recibo fecha sem comprovante: perder o PDF é ruim, perder
  * o desfecho é irreversível — não há a quem perguntar de novo.
  */
+/**
+ * ★ AVISAR O PACIENTE — as três portas que só existem para a mensagem.
+ *
+ * Opcional de propósito: sem elas o caso de uso fecha o recibo e não fala com ninguém, que é
+ * exatamente o comportamento de antes. Quem monta decide se este canal tem voz.
+ */
+export type DepsDeAviso = {
+  canal: CanalDeMensagens;
+  negocio: RepositorioNegocio;
+  assistente: RepositorioAssistente;
+};
+
 export function criarFecharReciboDoCallback(
-  deps: Pick<DepsReciboUnitario, "livro" | "guarda">,
+  deps: Pick<DepsReciboUnitario, "livro" | "guarda"> & { aviso?: DepsDeAviso },
 ): FecharReciboDoCallback {
   return async (t, d): Promise<ReciboFechado> => {
     /* ── 1 · a cópia, enquanto a janela está aberta ── */
@@ -332,6 +352,66 @@ export function criarFecharReciboDoCallback(
      * dia deixar de ser, o lugar de descobrir é aqui e não na tela. */
     const desfecho = fechada.situacao === "pendente" ? "ja_fechado" : fechada.situacao;
 
+    /* ── 4 · o aviso ao paciente, por último e sem poder atrapalhar ──
+     *
+     * ★ SÓ AQUI DENTRO, e a posição é o desenho: chega depois de `fechar` ter devolvido uma linha,
+     * o que garante três coisas de uma vez.
+     *
+     *   1 · **O recibo existe.** Avisar antes de gravar seria prometer documento que talvez não
+     *       tenha saído.
+     *   2 · **A transição aconteceu.** `fechar` devolve `null` em reentrega (a linha já não estava
+     *       na situação de partida), e o `return` lá em cima corta o caminho — então um callback
+     *       entregue duas vezes NÃO manda duas mensagens para a mesma pessoa.
+     *   3 · **Nada aqui pode derrubar o 200.** A rota responde 200 para o canal descartar o
+     *       desfecho; se este bloco estourasse, ela responderia 500, o canal reentregaria, e o
+     *       recibo já gravado viraria uma segunda mensagem — ou pior, um laço.
+     *
+     * ⚠️ SÓ `emitido`. Recusa e cancelamento não são notícia boa nem acionável para o paciente: a
+     * primeira é problema de dado que o dono resolve, e a segunda ele já sabe (foi ele quem pediu).
+     */
+    if (deps.aviso && fechada.situacao === "emitido") {
+      await avisarPaciente(deps.aviso, deps.livro, t, fechada.id).catch(() => {});
+    }
+
     return { desfecho, comprovanteGuardado: Boolean(comprovanteCaminho) };
   };
+}
+
+/**
+ * Manda a notícia do recibo para quem foi atendido.
+ *
+ * ⚠️ NUNCA LANÇA — quem chama já a envolve num `catch`, e este `try` de dentro é o segundo cinto.
+ * O recibo está gravado; uma mensagem que não sai não pode desfazer isso nem virar erro na rota.
+ *
+ * ⚠️ E É OPT-IN, no interruptor `avisarRecibo` (migração 024, padrão `false`). A mensagem vai para
+ * o WhatsApp de um terceiro e sai do número pessoal de quem usa a MAISA — ligar por padrão faria o
+ * primeiro fechamento de mês depois de um deploy surpreender trinta pacientes.
+ */
+async function avisarPaciente(
+  aviso: DepsDeAviso,
+  livro: DepsReciboUnitario["livro"],
+  t: ContextoTenant,
+  reciboId: string,
+): Promise<void> {
+  try {
+    const ajustes = await aviso.assistente.ler(t);
+    if (!ajustes?.cfg.avisarRecibo) return;
+
+    const quem = await livro.destinatario(t, reciboId);
+    /* Sem telefone não há o que fazer, e não é erro: o avulso de quem não é cadastro nasce assim.
+     * Ver `DestinatarioDoRecibo` — quem chama conta, não falha. */
+    if (!quem?.telefone) return;
+
+    const nomeDoNegocio = (await aviso.negocio.negocio(t)).nome;
+    await aviso.canal.enviar(t, quem.telefone, [
+      avisoDeRecibo({
+        recibo: { nome: quem.nome, data: quem.data, valor: quem.valor },
+        nomeDoNegocio,
+        nomeDaAssistente: ajustes.assistente.nome ?? "MAISA",
+      }),
+    ]);
+  } catch {
+    /* Engole. Telefone que mudou de dono, canal fora do ar, WhatsApp recusando: nenhum desses é
+     * motivo para o recibo emitido parecer roto. É a mesma escolha do caminho do lote. */
+  }
 }

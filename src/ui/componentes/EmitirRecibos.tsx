@@ -165,7 +165,10 @@ function Emitente({ config }: { config: ConfigFiscal }) {
         className="m-focus"
         style={s("margin-left:auto;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:var(--t-label);font-weight:var(--w-title);color:var(--primary);padding:2px 0")}
       >
-        Documento fiscal
+        {/* "Editar", e não "Documento fiscal" como antes: desde que a etapa 1 ganhou o botão
+            "Voltar e editar meus dados" no pé, dois nomes diferentes para o MESMO destino na mesma
+            tela sugeririam dois lugares. Aqui, ao lado do dado, o verbo basta. */}
+        Editar
       </button>
     </div>
   );
@@ -314,7 +317,7 @@ export function EmitirRecibos() {
   const painel = (
     <Card
       pad={0}
-      style={s(`background:var(--primary-soft);padding:20px 20px 22px;display:flex;flex-direction:column;gap:16px;${mobile ? "" : "width:380px;flex:none"}`)}
+      style={s(`background:var(--primary-soft);padding:20px 20px 22px;display:flex;flex-direction:column;gap:16px;${mobile ? "" : "width:380px;flex:none;min-height:0"}`)}
     >
       <div>
         <span style={s("display:block;font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>
@@ -371,11 +374,15 @@ export function EmitirRecibos() {
           CTA continua visível durante a emissão — sem esta guarda, um segundo clique enfileiraria
           os mesmos pagamentos de novo (o store também trava, e as duas travas são de propósito:
           uma impede o pedido, a outra impede a promessa). */}
+      {/* ⚠️ `margin-top:auto` NO CTA, e não `space-between` no painel: o número e a prévia ficam
+          ancorados no topo (é por onde o olho entra) e o botão desce para o pé do cartão esticado.
+          Distribuir tudo faria a prévia flutuar no meio, longe da contagem a que ela pertence. */}
       <button
         onClick={emitir}
         disabled={travado}
+
         className={travado ? "" : "m-hov-bright m-press m-focus"}
-        style={s(`width:100%;height:${mobile ? 54 : 60}px;border-radius:14px;border:none;background:var(--primary);color:#fff;font-family:inherit;font-size:var(--t-body);font-weight:var(--w-title);letter-spacing:var(--ls-lg);cursor:${travado ? "not-allowed" : "pointer"};opacity:${travado ? ".42" : "1"};box-shadow:var(--shadow-card)`)}
+        style={s(`width:100%;height:${mobile ? 54 : 60}px;flex:none;${mobile ? "" : "margin-top:auto"};border-radius:14px;border:none;background:var(--primary);color:#fff;font-family:inherit;font-size:var(--t-body);font-weight:var(--w-title);letter-spacing:var(--ls-lg);cursor:${travado ? "not-allowed" : "pointer"};opacity:${travado ? ".42" : "1"};box-shadow:var(--shadow-card)`)}
       >
         {emitindoAgora
           ? "Emitindo…"
@@ -406,11 +413,17 @@ export function EmitirRecibos() {
         )}
       </div>
 
-      <div style={s("border:1px solid var(--border);border-radius:12px;overflow:hidden")}>
+      {/* ⚠️ `overflow-y:auto` no desktop: com 40 clientes, quem rola é a lista — o painel da
+          direita e o CTA não podem sair de vista. `overflow:hidden` sozinho (o de antes) cortava. */
+      }
+      {/* ⚠️ VAZIO ESTICADO SE CENTRALIZA. Com a lista ocupando a altura toda e uma linha só dentro,
+          o "Mês em dia" colado no topo deixaria um buraco embaixo — dentro do cartão, que é pior
+          que fora dele. Centralizado, a folga vira moldura. */}
+      <div style={s(`border:1px solid var(--border);border-radius:12px;overflow:hidden;${mobile ? "" : `flex:1;min-height:0;overflow-y:auto;${grupos.length === 0 ? "display:grid;place-items:center" : ""}`}`)}>
         {/* Mês fechado: a lista fica no lugar e diz que está vazia. Ver o ⚠️ acima — a tela é a
             mesma com 0 e com 1000. */}
         {grupos.length === 0 && (
-          <div style={s("display:flex;align-items:center;gap:11px;padding:22px 16px")}>
+          <div style={s(`display:flex;align-items:center;gap:11px;padding:22px 16px;${mobile ? "" : "max-width:44ch"}`)}>
             <span aria-hidden style={s("width:28px;height:28px;flex:none;border-radius:9px;display:grid;place-items:center;background:var(--success-soft);color:var(--success)")}>
               <Icon name="check" size={15} sw={2.4} />
             </span>
@@ -480,16 +493,52 @@ export function EmitirRecibos() {
     </>
   );
 
+  /* ── ★ OS CARTÕES VÃO ATÉ O FIM DA FAIXA (Bruno, 26/08/2026) ──
+   *
+   * *"o vazio fica melhor dentro dos cards do que na tela em si"* — e ele está certo: com sete
+   * clientes na lista, o cartão terminava no meio da tela e sobrava um bloco branco enorme embaixo,
+   * do lado de fora. Agora os dois cartões esticam até a mesma linha de baixo do rail, e a folga
+   * mora DENTRO deles, onde parece respiro em vez de página inacabada.
+   *
+   * ⚠️ SÓ NO DESKTOP. No celular a coluna empilha, e forçar altura ali esmagaria a lista para
+   * caber num espaço que não existe.
+   *
+   * ⚠️ E A CADEIA DE `min-height:0` É OBRIGATÓRIA. Sem ela, um item flex se recusa a encolher
+   * abaixo do conteúdo, o cartão cresce, e o esticão vira barra de rolagem na tela inteira — que é
+   * exatamente o que a `TelaGrade` faz (ela é `overflow-y:auto`). Quem rola é a LISTA, dentro do
+   * cartão; o painel da direita fica parado. */
+  const esticar = mobile ? "" : "flex:1;min-height:0;";
+
   return (
-    <div style={s("display:flex;flex-direction:column;gap:12px")}>
+    <div style={s(`display:flex;flex-direction:column;gap:12px;${esticar}`)}>
       <Emitente config={fiscal.config} />
       <BarraDeEtapas etapa={etapa} ir={setEtapa} />
 
-      <div style={s(`display:flex;gap:12px;align-items:flex-start;${mobile ? "flex-direction:column" : ""}`)}>
-        <Card style={s(`flex:1;min-width:0;display:flex;flex-direction:column;gap:16px;${mobile ? "width:100%" : ""}`)}>
+      {/* `align-items:stretch` no desktop: é o que faz os dois cartões terminarem na mesma linha,
+          independente de qual tem mais conteúdo. */}
+      <div style={s(`display:flex;gap:12px;align-items:${mobile ? "flex-start" : "stretch"};${mobile ? "flex-direction:column" : ""}${esticar}`)}>
+        <Card style={s(`flex:1;min-width:0;display:flex;flex-direction:column;gap:16px;${mobile ? "width:100%" : "min-height:0"}`)}>
           {conteudo}
-          <div style={s("display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding-top:14px;border-top:1px solid var(--line)")}>
-            {etapa > 1 && <Btn variant="ghost" onClick={() => setEtapa(etapa - 1)}>Voltar</Btn>}
+          {/* `margin-top:auto` na etapa 2: lá o conteúdo é curto (uma lista de conferência), e sem
+              isto o pé subiria para o meio do cartão esticado. Na etapa 1 a lista já ocupou tudo. */}
+          <div style={s(`display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding-top:14px;border-top:1px solid var(--line);${mobile || etapa === 1 ? "" : "margin-top:auto"}`)}>
+            {/* ── ★ A VOLTA DA ETAPA 1 SAI DA TELA, e é de propósito (Bruno, 26/08/2026) ──
+             *
+             * Não existe etapa 0 aqui: o handoff tinha uma etapa "Emitente" pedindo nome, CPF e
+             * registro na hora de emitir, e ela virou a faixa de leitura no topo, porque é dado que
+             * não muda de mês para mês. Só que "não muda" não é "não se corrige" — e um CPF de
+             * emitente errado faz a Receita recusar TODOS os recibos, um por um.
+             *
+             * Então a etapa 1 tem uma volta, e ela leva para onde o dado mora. A frase diz que sai
+             * da tela ("meus dados"), para não ser confundida com o Voltar da etapa 2, que é
+             * navegação interna. */}
+            {etapa === 1
+              ? (
+                <Btn variant="ghost" icon="chevron-left" onClick={() => st.irPara("fiscal")}>
+                  Voltar e editar meus dados
+                </Btn>
+              )
+              : <Btn variant="ghost" onClick={() => setEtapa(etapa - 1)}>Voltar</Btn>}
             {etapa < ETAPAS.length && (
               <Btn variant="secondary" onClick={() => setEtapa(etapa + 1)}>Continuar</Btn>
             )}

@@ -48,6 +48,8 @@ export const CFG_PADRAO: Record<ChaveCfg, boolean> = {
   precoCatalogo: true,
   pix: false,
   encaixe: false,
+  /* Desligado no demo pelo mesmo motivo do banco (024): a mensagem vai para terceiro. */
+  avisarRecibo: false,
 };
 
 export const TOGGLES_AGENDAMENTO: Toggle[] = [
