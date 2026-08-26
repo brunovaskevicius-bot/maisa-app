@@ -27,6 +27,8 @@ import Agenda from "../telas/Agenda";
 import AMaisa from "../telas/AMaisa";
 import Contatos from "../telas/Contatos";
 import { Clientes, Faturamento, Equipe, Servicos, Mais } from "../telas/Grades";
+import { ProgressoDeEmissao } from "./ProgressoDeEmissao";
+import { DocumentoFiscal } from "../telas/DocumentoFiscal";
 
 /* ───────────────────────────── mapa de telas ───────────────────────────── */
 
@@ -47,7 +49,14 @@ const TELA: Record<TelaId, { rotulo: string; titulo: string; sub: string; icone:
   // além de ser mentira na visão de Mês, onde não se arrasta nada.
   agenda: { rotulo: "Agenda", titulo: "Agenda", sub: "Quem vem e quando — no dia, na semana ou no mês", icone: "calendar", Comp: Agenda },
   clientes: { rotulo: "Clientes", titulo: "Clientes", sub: "Quem você atende — toque para ver a ficha", icone: "clientes", Comp: Clientes },
-  faturamento: { rotulo: "Faturamento", titulo: "Faturamento", sub: `${D.PERIODO} · o mês fechado cliente por cliente`, icone: "receipt", Comp: Faturamento },
+  /* ⚠️ O ID CONTINUA `faturamento`, O RÓTULO VIROU "Fiscal" (Bruno, 26/08/2026: *"que vamos
+     renomear para fiscal"*). O id é contrato com o link profundo (`?tela=faturamento`), com o
+     `localStorage` de quem já usa e com os testes — renomeá-lo quebraria link já compartilhado
+     para trocar uma palavra na tela. */
+  faturamento: { rotulo: "Fiscal", titulo: "Fiscal", sub: `${D.PERIODO} · o que falta emitir`, icone: "receipt", Comp: Faturamento },
+  // Fora do rail, como `contatos`: escolher entre nota fiscal e recibo é decisão de uma vez só.
+  // Chega-se por "Mais" e pelo link "Documento fiscal" no próprio Faturamento.
+  fiscal: { rotulo: "Documento fiscal", titulo: "Documento fiscal", sub: "O que a MAISA emite quando você recebe", icone: "config", Comp: DocumentoFiscal },
   equipe: { rotulo: "Equipe", titulo: "Equipe", sub: "Quem atende e quando", icone: "equipe", Comp: Equipe },
   servicos: { rotulo: "Serviços", titulo: "Serviços", sub: "O que você oferece e por quanto", icone: "tag", Comp: Servicos },
   assistente: { rotulo: "A MAISA", titulo: "Ajustes da MAISA", sub: "Uma seção por vez — o preview segue você", icone: "bot", Comp: AMaisa },
@@ -72,7 +81,7 @@ const ABAS: { id: TelaId; rotulo: string; cobre: TelaId[] }[] = [
   { id: "conversas", rotulo: "Conversas", cobre: ["conversas"] },
   { id: "agenda", rotulo: "Agenda", cobre: ["agenda"] },
   { id: "clientes", rotulo: "Clientes", cobre: ["clientes"] },
-  { id: "mais", rotulo: "Mais", cobre: ["mais", "faturamento", "equipe", "servicos", "assistente", "contatos"] },
+  { id: "mais", rotulo: "Mais", cobre: ["mais", "faturamento", "fiscal", "equipe", "servicos", "assistente", "contatos"] },
 ];
 
 /* ───────────────────────────── contadores ─────────────────────────────
@@ -492,6 +501,7 @@ export default function AppShell() {
         <Paleta aberta={paleta} fechar={() => setPaleta(false)} />
         <Toaster />
         <ConfirmaLote />
+        <ProgressoDeEmissao />
       </div>
     );
   }
@@ -513,6 +523,9 @@ export default function AppShell() {
       <Paleta aberta={paleta} fechar={() => setPaleta(false)} />
       <Toaster />
       <ConfirmaLote />
+      {/* ⚠️ AQUI, E NÃO DENTRO DA TELA. Ver `ProgressoDeEmissao`: montado na tela de emissão, sair
+          da tela desmontaria o placar de uma emissão que continua correndo. */}
+      <ProgressoDeEmissao />
     </div>
   );
 }

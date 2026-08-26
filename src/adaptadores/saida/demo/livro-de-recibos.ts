@@ -64,7 +64,8 @@ export const livroDeRecibosDemo: LivroDeRecibos = {
     const preso = linhas.some((l) => l.pagamentoId === p.id && l.situacao !== "recusado");
     if (preso) return null;
 
-    const id = `rec-demo-${++sequencia}`;
+    const numero = ++sequencia;
+    const id = `rec-demo-${numero}`;
     const valor = valores.get(p.id) ?? VALOR_PADRAO;
 
     linhas = [
@@ -76,6 +77,7 @@ export const livroDeRecibosDemo: LivroDeRecibos = {
         chave: null,
         pdfUrl: null,
         pdfExpiraEm: null,
+        comprovanteCaminho: null,
         erro: null,
         criadoEm: new Date().toISOString(),
         emitidoEm: null,
@@ -86,7 +88,9 @@ export const livroDeRecibosDemo: LivroDeRecibos = {
       ...linhas,
     ];
 
-    return { id, valor };
+    /* ★ O `numero` SAI DA MESMA CHAMADA que prendeu, como no banco. É ele que faz o protocolo
+     * existir antes de qualquer conversa com o canal — ver `ReciboAberto.numero`. */
+    return { id, numero, valor };
   },
 
   async registrarProtocolo(_t, p): Promise<void> {
@@ -95,10 +99,19 @@ export const livroDeRecibosDemo: LivroDeRecibos = {
 
   async fechar(_t, d: DesfechoDeRecibo): Promise<ReciboEmitido | null> {
     const alvo = linhas.find((l) => l.protocolo === d.protocolo);
-    /* ⚠️ SÓ SAI DE `pendente`. O mesmo callback entregue duas vezes é rotina em webhook, e a
-     * reconciliação pode estar perguntando a mesma coisa no mesmo instante. `null` = não havia
-     * o que mudar, e quem chama não dispara o que vem depois — inclusive o aviso ao paciente. */
-    if (!alvo || alvo.situacao !== "pendente") return null;
+    if (!alvo) return null;
+
+    /* ⚠️ DUAS TRANSIÇÕES, E SÓ ESTAS DUAS. `pendente` → emitido/recusado é o desfecho da
+     * emissão; `emitido` → `cancelado` é o desfecho do cancelamento, que chega quando a linha
+     * já não é `pendente` — e sem esta segunda regra o cancelamento se perdia calado, deixando
+     * a tela dizer "emitido" para um documento que deixou de existir. Ver a porta.
+     *
+     * `null` nos outros casos é a idempotência: reentrega de webhook é rotina, e a reconciliação
+     * pode estar perguntando a mesma coisa no mesmo instante. */
+    const permitido = d.situacao === "cancelado"
+      ? alvo.situacao === "emitido"
+      : alvo.situacao === "pendente";
+    if (!permitido) return null;
 
     const fechada: Linha = {
       ...alvo,
@@ -106,8 +119,11 @@ export const livroDeRecibosDemo: LivroDeRecibos = {
       chave: d.chave,
       pdfUrl: d.pdfUrl,
       pdfExpiraEm: d.pdfExpiraEm,
+      /* Não apaga a cópia que já existia: um cancelamento não chega com arquivo, e zerar o
+       * caminho aqui perderia o comprovante da emissão que de fato aconteceu. */
+      comprovanteCaminho: d.comprovanteCaminho ?? alvo.comprovanteCaminho,
       erro: d.erro,
-      emitidoEm: d.situacao === "emitido" ? new Date().toISOString() : null,
+      emitidoEm: d.situacao === "emitido" ? new Date().toISOString() : alvo.emitidoEm,
     };
     linhas = linhas.map((l) => (l.id === alvo.id ? fechada : l));
     return semInternos(fechada);

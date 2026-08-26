@@ -41,6 +41,20 @@ export interface EmissorDeReciboSaude {
   readonly canal: "automacao" | "rebots";
 
   /**
+   * ★ O PROTOCOLO DESTE CANAL É A REFERÊNCIA QUE MANDAMOS — logo, é conhecido ANTES da chamada.
+   *
+   * Quando é `true`, o caso de uso grava o protocolo na linha **antes** de falar com o canal. Isso
+   * fecha uma corrida real: o callback pode chegar durante a própria chamada de emissão, e a rota
+   * de callback encontra a linha pelo protocolo. Sem isso ela responde 404 e o desfecho se perde —
+   * medido em 26/08/2026, no sandbox da Rebots, que dispara o callback de forma **síncrona** dentro
+   * do `POST /receipts`. Em produção a janela é menor, não inexistente.
+   *
+   * `false` = o canal cunha o protocolo e só o revela na resposta (nada a fazer antes). Nesse caso
+   * a linha fica um instante como `pendente` sem protocolo, e é a reconciliação que a resgata.
+   */
+  readonly protocoloEhNossaReferencia: boolean;
+
+  /**
    * Habilita a profissional no canal.
    *
    * Idempotente por contrato: chamar duas vezes com o mesmo CPF não pode criar dois emissores
@@ -75,6 +89,24 @@ export interface EmissorDeReciboSaude {
    * ⚠️ DEZ DIAS, contados da emissão (art. 7º da IN RFB 2.240/2024). Depois disso não há
    * cancelamento, e o conserto é problema de contador. A porta não valida o prazo — o domínio
    * valida, porque prazo é regra e não detalhe de fornecedor.
+   *
+   * ── ⚠️ POR QUE OS TRÊS CAMPOS, E POR QUE ANTES ERAM DOIS ERRADOS ──
+   *
+   * A assinatura era `{ chave, motivo }`, e as duas metades estavam furadas. Medido no sandbox
+   * da Rebots em 25/08/2026:
+   *
+   *   · `protocolo` E NÃO `chave`. O cancelamento se identifica pelo `receipt_id` — o número que
+   *     NÓS cunhamos — e não pela chave que a Receita devolveu. Mandar a chave é falar de um
+   *     documento com um nome que o canal não usa para achá-lo.
+   *   · `emissor` PORQUE FALTAVA. Sem ele não há `issuer_code`, e a API responde
+   *     `RECEIPT_ERROR_005 Missing field: issuer_code`. **Nenhum cancelamento passava.**
+   *
+   * O emissor entra inteiro, e não só o CPF, pelo mesmo motivo de `emitir`: quem decide qual
+   * campo do profissional o canal quer é o adaptador do canal.
    */
-  cancelar(t: ContextoTenant, p: { chave: string; motivo: string }): Promise<void>;
+  cancelar(t: ContextoTenant, p: {
+    emissor: EmissorCredenciado;
+    protocolo: string;
+    motivo: string;
+  }): Promise<void>;
 }

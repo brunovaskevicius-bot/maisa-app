@@ -1,26 +1,36 @@
 import { NextResponse } from "next/server";
-import { desfechoDoCallbackRebots } from "@/adaptadores/saida/rebots/emissor-recibo";
-import { tenantDoProtocolo, livroDeRecibosSupabase } from "@/adaptadores/saida/supabase/livro-de-recibos";
+import { app } from "@/composicao";
+import { lerCallbackRebots } from "@/adaptadores/saida/rebots/emissor-recibo";
+import { tenantDoProtocolo } from "@/adaptadores/saida/supabase/livro-de-recibos";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // O CALLBACK DO CANAL DE EMISSÃO — onde o recibo deixa de ser "pendente".
 //
-// POST /api/recibos/callback  →  { ok: true, situacao }
+// POST /api/recibos/callback  →  { ok: true, desfecho }
 //
 // ── ⚠️ A REGRA QUE A DOC DELES IMPÕE: GRAVAR ANTES DE RESPONDER 200 ──
 //
 // A Rebots diz, textualmente, que depois da nossa confirmação o dado é descartado — "will be
-// discarded and cannot be recovered". E a API deles **não tem endpoint de consulta**: cinco
-// POSTs, nenhum GET.
+// discarded and cannot be recovered". E a API deles **não tem endpoint de consulta**: nove
+// endpoints no OpenAPI, nenhum GET.
 //
 // Somados, os dois fatos têm uma consequência afiada: **um 200 nosso sem gravação apaga a única
 // cópia do desfecho que existe no mundo.** A linha fica `pendente` para sempre, o pagamento
 // segue trancado, e não há a quem perguntar — só olhando o e-CAC.
 //
-// Daí o desenho desta rota: grava primeiro, responde 200 depois. Qualquer falha de gravação
-// responde **erro**, para o canal reentregar. Um 500 aqui é barato; um 200 mentiroso não tem
-// desfazer.
+// Daí o desenho: grava primeiro, responde 200 depois. Qualquer falha de gravação responde
+// **erro**, para o canal reentregar. Um 500 aqui é barato; um 200 mentiroso não tem desfazer.
+//
+// ── ★ ESTA ROTA NÃO DECIDE MAIS NADA, E É POR ISSO QUE OS BUGS APARECERAM ──
+//
+// Até 25/08/2026 ela gravava o desfecho e, se fosse recusa, soltava o pagamento. Isso é regra de
+// negócio — "recusa reabre a porta da cascata" — dentro de um `route.ts`, onde nenhum teste de
+// domínio chega. Foi ali que três defeitos moraram sem ninguém ver: o corpo lido fora do
+// envelope `data`, o cancelamento gravado como emissão, e a URL do PDF tratada como se durasse
+// dois dias quando dura cinco minutos.
+//
+// Agora ela faz o que rota faz: autentica, traduz, descobre o inquilino, chama o caso de uso.
 //
 // ── AUTENTICAÇÃO POR SEGREDO, E FALHA FECHADA ──
 //
@@ -31,12 +41,15 @@ import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 // um callback reentregue; para o outro lado, é qualquer um na internet marcando recibos como
 // emitidos — e "emitido" é o estado do qual o pagamento nunca mais volta para a lista.
 //
+// ⚠️ E O SEGREDO PESA MAIS DESDE A MIGRAÇÃO 023. O protocolo era um uuid v4; agora é inteiro
+// sequencial, porque o `receipt_id` da Rebots é `int`. Ele ficou **enumerável**: quem tiver o
+// segredo não precisa mais adivinhar nada. O segredo é a única defesa que sobrou aqui.
+//
 // ── ⚠️ O `tenantId` NÃO VEM DO CORPO, E ISSO NÃO É NEGOCIÁVEL ──
 //
 // Ele nasce de `tenantDoProtocolo()`, que é dado durável nosso — mesma mecânica de
-// `integracoes_whatsapp.instancia` no webhook do WhatsApp. O que vem de fora é o `receipt_id`,
-// que é um uuid v4 cunhado por nós: não é adivinhável e não escolhe inquilino. Protocolo
-// desconhecido é 404, não 500 — POST com corpo torto é ruído, não incidente.
+// `integracoes_whatsapp.instancia` no webhook do WhatsApp. Protocolo desconhecido é 404, não
+// 500 — POST com corpo torto é ruído, não incidente.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const runtime = "nodejs";
@@ -79,11 +92,22 @@ export async function POST(request: Request) {
   }
 
   /* A tradução do vocabulário do fornecedor mora no adaptador dele, não aqui. Esta rota não
-   * conhece `success`, `key` nem `file_url` — ver `desfechoDoCallbackRebots`. */
-  const desfecho = desfechoDoCallbackRebots(corpo);
-  if (!desfecho) {
+   * conhece `success`, `key`, `file_url` nem o envelope `data` — ver `lerCallbackRebots`. */
+  const leitura = lerCallbackRebots(corpo);
+
+  if (leitura.tipo === "ilegivel") {
     return NextResponse.json({ ok: false, erro: "sem_receipt_id" }, { status: 400 });
   }
+
+  /* ⚠️ `pending` É 200, E ISSO É O CONSERTO DE UM BUG DE VERDADE. O canal documenta `pending`
+   * como estado de callback: "na fila de processamento". Não há o que gravar — a linha já é
+   * `pendente`. As duas alternativas seriam piores: 400 faria o canal reentregar um aviso que
+   * chegou bem, e tratar como recusa liberaria a cascata e emitiria o segundo recibo. */
+  if (leitura.tipo === "pendente") {
+    return NextResponse.json({ ok: true, desfecho: "ainda_pendente" });
+  }
+
+  const desfecho = leitura.desfecho;
 
   const tenantId = await tenantDoProtocolo({ canal: "rebots", protocolo: desfecho.protocolo });
   if (!tenantId) {
@@ -97,25 +121,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, erro: "protocolo_desconhecido" }, { status: 404 });
   }
 
-  const t = contextoDeSistema(tenantId);
-
   try {
-    /* ── GRAVA ANTES DE RESPONDER 200. Ver o cabeçalho. ── */
-    const fechada = await livroDeRecibosSupabase.fechar(t, desfecho);
-
-    /* `null` = a linha já não estava `pendente`. É reentrega, ou a reconciliação chegou primeiro.
-     * **200 e não erro**: pedir reentrega de algo já gravado é loop. */
-    if (!fechada) {
-      return NextResponse.json({ ok: true, situacao: "ja_fechado" });
-    }
-
-    /* Recusa confirmada pelo canal devolve o pagamento para a lista. É a única transição que
-     * reabre a porta da cascata — ver `podeTentarOutroCanal`. */
-    if (fechada.situacao === "recusado") {
-      await livroDeRecibosSupabase.soltar(t, fechada.id);
-    }
-
-    return NextResponse.json({ ok: true, situacao: fechada.situacao });
+    /* ── O CASO DE USO GRAVA ANTES DE A GENTE RESPONDER 200. Ver o cabeçalho. ── */
+    const r = await app.fecharReciboDoCallback(contextoDeSistema(tenantId), desfecho);
+    return NextResponse.json({ ok: true, ...r });
   } catch (e) {
     /* ⚠️ 500 DE PROPÓSITO, e é o ponto inteiro desta rota. Falhou a gravação: se respondermos
      * 200, eles descartam o desfecho e ele deixa de existir. Um 500 pede reentrega. */

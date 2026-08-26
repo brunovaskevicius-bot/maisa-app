@@ -23,7 +23,7 @@ import { vocabulario } from "./Grades";
 
 describe("quem emite nota fiscal ganha os verbos de nota fiscal", () => {
   it("municipal emite nota", () => {
-    expect(vocabulario({ status: "ok", caminho: "municipal" })).toEqual({ sabemos: true, emiteNota: true });
+    expect(vocabulario({ status: "ok", caminho: "municipal" })).toEqual({ sabemos: true, emiteNota: true, falhou: false });
   });
 
   it("ambiente nacional também", () => {
@@ -35,7 +35,7 @@ describe("★ pessoa física não emite nota fiscal em hipótese nenhuma", () =>
   /* O TESTE QUE JUSTIFICA O ARQUIVO. Sem ele, o hero volta a anunciar "14 a emitir" e a topbar
    * volta a oferecer o botão dourado — para uma psicóloga que não tem nota fiscal para emitir. */
   it("recibo_saude não tem verbo de emitir", () => {
-    expect(vocabulario({ status: "ok", caminho: "recibo_saude" })).toEqual({ sabemos: true, emiteNota: false });
+    expect(vocabulario({ status: "ok", caminho: "recibo_saude" })).toEqual({ sabemos: true, emiteNota: false, falhou: false });
   });
 });
 
@@ -43,7 +43,7 @@ describe("⚠️ enquanto não sabemos, ninguém promete nada", () => {
   /* `null !== "recibo_saude"` é `true` — o jeito ingênuo de escrever isto acende o botão errado
    * durante o carregamento e o apaga depois. Meio segundo de promessa falsa continua sendo uma. */
   it("carregando não emite nota", () => {
-    expect(vocabulario({ status: "carregando", caminho: null })).toEqual({ sabemos: false, emiteNota: false });
+    expect(vocabulario({ status: "carregando", caminho: null })).toEqual({ sabemos: false, emiteNota: false, falhou: false });
   });
 
   it("erro na leitura também não", () => {
@@ -53,5 +53,28 @@ describe("⚠️ enquanto não sabemos, ninguém promete nada", () => {
   /* Resposta torta que trouxe status de erro E um caminho: manda o status. */
   it("o status manda sobre o caminho", () => {
     expect(vocabulario({ status: "erro", caminho: "municipal" }).emiteNota).toBe(false);
+  });
+});
+
+/* ── ★ ERRO NÃO É CARREGANDO ──────────────────────────────────────────────────
+ *
+ * Bruno, 26/08/2026, com a tela na frente: um retângulo cinza no lugar do Faturamento, parado.
+ * A causa era esta distinção não existir: `!sabemos` cobria os dois estados e os dois viravam
+ * esqueleto de carregamento. Só que carregando vira tela em um instante e erro não vira nada
+ * nunca — o esqueleto ficava para sempre, sem uma palavra e sem botão.
+ *
+ * ⚠️ Quem apagar `falhou` daqui reintroduz o beco. Os dois têm `sabemos: false`; é só isso que
+ * eles têm em comum. */
+describe("★ erro tem saída, carregando não precisa de uma", () => {
+  it("erro é `falhou`", () => {
+    expect(vocabulario({ status: "erro", caminho: null }).falhou).toBe(true);
+  });
+
+  it("carregando NÃO é `falhou` — senão pisca 'não deu' antes de tentar", () => {
+    expect(vocabulario({ status: "carregando", caminho: null }).falhou).toBe(false);
+  });
+
+  it("ok não é `falhou`", () => {
+    expect(vocabulario({ status: "ok", caminho: "recibo_saude" }).falhou).toBe(false);
   });
 });

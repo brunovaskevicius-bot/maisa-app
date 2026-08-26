@@ -28,6 +28,9 @@
 
 import type { RegistroDeAtendimentos, LinhaDeAtendimento } from "@/nucleo/portas/saida/registro-atendimentos";
 import type { ContextoTenant, Ator } from "@/nucleo/dominio/tenant";
+import type { Janela } from "@/nucleo/dominio/tempo";
+import type { Ocupado } from "@/nucleo/dominio/vagas";
+import { FalhaDoProvedor } from "@/nucleo/dominio/erros";
 import { clienteDoContexto } from "./contexto-cliente";
 
 /**
@@ -73,6 +76,52 @@ const PARECE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const uuidOuNulo = (v: string | null): string | null => (v && PARECE_UUID.test(v) ? v : null);
 
 export const registroSupabase: RegistroDeAtendimentos = {
+  /**
+   * ⚠️ O ÚNICO MÉTODO DESTE ARQUIVO QUE LANÇA, e a exceção é deliberada.
+   *
+   * O resto daqui engole falha porque o evento já existe na agenda e perder o espelho é
+   * menos grave que abortar depois do efeito. Aqui é o contrário: esta leitura é a fonte
+   * primária de ocupação, e devolver `[]` numa falha de banco significa "o dia inteiro
+   * está livre". A MAISA ofereceria horários já vendidos, e o cliente descobriria na
+   * cadeira. Mesmo raciocínio do Passo B do Ludi, onde falha ao ler `appointments` é 500.
+   *
+   * ⚠️ Lê `data_local`/`hora_inicio`, a PROJEÇÃO CIVIL, e não `inicio`/`fim`. Os
+   * timestamps são a verdade do instante, mas `vagasDoDia` pensa em dia civil e hora
+   * decimal — reconverter o fuso aqui abriria a chance de a leitura discordar da escrita.
+   * O preço: `hora_inicio` é múltiplo de meia hora (ver `meiaHora`), então um serviço de
+   * 20 min gravado às 14:20 bloqueia a partir de 14:30. Como a oferta também só anda de
+   * meia em meia hora (`PASSO_MIN`), a granularidade é a mesma dos dois lados.
+   */
+  async listarJanela(
+    t: ContextoTenant,
+    p: { agendaId: string; janela: Janela },
+  ): Promise<Ocupado[]> {
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("atendimentos")
+      .select("data_local, hora_inicio, duracao_min")
+      .eq("tenant_id", t.tenantId)
+      .eq("profissional_id", p.agendaId)
+      /* Cancelado não bloqueia horário — é o que a coluna existe para permitir. */
+      .eq("situacao", "marcado")
+      /* Janela FECHADA nas duas pontas, igual à de `oferecerHorarios`. */
+      .gte("data_local", p.janela.de)
+      .lte("data_local", p.janela.ate);
+
+    if (error) {
+      throw new FalhaDoProvedor(`Não foi possível ler os atendimentos: ${error.message}`);
+    }
+
+    return (data ?? []).map((l) => {
+      const inicio = Number(l.hora_inicio);
+      return {
+        data: l.data_local as string,
+        inicio,
+        fim: inicio + Number(l.duracao_min) / 60,
+      };
+    });
+  },
+
   async registrar(t: ContextoTenant, a: LinhaDeAtendimento): Promise<void> {
     try {
       const supabase = clienteDoContexto(t);

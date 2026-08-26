@@ -54,6 +54,10 @@ import { toast } from "@/ui/primitivos";
 
 export type TelaId =
   | "fluxo" | "conversas" | "agenda" | "clientes" | "faturamento"
+  /* `fiscal` é a tela "Documento fiscal": onde se escolhe entre nota fiscal e recibo. Fora do
+   * rail de propósito, como `contatos` — é configuração que se faz uma vez, e um ícone
+   * permanente competiria com as telas do dia. Chega-se por "Mais" e pelo Faturamento. */
+  | "fiscal"
   | "equipe" | "servicos" | "assistente" | "contatos" | "mais";
 
 export type AbaConversa = "todas" | "espera" | "maisa" | "ok";
@@ -708,6 +712,18 @@ export type StoreValue = {
   fiscal: EstadoFiscalUI;
   /** Guarda o que uma rota de `/api/fiscal` devolveu. Os cartões chamam depois de gravar. */
   aplicarFiscal: (bruto: unknown) => void;
+  /** Relê `/api/fiscal`. É o "tentar de novo" da tela quando `status` é `erro`. */
+  recarregarFiscal: () => Promise<void>;
+
+  /* emissão de recibos, em andamento e visível de qualquer tela */
+  /** `null` = nenhuma emissão rodando nem esperando ser fechada. */
+  emissao: EmissaoDeRecibos | null;
+  /** Enfileira e emite, um por vez. Ignora chamada nova enquanto uma está andando. */
+  emitirRecibos: (fila: NaFila[]) => Promise<void>;
+  /** Fecha o cartão do canto. Só o resumo; não interrompe nada. */
+  fecharEmissao: () => void;
+  /** Sobe 1 a cada emissão terminada. As telas releem o servidor quando ele muda. */
+  emissoesFeitas: number;
 
   /* nota fiscal */
   notaDe: (clienteId: string) => D.Nota;
@@ -887,6 +903,63 @@ export type EstadoFiscalUI = {
   /** Variáveis de ambiente do emissor que faltam. Problema nosso, não do dono. */
   provedorFaltando: string[];
 };
+
+/**
+ * ★ UMA EMISSÃO DE RECIBOS EM ANDAMENTO — e por que ela mora no store.
+ *
+ * Bruno, 26/08/2026: *"a emissão dos recibos é algo que demora, queria não ter que ficar olhando
+ * para uma telinha enquanto isso acontece"*.
+ *
+ * Antes era estado do componente da tela, mostrado num modal. Duas consequências, e a segunda é
+ * pior: o modal prendia o dono na tela, e sair da tela **desmontava o componente** — a emissão
+ * continuava correndo (o `fetch` já tinha partido) mas o placar desaparecia. Ele voltava sem saber
+ * se saíram 3 ou 30 documentos fiscais.
+ *
+ * Aqui, quem mostra é um cartão no canto (`ProgressoDeEmissao`, montado no `AppShell`), e trocar
+ * de tela não interrompe nem esconde nada.
+ *
+ * ⚠️ NÃO EXISTE CANCELAR, e a ausência é decisão: cada passo é um documento fiscal que já saiu no
+ * CPF de alguém. "Parar" no meio só evitaria os próximos — e desfazer os anteriores é cancelar um
+ * por um, em até 10 dias (art. 7º da IN RFB 2.240/2024). Prometer um botão de cancelar sugeriria
+ * que dá para voltar atrás.
+ */
+export type EmissaoDeRecibos = {
+  estado: "andando" | "fim";
+  total: number;
+  /** Quantos saíram de verdade — falha não conta. */
+  feitos: number;
+  /** Nome de quem está saindo AGORA. `null` quando acabou. */
+  atual: string | null;
+  /** O último que saiu, para o cartão dar o check antes de trocar de nome. */
+  ultimo: string | null;
+  falhas: { nome: string; erro: string }[];
+};
+
+/** Um pagamento na fila de emissão. É o que a tela manda; o resto o servidor lê do banco. */
+export type NaFila = { fonte: "atendimento" | "avulso"; id: string; nome: string };
+
+/** O placar no instante zero. */
+export function comecarEmissao(fila: NaFila[]): EmissaoDeRecibos {
+  return { estado: "andando", total: fila.length, feitos: 0, atual: fila[0]?.nome ?? null, ultimo: null, falhas: [] };
+}
+
+/**
+ * Fecha a conta de UM pagamento no placar.
+ *
+ * ★ `falha` é a frase do servidor, ou `null` quando saiu. Separado do laço para ter teste: é uma
+ * contabilidade de documento fiscal, e o tipo de erro que ela sofre é silencioso.
+ *
+ * ⚠️ FALHA NÃO CONTA COMO FEITO, e `ultimo` só anda quando saiu de verdade — o cartão dá o check
+ * naquele nome, e dar check em quem foi recusado é a pior mentira possível numa tela fiscal.
+ */
+export function aplicarDesfecho(e: EmissaoDeRecibos, nome: string, falha: string | null): EmissaoDeRecibos {
+  return {
+    ...e,
+    feitos: e.feitos + (falha ? 0 : 1),
+    ultimo: falha ? e.ultimo : nome,
+    falhas: falha ? [...e.falhas, { nome, erro: falha }] : e.falhas,
+  };
+}
 
 /** O que a UI precisa saber sobre a integração antes de oferecer qualquer botão. */
 export type EstadoGoogle = {
@@ -3068,20 +3141,67 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  useEffect(() => {
-    let vivo = true;
-    (async () => {
-      try {
-        const d = await fetch("/api/fiscal", { cache: "no-store" }).then((x) => x.json());
-        if (vivo) aplicarFiscal(d);
-      } catch {
-        /* `erro`, e não `ok` com caminho chutado: sem saber o caminho, as telas escondem os
-         * verbos em vez de inventar um. Ver `EstadoFiscalUI`. */
-        if (vivo) setFiscal((v) => ({ ...v, status: "erro" }));
-      }
-    })();
-    return () => { vivo = false; };
+  /** Lê `/api/fiscal` e aplica. Exposta porque a tela de erro precisa de um "tentar de novo": sem
+   *  ela, `status: "erro"` só saía recarregando a página inteira. */
+  const recarregarFiscal = useCallback(async () => {
+    try {
+      /* Com prazo: sem ele, uma requisição pendurada deixa `status: "carregando"` para sempre, e
+       * a tela que espera por isso fica num esqueleto que nunca vira nada. */
+      const d = await fetch("/api/fiscal", { cache: "no-store", signal: AbortSignal.timeout(15_000) }).then((x) => x.json());
+      aplicarFiscal(d);
+    } catch {
+      /* `erro`, e não `ok` com caminho chutado: sem saber o caminho, as telas escondem os
+       * verbos em vez de inventar um. Ver `EstadoFiscalUI`. */
+      setFiscal((v) => ({ ...v, status: "erro" }));
+    }
   }, [aplicarFiscal]);
+
+  useEffect(() => { void recarregarFiscal(); }, [recarregarFiscal]);
+
+  /* ── a emissão de recibos ──
+   * Ver `EmissaoDeRecibos`: mora aqui, e não na tela, para o dono poder sair de perto. */
+
+  const [emissao, setEmissao] = useState<EmissaoDeRecibos | null>(null);
+  const [emissoesFeitas, setEmissoesFeitas] = useState(0);
+  /** Trava contra segundo clique. `useRef` porque o estado ainda não chegou quando o clique vem. */
+  const emitindo = useRef(false);
+
+  const emitirRecibos = useCallback(async (fila: NaFila[]) => {
+    /* ⚠️ DOIS CLIQUES NÃO SÃO DOIS LOTES. Sem esta trava, um clique duplo no CTA emitia cada
+     * pagamento duas vezes — e o segundo volta recusado pelo banco, mas só depois de ter cobrado
+     * um processamento no canal. */
+    if (emitindo.current || fila.length === 0) return;
+    emitindo.current = true;
+
+    setEmissao(comecarEmissao(fila));
+
+    for (const p of fila) {
+      setEmissao((e) => e && { ...e, atual: p.nome });
+      let falha: string | null = null;
+      try {
+        /* Uma chamada por pagamento, EM SÉRIE. Não é limitação: o canal cobra por processamento, a
+         * Receita não gosta de rajada, e uma falha no meio de dez chamadas simultâneas deixaria o
+         * dono sem saber quais saíram. */
+        const r = await fetch("/api/recibos/emitir", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fonte: p.fonte, id: p.id }),
+        }).then((x) => x.json());
+        if (r?.ok !== true) falha = r?.info ?? r?.detalhe ?? r?.erro ?? "O canal recusou.";
+      } catch {
+        falha = "A chamada não completou.";
+      }
+      setEmissao((e) => e && aplicarDesfecho(e, p.nome, falha));
+    }
+
+    setEmissao((e) => e && { ...e, estado: "fim", atual: null });
+    emitindo.current = false;
+    /* As telas releem o servidor por causa disto. Descontar na mão daria a contagem que a tela
+     * ACHA que saiu; o que vale é o que o banco diz. */
+    setEmissoesFeitas((n) => n + 1);
+  }, []);
+
+  const fecharEmissao = useCallback(() => setEmissao(null), []);
 
   /* ── google calendar ──
    * Duas metades bem separadas: a CONEXÃO (tokens) vive no Supabase e é consultada
@@ -3159,7 +3279,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!alvo) return;
 
     const VALIDAS: TelaId[] = [
-      "fluxo", "conversas", "agenda", "clientes", "faturamento",
+      "fluxo", "conversas", "agenda", "clientes", "faturamento", "fiscal",
       "equipe", "servicos", "assistente", "contatos", "mais",
     ];
     if (VALIDAS.includes(alvo as TelaId)) irPara(alvo as TelaId);
@@ -3568,7 +3688,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, setFiltroSvc, filtroCli, setFiltroCli,
-    fiscal, aplicarFiscal,
+    fiscal, aplicarFiscal, recarregarFiscal,
+    emissao, emitirRecibos, fecharEmissao, emissoesFeitas,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
@@ -3598,7 +3719,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, filtroCli,
-    fiscal, aplicarFiscal,
+    fiscal, aplicarFiscal, recarregarFiscal,
+    emissao, emitirRecibos, fecharEmissao, emissoesFeitas,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,

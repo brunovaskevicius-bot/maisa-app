@@ -25,8 +25,10 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type {
-  EmitirRecibo, ReciboLancado, ReconciliarRecibos, ResultadoDaReconciliacao,
+  EmitirRecibo, FecharReciboDoCallback, ReciboFechado, ReciboLancado,
+  ReconciliarRecibos, ResultadoDaReconciliacao,
 } from "../portas/entrada/casos-de-uso";
+import type { GuardaDeComprovante } from "../portas/saida/guarda-de-comprovante";
 import type { LivroDeRecibos } from "../portas/saida/livro-de-recibos";
 import type { EmissorDeReciboSaude } from "../portas/saida/emissor-recibo";
 import type { RepositorioRecibos } from "../portas/saida/repositorio-recibos";
@@ -45,6 +47,8 @@ export type DepsReciboUnitario = {
   emissor: EmissorDeReciboSaude;
   recibos: RepositorioRecibos;
   fiscal: RepositorioFiscal;
+  /** Só o fechamento usa. Ver `criarFecharReciboDoCallback`. */
+  guarda: GuardaDeComprovante;
 };
 
 /**
@@ -126,8 +130,10 @@ export function criarEmitirRecibo(deps: DepsReciboUnitario): EmitirRecibo {
     }
 
     const pedido: PedidoDeRecibo = {
-      /* O id da linha do razão vira a chave de idempotência do canal. Ver `referencia`. */
-      referencia: aberto.id,
+      /* ⚠️ O `numero` DA LINHA, NÃO O `id`. Os dois nascem na mesma transação, e a diferença é
+       * de tipo: o `id` é uuid, e a Rebots recusa uuid no `receipt_id` com `RECEIPT_ERROR_024`
+       * — medido no sandbox em 25/08/2026, quando NENHUMA emissão passava. Ver `referencia`. */
+      referencia: String(aberto.numero),
       dataPagamento: alvo.data,
       /* ⚠️ O VALOR É O DO BANCO (`aberto.valor`), não o da linha que a tela leu. A claim o
        * devolveu somado na mesma transação em que prendeu — tela velha manda total velho, e
@@ -137,6 +143,21 @@ export function criarEmitirRecibo(deps: DepsReciboUnitario): EmitirRecibo {
       cpfPagador,
       cpfBeneficiario,
     };
+
+    /* ── ★ 1.5 · o protocolo ANTES da chamada, quando ele é a nossa referência ──
+     *
+     * ⚠️ ISTO NÃO É OTIMIZAÇÃO, É UMA CORRIDA FECHADA. O callback pode chegar **durante** o passo
+     * 2: o sandbox da Rebots dispara de forma síncrona dentro do `POST /receipts`, e em produção
+     * basta o canal ser rápido. A rota de callback acha a linha pelo protocolo — se ele ainda não
+     * estiver gravado, ela responde 404 e o desfecho se perde. Como a API deles não tem consulta
+     * (`consultar` devolve `null`), esse `pendente` não tem mais saída automática nenhuma.
+     *
+     * Medido em 26/08/2026: recibo nº 56, callback entregue, 404, linha `pendente` para sempre.
+     *
+     * Só vale para canal cujo protocolo é a nossa referência (ver a porta). */
+    if (deps.emissor.protocoloEhNossaReferencia) {
+      await deps.livro.registrarProtocolo(t, { reciboId: aberto.id, protocolo: pedido.referencia });
+    }
 
     /* ── 2 · chama o canal ── */
     let aceito;
@@ -158,9 +179,11 @@ export function criarEmitirRecibo(deps: DepsReciboUnitario): EmitirRecibo {
       throw e;
     }
 
-    /* ── 3 · grava o protocolo, o quanto antes ──
-     * É ele que torna a linha reconciliável. Entre o passo 2 e este, a linha é um `pendente`
-     * sem protocolo — e esse é o único estado deste domínio sem resposta automática. */
+    /* ── 3 · grava o protocolo que o canal devolveu ──
+     * É ele que torna a linha reconciliável. Para canal cujo protocolo é a nossa referência isto é
+     * reescrever o mesmo valor (ver o passo 1.5) — e é de propósito: o valor que MANDA é o que o
+     * canal respondeu, e a escrita é idempotente. Para os outros, é aqui que ele nasce, e entre o
+     * passo 2 e este a linha é um `pendente` sem protocolo. */
     await deps.livro.registrarProtocolo(t, {
       reciboId: aberto.id,
       protocolo: aceito.protocolo,
@@ -241,5 +264,74 @@ export function criarReconciliarRecibos(
     }
 
     return r;
+  };
+}
+
+/**
+ * Fecha a linha do razão com o que o canal respondeu — o caminho do CALLBACK.
+ *
+ * ★ ELE SAIU DA ROTA, E ISSO NÃO FOI ARRUMAÇÃO. A rota decidia: gravava, e se o desfecho fosse
+ * recusa, soltava o pagamento. Isso é regra de negócio — "recusa devolve o pagamento para a
+ * lista" é a única transição que reabre a porta da cascata — e regra de negócio em `route.ts` é
+ * regra que nenhum teste de domínio alcança. Foi exatamente onde os três defeitos do callback
+ * moraram sem ninguém ver.
+ *
+ * ── ⚠️ A ORDEM: ARQUIVA O PDF ANTES DE GRAVAR, E O MOTIVO É UM RELÓGIO ──
+ *
+ * A URL do comprovante vale cinco minutos e a API do canal não tem consulta. Então a cópia tem
+ * que acontecer **dentro desta chamada**, antes de qualquer coisa que possa demorar ou falhar.
+ * "Arquivo depois" não existe: depois o arquivo não está mais lá.
+ *
+ * O custo dessa ordem é uma reentrega baixar de novo (ou tentar, e achar a URL vencida) antes de
+ * descobrir que não havia o que gravar. É uma chamada perdida e uma linha de log — barato
+ * comparado a ler o razão antes de cada gravação só para economizá-la.
+ *
+ * ⚠️ E A CÓPIA NUNCA IMPEDE A GRAVAÇÃO. `arquivar` devolve `null` em vez de lançar, por contrato
+ * (ver a porta). Se a cópia falhar, o recibo fecha sem comprovante: perder o PDF é ruim, perder
+ * o desfecho é irreversível — não há a quem perguntar de novo.
+ */
+export function criarFecharReciboDoCallback(
+  deps: Pick<DepsReciboUnitario, "livro" | "guarda">,
+): FecharReciboDoCallback {
+  return async (t, d): Promise<ReciboFechado> => {
+    /* ── 1 · a cópia, enquanto a janela está aberta ── */
+    let comprovanteCaminho = d.comprovanteCaminho;
+    if (!comprovanteCaminho && d.situacao === "emitido" && d.pdfUrl) {
+      const guardado = await deps.guarda.arquivar(t, {
+        protocolo: d.protocolo,
+        urlTemporaria: d.pdfUrl,
+      });
+      comprovanteCaminho = guardado?.caminho ?? null;
+    }
+
+    /* ── 2 · o desfecho, que é o dado que não pode se perder ── */
+    const fechada = await deps.livro.fechar(t, { ...d, comprovanteCaminho });
+
+    /* `null` = a linha já não estava na situação de partida. É reentrega, ou a reconciliação
+     * chegou primeiro. Não é erro, e quem chama responde 200: pedir reentrega de algo já gravado
+     * é um laço que só termina quando o canal desiste. */
+    if (!fechada) return { desfecho: "ja_fechado", comprovanteGuardado: false };
+
+    /* ── 3 · recusa confirmada devolve o pagamento para a lista ──
+     * ⚠️ É A ÚNICA TRANSIÇÃO QUE REABRE A PORTA DA CASCATA, e por isso está aqui e não na rota.
+     * `emitido` não solta (o documento existe) e `cancelado` também não — ver o comentário
+     * abaixo, que é dívida declarada, não esquecimento. */
+    if (fechada.situacao === "recusado") {
+      await deps.livro.soltar(t, fechada.id).catch(() => {});
+    }
+
+    /* ⚠️ DÍVIDA DECLARADA: `cancelado` DEIXA O PAGAMENTO TRANCADO. Cancelar um recibo faz o
+     * documento deixar de existir, então em teoria o pagamento devia voltar para a lista — mas
+     * `soltar_recibo_unitario` só aceita `recusado`, de propósito, e afrouxar isso é como se
+     * emite o segundo recibo. Enquanto ninguém decidir o fluxo "cancelou, e agora?", o pagamento
+     * fica fora da lista e a linha do razão mostra o cancelamento. Preferível ao contrário. */
+
+    /* ⚠️ `pendente` NÃO É DESFECHO, e o tipo de `ReciboEmitido.situacao` não sabe disso — ele
+     * carrega os quatro estados. Um `fechar` bem-sucedido só devolve os três de saída; o `?:`
+     * existe para o compilador, e o `pendente` que ele cobre é impossível por construção. Se um
+     * dia deixar de ser, o lugar de descobrir é aqui e não na tela. */
+    const desfecho = fechada.situacao === "pendente" ? "ja_fechado" : fechada.situacao;
+
+    return { desfecho, comprovanteGuardado: Boolean(comprovanteCaminho) };
   };
 }

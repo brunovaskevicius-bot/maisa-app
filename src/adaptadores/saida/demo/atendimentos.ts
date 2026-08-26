@@ -15,6 +15,8 @@
 
 import type { RegistroDeAtendimentos, LinhaDeAtendimento } from "@/nucleo/portas/saida/registro-atendimentos";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
+import type { Janela } from "@/nucleo/dominio/tempo";
+import type { Ocupado } from "@/nucleo/dominio/vagas";
 import { rotuloDoAtor } from "@/nucleo/dominio/tenant";
 
 export type EspelhoEmMemoria = LinhaDeAtendimento & {
@@ -34,6 +36,32 @@ export type EspelhoEmMemoria = LinhaDeAtendimento & {
 let LINHAS: Record<string, EspelhoEmMemoria> = {};
 
 export const registroDemo: RegistroDeAtendimentos = {
+  /**
+   * O par de `saida/supabase/atendimentos.ts`. Filtra pela projeção civil pelos MESMOS
+   * campos que o SQL usa (`dataLocal`, `horaInicio`, `duracaoMin`), porque o objetivo
+   * deste arquivo é que o laboratório exercite as mesmas linhas de código que produção —
+   * um filtro diferente aqui esconderia o bug em vez de revelá-lo.
+   */
+  async listarJanela(
+    t: ContextoTenant,
+    p: { agendaId: string; janela: Janela },
+  ): Promise<Ocupado[]> {
+    return Object.values(LINHAS)
+      .filter(
+        (l) =>
+          l.tenantId === t.tenantId &&
+          l.agendaId === p.agendaId &&
+          l.situacao === "marcado" &&
+          l.dataLocal >= p.janela.de &&
+          l.dataLocal <= p.janela.ate,
+      )
+      .map((l) => ({
+        data: l.dataLocal,
+        inicio: l.horaInicio,
+        fim: l.horaInicio + l.duracaoMin / 60,
+      }));
+  },
+
   async registrar(t: ContextoTenant, a: LinhaDeAtendimento): Promise<void> {
     LINHAS[`${t.tenantId}|${a.maisaAg}`] = {
       ...a,

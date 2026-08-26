@@ -12,7 +12,10 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import { describe, expect, it } from "vitest";
-import { criarEmitirRecibo, criarReconciliarRecibos } from "./recibo-unitario";
+import {
+  criarEmitirRecibo, criarFecharReciboDoCallback, criarReconciliarRecibos,
+} from "./recibo-unitario";
+import type { GuardaDeComprovante } from "../portas/saida/guarda-de-comprovante";
 import type { ConfigFiscal } from "../dominio/fiscal";
 import type { RepositorioFiscal } from "../portas/saida/repositorio-fiscal";
 import type { LivroDeRecibos, ReciboAberto } from "../portas/saida/livro-de-recibos";
@@ -65,6 +68,10 @@ function ambiente(p: {
   pendentesDoLivro?: ReciboEmitido[];
   /** `fechar` devolve null = o callback chegou primeiro. */
   fecharDevolveNull?: boolean;
+  /** A cópia do PDF falha — bucket recusando, ou os cinco minutos da URL passaram. */
+  guardaFalha?: boolean;
+  /** O canal usa a NOSSA referência como protocolo (é o caso da Rebots). */
+  protocoloNosso?: boolean;
 } = {}) {
   const ordem: string[] = [];
   const protocolos: { reciboId: string; protocolo: string }[] = [];
@@ -77,7 +84,9 @@ function ambiente(p: {
   const livro: LivroDeRecibos = {
     async abrir() {
       ordem.push("abrir");
-      return p.aberto === undefined ? { id: "rec1", valor: 250 } : p.aberto;
+      /* ⚠️ `numero` É O PROTOCOLO. Sai da claim porque tem que existir antes da conversa com o
+       * canal — ver `ReciboAberto.numero`. */
+      return p.aberto === undefined ? { id: "rec1", numero: 1042, valor: 250 } : p.aberto;
     },
     async registrarProtocolo(_t, x) { ordem.push("registrarProtocolo"); protocolos.push(x); },
     async fechar(_t, d) {
@@ -87,7 +96,7 @@ function ambiente(p: {
       return {
         id: "rec1", canal: "automacao", situacao: d.situacao,
         protocolo: d.protocolo, chave: d.chave, pdfUrl: d.pdfUrl,
-        pdfExpiraEm: d.pdfExpiraEm, erro: d.erro,
+        pdfExpiraEm: d.pdfExpiraEm, comprovanteCaminho: d.comprovanteCaminho, erro: d.erro,
         criadoEm: "2026-08-24T10:00:00-03:00", emitidoEm: null,
       };
     },
@@ -100,6 +109,7 @@ function ambiente(p: {
 
   const emissor: EmissorDeReciboSaude = {
     canal: "automacao",
+    protocoloEhNossaReferencia: p.protocoloNosso === true,
     async cadastrarEmissor() { ordem.push("cadastrarEmissor"); },
     async emitir(_t, _e, pedido): Promise<ReciboAceito> {
       ordem.push("emitir");
@@ -115,14 +125,28 @@ function ambiente(p: {
     async cancelar() {},
   };
 
+  /* A guarda do comprovante: registra o que foi pedido e obedece `guardaFalha`. O caminho de
+   * falha é o que importa mais neste port — ver `fecharReciboDoCallback`. */
+  const arquivados: { protocolo: string; urlTemporaria: string }[] = [];
+  const guarda: GuardaDeComprovante = {
+    async arquivar(_t, x) {
+      ordem.push("arquivar");
+      arquivados.push(x);
+      if (p.guardaFalha) return null;
+      return { caminho: `t1/${x.protocolo}.pdf`, bytes: 2048 };
+    },
+    async linkParaBaixar() { return null; },
+  };
+
   const recibos = {
     async pendentes() { return p.pendentes ?? [sessao()]; },
   } as unknown as RepositorioRecibos;
 
   return {
-    emitir: criarEmitirRecibo({ livro, emissor, recibos, fiscal: fiscalDe(carla) }),
+    emitir: criarEmitirRecibo({ livro, emissor, recibos, fiscal: fiscalDe(carla), guarda }),
     reconciliar: criarReconciliarRecibos({ livro, emissor }),
-    ordem, protocolos, descartados, soltos, fechados, consultados,
+    fecharDoCallback: criarFecharReciboDoCallback({ livro, guarda }),
+    ordem, protocolos, descartados, soltos, fechados, consultados, arquivados,
     get pedido() { return pedidoEmitido; },
   };
 }
@@ -130,7 +154,17 @@ function ambiente(p: {
 const linha = (over: Partial<ReciboEmitido> = {}): ReciboEmitido => ({
   id: "rec1", canal: "automacao", situacao: "pendente",
   protocolo: "prot-1", chave: null, pdfUrl: null, pdfExpiraEm: null,
+  comprovanteCaminho: null,
   erro: null, criadoEm: "2026-08-24T10:00:00-03:00", emitidoEm: null,
+  ...over,
+});
+
+/** Um desfecho de callback, com os campos que o canal manda. */
+const desfechoDe = (over: Partial<DesfechoDeRecibo> = {}): DesfechoDeRecibo => ({
+  protocolo: "1042", situacao: "emitido", chave: "REC-9",
+  pdfUrl: "https://s3/f/1.pdf?X-Amz-Expires=300",
+  pdfExpiraEm: "2026-08-24T12:05:00-03:00",
+  comprovanteCaminho: null, erro: null,
   ...over,
 });
 
@@ -158,7 +192,7 @@ describe("emitirRecibo", () => {
   it("usa o valor do banco, não o da tela", async () => {
     const a = ambiente({
       pendentes: [sessao({ valor: 999 })],
-      aberto: { id: "rec1", valor: 250 },
+      aberto: { id: "rec1", numero: 1042, valor: 250 },
     });
     const r = await a.emitir(t, { fonte: "atendimento", id: "at1" });
 
@@ -248,7 +282,8 @@ describe("emitirRecibo", () => {
     const livro = {} as LivroDeRecibos;
     const emissor = { canal: "automacao" } as EmissorDeReciboSaude;
     const recibos = { async pendentes() { return []; } } as unknown as RepositorioRecibos;
-    const emitir = criarEmitirRecibo({ livro, emissor, recibos, fiscal: fiscalDe(cnpj) });
+    const guarda = {} as GuardaDeComprovante;
+    const emitir = criarEmitirRecibo({ livro, emissor, recibos, fiscal: fiscalDe(cnpj), guarda });
 
     await expect(emitir(t, { fonte: "atendimento", id: "at1" }))
       .rejects.toThrow(/nota fiscal, não recibo/i);
@@ -263,7 +298,8 @@ describe("reconciliarRecibos", () => {
       pendentesDoLivro: [linha()],
       desfecho: {
         protocolo: "prot-1", situacao: "emitido", chave: "REC-9",
-        pdfUrl: "https://x/9.pdf", pdfExpiraEm: "2026-08-26T00:00:00-03:00", erro: null,
+        pdfUrl: "https://x/9.pdf", pdfExpiraEm: "2026-08-26T00:00:00-03:00",
+        comprovanteCaminho: null, erro: null,
       },
     });
     const r = await a.reconciliar(t, agora);
@@ -278,7 +314,8 @@ describe("reconciliarRecibos", () => {
       pendentesDoLivro: [linha()],
       desfecho: {
         protocolo: "prot-1", situacao: "recusado", chave: null,
-        pdfUrl: null, pdfExpiraEm: null, erro: "Ocupação não cadastrada.",
+        pdfUrl: null, pdfExpiraEm: null, comprovanteCaminho: null,
+        erro: "Ocupação não cadastrada.",
       },
     });
     const r = await a.reconciliar(t, agora);
@@ -331,7 +368,7 @@ describe("reconciliarRecibos", () => {
       fecharDevolveNull: true,
       desfecho: {
         protocolo: "prot-1", situacao: "emitido", chave: "REC-9",
-        pdfUrl: null, pdfExpiraEm: null, erro: null,
+        pdfUrl: null, pdfExpiraEm: null, comprovanteCaminho: null, erro: null,
       },
     });
     const r = await a.reconciliar(t, agora);
@@ -346,5 +383,165 @@ describe("reconciliarRecibos", () => {
     expect(await a.reconciliar(t, agora)).toEqual({
       olhados: 0, emitidos: 0, recusados: 0, aindaPendentes: 0, semProtocolo: 0,
     });
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * FECHAR PELO CALLBACK — o caso de uso que saiu do `route.ts`.
+ *
+ * ★ ELE EXISTE POR UM MOTIVO CONCRETO: os três defeitos do callback (corpo fora do envelope,
+ * cancelamento lido como emissão, PDF tratado como se durasse 48h) moraram numa rota, onde
+ * nenhum teste de domínio chegava. Regra de negócio em `route.ts` é regra sem rede de proteção.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+describe("fecharReciboDoCallback", () => {
+  /* ★ A ORDEM É A GARANTIA. A URL do comprovante vale CINCO MINUTOS e a API do canal não tem
+   * consulta: se a cópia não acontecer antes de qualquer coisa que possa demorar, o arquivo
+   * simplesmente não existe mais. "Arquivo depois" não é uma opção. */
+  it("arquiva o comprovante ANTES de gravar o desfecho", async () => {
+    const c = ambiente();
+    await c.fecharDoCallback(t, desfechoDe());
+
+    expect(c.ordem).toEqual(["arquivar", "fechar"]);
+    expect(c.arquivados[0].urlTemporaria).toBe("https://s3/f/1.pdf?X-Amz-Expires=300");
+  });
+
+  it("grava o caminho da nossa cópia na linha do razão", async () => {
+    const c = ambiente();
+    const r = await c.fecharDoCallback(t, desfechoDe());
+
+    expect(c.fechados[0].comprovanteCaminho).toBe("t1/1042.pdf");
+    expect(r).toEqual({ desfecho: "emitido", comprovanteGuardado: true });
+  });
+
+  /* ★ O TESTE QUE MAIS IMPORTA DESTE BLOCO. Perder o PDF é ruim; perder o desfecho é
+   * irreversível, porque não há a quem perguntar de novo. Se a cópia impedisse a gravação, o
+   * callback voltaria erro, o canal reentregaria, e a linha ficaria `pendente` para sempre por
+   * causa de um bucket que falta criar. */
+  it("cópia que falha NÃO impede o desfecho de ser gravado", async () => {
+    const c = ambiente({ guardaFalha: true });
+    const r = await c.fecharDoCallback(t, desfechoDe());
+
+    expect(c.ordem).toEqual(["arquivar", "fechar"]);
+    expect(c.fechados[0].situacao).toBe("emitido");
+    expect(c.fechados[0].comprovanteCaminho).toBeNull();
+    expect(r).toEqual({ desfecho: "emitido", comprovanteGuardado: false });
+  });
+
+  /* Recusa não tem arquivo para guardar. Chamar a guarda aqui gastaria uma ida à rede para
+   * baixar um PDF que não existe. */
+  it("recusa não tenta arquivar nada", async () => {
+    const c = ambiente();
+    await c.fecharDoCallback(t, desfechoDe({
+      situacao: "recusado", chave: null, pdfUrl: null, pdfExpiraEm: null, erro: "não emitiu",
+    }));
+
+    expect(c.ordem).not.toContain("arquivar");
+  });
+
+  /* ⚠️ A ÚNICA TRANSIÇÃO QUE REABRE A PORTA DA CASCATA, e é por isso que ela mora aqui e não na
+   * rota: `podeTentarOutroCanal` só responde `true` para `recusado`. */
+  it("recusa confirmada solta o pagamento de volta para a lista", async () => {
+    const c = ambiente();
+    const r = await c.fecharDoCallback(t, desfechoDe({
+      situacao: "recusado", chave: null, pdfUrl: null, pdfExpiraEm: null, erro: "não emitiu",
+    }));
+
+    expect(c.soltos).toEqual(["rec1"]);
+    expect(r.desfecho).toBe("recusado");
+  });
+
+  it("emitido NÃO solta o pagamento — o documento existe", async () => {
+    const c = ambiente();
+    await c.fecharDoCallback(t, desfechoDe());
+    expect(c.soltos).toEqual([]);
+  });
+
+  /* ⚠️ DÍVIDA DECLARADA, e o teste existe para ela não virar surpresa: cancelar não devolve o
+   * pagamento para a lista. `soltar_recibo_unitario` só aceita `recusado`, de propósito — e
+   * afrouxar isso é exatamente como se emite o segundo recibo. */
+  it("cancelado não solta o pagamento, e isso é decisão", async () => {
+    const c = ambiente();
+    const r = await c.fecharDoCallback(t, desfechoDe({
+      situacao: "cancelado", pdfUrl: null, pdfExpiraEm: null,
+    }));
+
+    expect(r.desfecho).toBe("cancelado");
+    expect(c.soltos).toEqual([]);
+  });
+
+  /* `null` do `fechar` = reentrega de webhook, ou a reconciliação chegou primeiro. Responder erro
+   * aqui faria o canal reentregar de novo — um laço que só termina quando ele desiste. */
+  it("linha já fechada devolve `ja_fechado`, e não erro", async () => {
+    const c = ambiente({ fecharDevolveNull: true });
+    const r = await c.fecharDoCallback(t, desfechoDe());
+
+    expect(r).toEqual({ desfecho: "ja_fechado", comprovanteGuardado: false });
+    expect(c.soltos).toEqual([]);
+  });
+
+  /* Se o desfecho já vem com caminho (outro canal, ou uma reconciliação que arquivou), não baixa
+   * de novo: seria uma ida à rede para reescrever o mesmo arquivo. */
+  it("desfecho que já traz caminho não é baixado outra vez", async () => {
+    const c = ambiente();
+    await c.fecharDoCallback(t, desfechoDe({ comprovanteCaminho: "t1/ja-tinha.pdf" }));
+
+    expect(c.ordem).toEqual(["fechar"]);
+    expect(c.fechados[0].comprovanteCaminho).toBe("t1/ja-tinha.pdf");
+  });
+});
+
+
+/* ── ★ A CORRIDA DO CALLBACK ──────────────────────────────────────────────────
+ *
+ * 26/08/2026, sandbox da Rebots, recibo nº 56: o callback foi entregue, a nossa rota respondeu
+ * **404 protocolo_desconhecido**, e a linha ficou `pendente` para sempre.
+ *
+ * A causa não era a rota. O protocolo era gravado DEPOIS da chamada ao canal — e a Rebots dispara
+ * o callback de forma síncrona, dentro do próprio `POST /receipts`. Ou seja: o aviso chegou numa
+ * janela em que a linha existia mas não tinha protocolo, e `tenantDoProtocolo` procura por ele.
+ *
+ * ⚠️ E NÃO É PROBLEMA DE SANDBOX. Em produção a janela é menor, não inexistente — e como a API
+ * deles não tem consulta, um `pendente` que perdeu o callback não tem NENHUMA saída automática.
+ *
+ * A correção é possível porque, nesse canal, o protocolo é a nossa referência: dá para gravar
+ * antes de falar com o mundo. É o que estes testes prendem. */
+describe("★ protocolo gravado antes da chamada, quando é a nossa referência", () => {
+  it("registrarProtocolo vem ANTES de emitir", async () => {
+    const a = ambiente({ protocoloNosso: true });
+    await a.emitir(t, { fonte: "atendimento", id: "at1" });
+
+    const iRegistro = a.ordem.indexOf("registrarProtocolo");
+    const iEmitir = a.ordem.indexOf("emitir");
+    expect(iRegistro).toBeGreaterThanOrEqual(0);
+    expect(iRegistro).toBeLessThan(iEmitir);
+  });
+
+  /* O valor gravado antes é o `numero` da linha — o mesmo que vai no `receipt_id`. */
+  it("o protocolo gravado é o número da linha", async () => {
+    const a = ambiente({ protocoloNosso: true });
+    await a.emitir(t, { fonte: "atendimento", id: "at1" });
+
+    expect(a.protocolos[0]).toEqual({ reciboId: "rec1", protocolo: "1042" });
+  });
+
+  /* ⚠️ Canal que cunha o protocolo próprio NÃO pode ter escrita antes: não há o que escrever, e
+   * inventar um valor faria a rota de callback casar a linha errada. */
+  it("canal com protocolo próprio não grava antes", async () => {
+    const a = ambiente();
+    await a.emitir(t, { fonte: "atendimento", id: "at1" });
+
+    expect(a.ordem.indexOf("registrarProtocolo")).toBeGreaterThan(a.ordem.indexOf("emitir"));
+    expect(a.protocolos).toEqual([{ reciboId: "rec1", protocolo: "prot-1" }]);
+  });
+
+  /* Recusa do PEDIDO com o protocolo já gravado continua soltando o pagamento: nada foi emitido,
+   * e a linha vira `recusado` — agora com protocolo, o que é inofensivo (nenhum callback vem para
+   * um pedido que o canal recusou na hora). */
+  it("recusa do canal ainda descarta a linha", async () => {
+    const a = ambiente({ protocoloNosso: true, emitirQuebra: "CPF do beneficiário inválido." });
+    await expect(a.emitir(t, { fonte: "atendimento", id: "at1" })).rejects.toThrow();
+
+    expect(a.descartados).toHaveLength(1);
   });
 });

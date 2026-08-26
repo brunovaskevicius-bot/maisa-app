@@ -130,7 +130,25 @@ function EsqueletoFiscal() {
   );
 }
 
-export function LigarNotaFiscal() {
+/**
+ * ⚠️ AS DUAS PROPS EXISTEM PARA QUE A PERGUNTA SEJA FEITA UMA VEZ SÓ.
+ *
+ * Sem elas, este cartão pergunta "nota fiscal ou recibo?" por conta própria — o que estava certo
+ * enquanto ele era a única superfície do assunto. Em 26/08/2026 a tela `Documento fiscal` passou a
+ * ter um seletor dos mesmos dois caminhos logo acima, e as duas perguntas divergiram na cara do
+ * dono: o seletor marcava "Tenho CNPJ" e o cartão perguntava de novo, do zero.
+ *
+ * Com `onModo` definido, quem manda no passo 0 é o seletor de fora; sem ele, nada muda (é o caso
+ * do Faturamento no caminho da nota fiscal, e do onboarding).
+ */
+type Props = {
+  /** `cnpj` | `cpf` | `null` (ninguém escolheu). Só vale quando `onModo` também vem. */
+  modo?: "cnpj" | "cpf" | null;
+  /** Presente = componente controlado de fora. */
+  onModo?: (m: "cnpj" | "cpf" | null) => void;
+};
+
+export function LigarNotaFiscal({ modo: modoDeFora, onModo }: Props = {}) {
   /* ⚠️ O ESTADO FISCAL SAIU DAQUI E FOI PARA O STORE, em 25/08/2026. Não é arrumação: o hero do
    * Faturamento e o botão dourado da topbar precisam do MESMO `caminho` para não prometerem nota
    * fiscal a quem emite recibo, e não tinham como ler daqui de dentro. Ver `EstadoFiscalUI`. */
@@ -148,8 +166,12 @@ export function LigarNotaFiscal() {
   const [senha, setSenha] = useState("");
   const arquivo = useRef<HTMLInputElement>(null);
 
-  /* A bifurcação. `null` = ninguém escolheu ainda, e é aí que a pergunta aparece. */
-  const [modo, setModo] = useState<"cnpj" | "cpf" | null>(null);
+  /* A bifurcação. `null` = ninguém escolheu ainda, e é aí que a pergunta aparece — a não ser que
+   * a tela de fora já esteja perguntando (ver `Props`). */
+  const [modoLocal, setModoLocal] = useState<"cnpj" | "cpf" | null>(null);
+  const controlado = onModo !== undefined;
+  const modo = controlado ? modoDeFora ?? null : modoLocal;
+  const setModo = controlado ? onModo! : setModoLocal;
   const [cpf, setCpf] = useState("");
   const [ocupacao, setOcupacao] = useState<string>("psicologo");
   const [registro, setRegistro] = useState("");
@@ -204,6 +226,10 @@ export function LigarNotaFiscal() {
    * mesmo em cima do outro. */
   if (caminho === "recibo_saude") return null;
 
+  /* ⚠️ CONTROLADO E SEM ESCOLHA = NADA A MOSTRAR. A pergunta está no seletor de fora, e um cartão
+   * com só o título "Nota fiscal ou recibo?" embaixo dele seria a pergunta repetida em voz baixa. */
+  if (controlado && modo === null && !ligado) return null;
+
   /* ── ⚠️ EMISSOR SEM CONFIGURAÇÃO NÃO ESCONDE MAIS A TELA INTEIRA ──
    *
    * Antes um `return null` seco: sem `FOCUS_NFE_TOKEN` não há como ligar nota fiscal, e cobrar
@@ -248,7 +274,7 @@ export function LigarNotaFiscal() {
            Recibo Eletrônico de Serviços de Saúde, no e-CAC, obrigatório desde 01/01/2025.
            Não dá para derivar dos dados — não existe CNPJ para consultar na Receita quando a
            resposta é "pessoa física". É a única pergunta que este fluxo não conseguiu matar. */}
-      {!ligado && modo === null && (
+      {!ligado && modo === null && !controlado && (
         <>
           <p style={s("margin:0;font-size:var(--t-sm);color:var(--muted);line-height:1.55")}>
             {soRecibo

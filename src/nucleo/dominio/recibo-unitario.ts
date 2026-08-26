@@ -28,6 +28,12 @@
  * `cancelado` é um ato deliberado sobre um recibo que EXISTIU. Falha de emissão é `recusado`.
  * Confundir os dois faria a tela dizer "cancelado" para um documento que nunca foi emitido — e
  * "cancelei o recibo do paciente" é uma frase com consequência fiscal.
+ *
+ * ⚠️ Mas `cancelado` É um desfecho de CALLBACK, e isso é diferente de ser desfecho de falha. O
+ * cancelamento é assíncrono como a emissão: pedimos, e o canal confirma depois. Até 25/08/2026
+ * o `DesfechoDeRecibo` não admitia `cancelado`, e a consequência era pior que um estado
+ * faltando — o callback de cancelamento chegava com `success: true` e era lido como **emissão
+ * bem-sucedida**. A tela dizia "emitido" para um documento que acabara de deixar de existir.
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type { OcupacaoSaude } from "./recibo-saude";
@@ -60,9 +66,28 @@ export type ReciboEmitido = {
   protocolo: string | null;
   /** A chave do recibo na Receita. Só existe em `emitido`. */
   chave: string | null;
-  /** ⚠️ TEMPORÁRIA. A Rebots descarta em 48h; nossa automação não guarda PDF de paciente. */
+  /**
+   * ⚠️ O LINK DO CANAL, E ELE VALE CINCO MINUTOS. Medido no sandbox da Rebots em 25/08/2026:
+   * presigned S3 com `X-Amz-Expires=300`. A frase anterior aqui dizia 48h — estava errada, e o
+   * erro fazia a tela oferecer por dois dias um botão que morreu em cinco minutos.
+   *
+   * Serve para auditoria ("o canal mandou mesmo o arquivo?"), não para a dona baixar. Quem
+   * entrega o PDF é o `comprovanteCaminho`.
+   */
   pdfUrl: string | null;
   pdfExpiraEm: string | null;
+  /**
+   * A NOSSA cópia do PDF. `null` quando o canal não mandou arquivo, ou quando a cópia falhou.
+   *
+   * ★ EXISTE PORQUE A JANELA É DE CINCO MINUTOS E NÃO HÁ CONSULTA. A API do canal não tem um
+   * único GET: passada a janela do callback, o PDF não é recuperável por nenhuma chamada. Ou a
+   * cópia acontece ali, ou o documento só existe no e-CAC.
+   *
+   * ⚠️ É caminho no nosso bucket privado, **nunca uma URL pronta**. O link se assina na hora do
+   * download e expira — ver `023_recibo_numero_e_comprovante.sql`, que escreve os limites em que
+   * essa guarda é aceitável.
+   */
+  comprovanteCaminho: string | null;
   /** A frase do canal quando recusou. Vai para a tela — tem que ser legível. */
   erro: string | null;
   criadoEm: string;
@@ -119,15 +144,20 @@ export function precisaReconciliar(
 /**
  * O PDF ainda dá para baixar?
  *
- * A `file_url` da Rebots é temporária e nós **não guardamos o arquivo**: é recibo de sessão de
- * psicoterapia com CPF de paciente, e assumir a guarda disso para economizar uma chamada seria
- * virar depositário de prontuário financeiro de gente que não é nossa cliente.
+ * Duas fontes, e a ordem entre elas importa: **a nossa cópia primeiro.** O link do canal vale
+ * cinco minutos, então na prática ele só está vivo para quem estiver olhando a tela no instante
+ * exato do callback. Perguntar por ele antes faria a resposta certa depender de sorte.
  *
- * Consequência para a tela: o botão de baixar tem que **desaparecer**, não dar 404. Link morto
+ * ⚠️ Consequência para a tela: o botão de baixar tem que **desaparecer**, não dar 404. Link morto
  * numa tela fiscal faz o dono achar que perdeu o documento — e ele não perdeu, o documento está
  * no e-CAC dele.
  */
-export function pdfDisponivel(r: Pick<ReciboEmitido, "pdfUrl" | "pdfExpiraEm">, agora: Date): boolean {
+export function pdfDisponivel(
+  r: Pick<ReciboEmitido, "pdfUrl" | "pdfExpiraEm" | "comprovanteCaminho">,
+  agora: Date,
+): boolean {
+  /* A cópia não expira sozinha: quem a apaga é rotina de expurgo, e não existe nenhuma. */
+  if (r.comprovanteCaminho) return true;
   if (!r.pdfUrl) return false;
   if (!r.pdfExpiraEm) return true;
   const expira = Date.parse(r.pdfExpiraEm);
@@ -167,6 +197,15 @@ export type PedidoDeRecibo = {
    *
    * Canal que não tenha chave de idempotência simplesmente ignora este campo e devolve o
    * protocolo dele. Aí a janela volta a existir, e a linha nasce reconciliável só depois.
+   *
+   * ⚠️ É UM INTEIRO EM FORMA DE TEXTO — o `numero` da linha do razão, não o `id`. A primeira
+   * versão mandava o `id`, que é `uuid`, e a Rebots recusa com `RECEIPT_ERROR_024 invalid
+   * literal for int()`: **nenhuma emissão passava**. Medido no sandbox em 25/08/2026.
+   *
+   * O tipo continua `string` porque o núcleo não deve herdar a aritmética de um fornecedor, e
+   * porque inteiro-como-texto é o menor denominador comum entre os canais: quem quer `int`
+   * converte, quem quer texto opaco aceita o texto. O contrário não vale — um canal que exige
+   * `int` não tem como aceitar uuid.
    */
   referencia: string;
   /** Data do pagamento, ISO. O manual manda emitir na data em que o dinheiro entrou. */
@@ -189,13 +228,21 @@ export type ReciboAceito = {
   chave: string | null;
 };
 
-/** O que chega no callback. É isto que fecha a linha do livro-razão. */
+/**
+ * O que chega no callback. É isto que fecha a linha do livro-razão.
+ *
+ * ⚠️ `cancelado` ENTRA AQUI, e não entrava antes de 25/08/2026. O cancelamento é assíncrono como
+ * a emissão: o canal confirma por callback, com `success: true` — e sem este estado no tipo, a
+ * confirmação de que o documento deixou de existir era gravada como "emitido".
+ */
 export type DesfechoDeRecibo = {
   protocolo: string;
-  situacao: Extract<SituacaoDoRecibo, "emitido" | "recusado">;
+  situacao: Extract<SituacaoDoRecibo, "emitido" | "recusado" | "cancelado">;
   chave: string | null;
   pdfUrl: string | null;
   pdfExpiraEm: string | null;
+  /** A nossa cópia, quando deu para fazer. Ver `ReciboEmitido.comprovanteCaminho`. */
+  comprovanteCaminho: string | null;
   erro: string | null;
 };
 

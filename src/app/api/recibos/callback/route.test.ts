@@ -13,36 +13,37 @@
  * E a falha fechada: **sem segredo configurado, 401 em tudo**. O custo de errar para este lado é
  * um callback reentregue; para o outro, é qualquer um na internet marcando recibos como
  * "emitido" — o estado do qual o pagamento nunca mais volta para a lista.
+ *
+ * ── ⚠️ O CORPO AQUI VEM ENVELOPADO EM `data`, COMO NA VIDA REAL ──
+ *
+ * Este arquivo NÃO dubla `lerCallbackRebots`: usa o tradutor de verdade. É de propósito. Os
+ * testes antigos mandavam o corpo desembrulhado — a forma que a gente supunha — e por isso
+ * passavam enquanto **todo callback real teria sido respondido com 400**. Um dublê ali teria
+ * escondido o defeito para sempre.
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DesfechoDeRecibo, ReciboEmitido } from "@/nucleo/dominio/recibo-unitario";
+import type { DesfechoDeRecibo } from "@/nucleo/dominio/recibo-unitario";
+import type { ReciboFechado } from "@/nucleo/portas/entrada/casos-de-uso";
 
 const SEGREDO = "segredo-do-teste";
 
-/** O que o dublê do livro-razão fez. Reiniciado por teste. */
+/** O que o dublê do caso de uso recebeu. Reiniciado por teste. */
 let fechados: DesfechoDeRecibo[] = [];
-let soltos: string[] = [];
 let tenantResolvido: string | null = "t1";
-let fecharDevolve: ReciboEmitido | null | "estoura" = null;
-
-const linha = (over: Partial<ReciboEmitido> = {}): ReciboEmitido => ({
-  id: "rec1", canal: "rebots", situacao: "emitido",
-  protocolo: "rec-uuid-1", chave: "REC-9",
-  pdfUrl: "https://x/9.pdf", pdfExpiraEm: "2026-08-26T00:00:00-03:00",
-  erro: null, criadoEm: "2026-08-24T10:00:00-03:00", emitidoEm: "2026-08-24T10:05:00-03:00",
-  ...over,
-});
+let resultado: ReciboFechado | "estoura" = { desfecho: "emitido", comprovanteGuardado: true };
 
 vi.mock("@/adaptadores/saida/supabase/livro-de-recibos", () => ({
   async tenantDoProtocolo() { return tenantResolvido; },
-  livroDeRecibosSupabase: {
-    async fechar(_t: unknown, d: DesfechoDeRecibo) {
+}));
+
+vi.mock("@/composicao", () => ({
+  app: {
+    async fecharReciboDoCallback(_t: unknown, d: DesfechoDeRecibo) {
       fechados.push(d);
-      if (fecharDevolve === "estoura") throw new Error("conexão com o banco caiu");
-      return fecharDevolve;
+      if (resultado === "estoura") throw new Error("conexão com o banco caiu");
+      return resultado;
     },
-    async soltar(_t: unknown, id: string) { soltos.push(id); return true; },
   },
 }));
 
@@ -62,16 +63,21 @@ const pedir = (corpo: unknown, cabecalhos: Record<string, string> = { apikey: SE
     body: typeof corpo === "string" ? corpo : JSON.stringify(corpo),
   });
 
-const CALLBACK_OK = {
-  receipt_id: "rec-uuid-1", issuer_code: "12345678909", success: true,
-  key: "REC-9", file_url: "https://x/9.pdf", status_message: "ok",
-  original_action: "issue", test: false,
-};
+/** O corpo como a Rebots manda: envelopado em `data`. */
+const envelope = (d: Record<string, unknown>) => ({ data: d });
+
+const CALLBACK_OK = envelope({
+  receipt_id: "1042", issuer_code: "12345678909", success: true,
+  key: "SANDBOX3F2A", file_url: "https://s3/f/1.pdf?X-Amz-Expires=300",
+  status_message: "issued", original_action: "issue", test: true,
+});
 
 const envOriginal = { ...process.env };
 
 beforeEach(() => {
-  fechados = []; soltos = []; tenantResolvido = "t1"; fecharDevolve = linha();
+  fechados = [];
+  tenantResolvido = "t1";
+  resultado = { desfecho: "emitido", comprovanteGuardado: true };
 });
 afterEach(() => { process.env = { ...envOriginal }; });
 
@@ -106,50 +112,80 @@ describe("autenticação — falha fechada", () => {
 });
 
 describe("o caminho felizardo", () => {
-  it("grava o desfecho traduzido e responde a situação", async () => {
+  /* ★ ESTE TESTE É O CONSERTO DO DEFEITO MAIS CARO. Com o corpo envelopado — o formato real — a
+   * rota antiga respondia 400 `sem_receipt_id`, sempre. */
+  it("lê o corpo envelopado, grava o desfecho e responde", async () => {
     const POST = await rota();
     const r = await POST(pedir(CALLBACK_OK));
 
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ ok: true, situacao: "emitido" });
+    expect(await r.json()).toEqual({ ok: true, desfecho: "emitido", comprovanteGuardado: true });
     expect(fechados).toHaveLength(1);
     expect(fechados[0]).toMatchObject({
-      protocolo: "rec-uuid-1", situacao: "emitido",
-      chave: "REC-9", pdfUrl: "https://x/9.pdf",
+      protocolo: "1042", situacao: "emitido", chave: "SANDBOX3F2A",
     });
-    /* Emitido NÃO solta o pagamento — ele saiu, e soltar faria o lote do mês emitir o segundo. */
-    expect(soltos).toEqual([]);
   });
 
-  /* Recusa confirmada pelo canal é a única transição que devolve o pagamento à lista. */
-  it("recusa solta o pagamento", async () => {
-    fecharDevolve = linha({ situacao: "recusado", chave: null, pdfUrl: null, erro: "Ocupação não cadastrada." });
+  it("recusa chega ao caso de uso como recusa", async () => {
+    resultado = { desfecho: "recusado", comprovanteGuardado: false };
     const POST = await rota();
 
-    const r = await POST(pedir({ receipt_id: "rec-uuid-1", success: false, status_message: "Ocupação não cadastrada." }));
+    const r = await POST(pedir(envelope({ receipt_id: "1042", success: false })));
 
-    expect(await r.json()).toEqual({ ok: true, situacao: "recusado" });
-    expect(soltos).toEqual(["rec1"]);
+    expect(await r.json()).toEqual({ ok: true, desfecho: "recusado", comprovanteGuardado: false });
+    expect(fechados[0].situacao).toBe("recusado");
+  });
+
+  /* ⚠️ E O CANCELAMENTO NÃO É EMISSÃO. Ele chega com `success: true`, e o código antigo o lia
+   * como sucesso de emissão — gravando "emitido" a confirmação de que o documento deixou de
+   * existir. */
+  it("cancelamento chega como `cancelado`, não como emissão", async () => {
+    resultado = { desfecho: "cancelado", comprovanteGuardado: false };
+    const POST = await rota();
+
+    await POST(pedir(envelope({
+      receipt_id: "1042", success: true, key: "SANDBOX3F2A",
+      status_message: "cancelled", original_action: "cancel",
+    })));
+
+    expect(fechados[0].situacao).toBe("cancelado");
   });
 
   /* Reentrega, ou a reconciliação chegou primeiro. **200 e não erro**: pedir reentrega de algo
    * já gravado é loop infinito de webhook. */
   it("linha já fechada devolve 200, não erro", async () => {
-    fecharDevolve = null;
+    resultado = { desfecho: "ja_fechado", comprovanteGuardado: false };
     const POST = await rota();
 
     const r = await POST(pedir(CALLBACK_OK));
 
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ ok: true, situacao: "ja_fechado" });
-    expect(soltos).toEqual([]);
+    expect((await r.json()).desfecho).toBe("ja_fechado");
+  });
+});
+
+describe("★ `pending` é aviso, não desfecho", () => {
+  /* O canal documenta `pending` como estado de callback: "na fila de processamento". Não há o que
+   * gravar — a linha já é `pendente`. As duas alternativas seriam piores: 400 faria o canal
+   * reentregar um aviso que chegou bem, e tratar como recusa liberaria a cascata e emitiria o
+   * SEGUNDO recibo, que é o único bug caro deste produto. */
+  it("responde 200 e não chama o caso de uso", async () => {
+    const POST = await rota();
+    const r = await POST(pedir(envelope({
+      receipt_id: "1042", success: false, status_message: "pending",
+    })));
+
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ok: true, desfecho: "ainda_pendente" });
+    /* ⚠️ NADA GRAVADO. É o ponto: um `pending` que virasse recusa soltaria o pagamento. */
+    expect(fechados).toEqual([]);
   });
 });
 
 describe("★ falha de gravação vira 500, para eles reentregarem", () => {
   /* O TESTE MAIS IMPORTANTE DESTE ARQUIVO. Ver o cabeçalho. */
   it("banco fora do ar responde 500, nunca 200", async () => {
-    fecharDevolve = "estoura";
+    resultado = "estoura";
     const POST = await rota();
 
     const r = await POST(pedir(CALLBACK_OK));
@@ -172,7 +208,7 @@ describe("corpo e protocolo tortos não são incidente", () => {
 
   it("sem receipt_id é 400 — não há de quem seja o desfecho", async () => {
     const POST = await rota();
-    const r = await POST(pedir({ success: true, key: "K" }));
+    const r = await POST(pedir(envelope({ success: true, key: "K" })));
 
     expect(r.status).toBe(400);
     expect((await r.json()).erro).toBe("sem_receipt_id");

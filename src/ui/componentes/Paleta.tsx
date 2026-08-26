@@ -31,7 +31,9 @@ const TELAS_BUSCA: [TelaId, string, string, string][] = [
   ["conversas", "Conversas", "Quem está falando com a MAISA", "chat"],
   ["agenda", "Agenda", "A grade do dia", "calendar"],
   ["clientes", "Clientes", "Quem você atende", "clientes"],
-  ["faturamento", "Faturamento", "Notas fiscais do mês", "receipt"],
+  /* "Faturamento" fica como palavra buscável: quem já usava o app procura por ela, e a busca não
+     tem por que punir o nome antigo de uma tela. */
+  ["faturamento", "Fiscal", "Recibos e notas do mês · faturamento", "receipt"],
   ["equipe", "Equipe", "Quem atende e quando", "equipe"],
   ["servicos", "Serviços", "Catálogo e preços", "tag"],
   ["assistente", "A MAISA", "Ajustes da assistente", "bot"],

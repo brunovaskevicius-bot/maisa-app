@@ -1,0 +1,508 @@
+"use client";
+/* ─────────────────────────────────────────────────────────────────────────────
+ * EMITIR RECIBOS — a tela do Faturamento para quem atende como pessoa física.
+ *
+ * ★ POR QUE ELA FOI REFEITA (Bruno, 25/08/2026): *"uma página com três assuntos, CTA que ainda
+ * diz emitir notas no modo recibo"*. A tela antiga empilhava o onboarding fiscal, o arquivo do
+ * e-CAC e o livro-caixa do mês, e nenhum dos três era o assunto principal — porque não havia
+ * assunto principal.
+ *
+ * Agora tem **um**: emitir os recibos do mês. O que era configuração saiu para a tela
+ * `Documento fiscal`, e o que era arquivo CSV ficou lá também, como o caminho manual.
+ *
+ * ── O QUE VEIO DO HANDOFF DE DESIGN, E O QUE NÃO VEIO ──
+ *
+ * Veio: as etapas explícitas com barra de progresso, o painel de emissão fixo à direita, o CTA
+ * soberano com a contagem dentro, a prévia do documento, e o modal em duas fases (progresso →
+ * resumo).
+ *
+ * Não veio: a fonte do protótipo (Plus Jakarta como família de texto — este repo a aposentou,
+ * ela sobrevive só no wordmark), os valores de cor crus (usamos os tokens do `globals.css`), e a
+ * etapa "Emitente". Aquela etapa pedia nome, CPF e CRP **na hora de emitir** — dado que não muda
+ * de mês para mês e que agora mora na configuração. Duas etapas em vez de três, e a que sobrou
+ * some quando não há nada a decidir.
+ *
+ * ── ⚠️ O PROGRESSO É REAL, E ISSO NÃO É DETALHE ──
+ *
+ * O protótipo animava o contador a cada 70ms. Aqui cada passo do contador é **uma emissão de
+ * verdade**: um `POST /api/recibos/emitir` por pagamento, em série. Não há como fingir — e não
+ * deveria haver, porque cada linha dessa barra é um documento fiscal no CPF de uma paciente.
+ *
+ * Em série de propósito, e não em paralelo: o canal cobra por processamento, a Receita não gosta
+ * de rajada, e uma falha no meio de dez chamadas simultâneas deixaria o dono sem saber quais
+ * saíram. Uma por vez, com o placar na tela.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { s, Icon, fmt, Btn, Card, EmptyState, Badge } from "@/ui/primitivos";
+import { useStore } from "@/ui/estado/store";
+import { useIsMobile } from "@/ui/useIsMobile";
+import type { PagamentoPendente } from "@/nucleo/portas/entrada/casos-de-uso";
+import type { ConfigFiscal } from "@/nucleo/dominio/fiscal";
+import { NOME_DA_OCUPACAO } from "@/nucleo/dominio/checklist-recibo";
+import { NovoPagamento } from "@/ui/componentes/NovoPagamento";
+
+/* ── o que as rotas devolvem ─────────────────────────────────────────────── */
+
+type Pendentes = { pagamentos: PagamentoPendente[]; total: number; semCpf: number };
+type Fiscal = { config: ConfigFiscal; caminho: string; falta: string[] };
+
+/**
+ * O que fazer com as duas respostas: virar tela, ou virar frase.
+ *
+ * ★ CADA RESPOSTA DECIDE ALGO. A primeira versão desta tela fazia `if (f?.ok !== false)
+ * setFiscal(f)` e nada no `else`: quando `/api/fiscal` respondia 401 (sessão vencida) ou 502, a
+ * tela ficava com `fiscal: null` e `erro: null` — e desenhava o esqueleto de carregamento PARA
+ * SEMPRE. Um retângulo cinza, sem palavra e sem botão. Foi o que Bruno viu em 26/08/2026.
+ *
+ * ⚠️ Estado sem saída é pior que erro na cara: o erro tem "tentar de novo". Se um dia entrar uma
+ * terceira leitura aqui, ela também precisa decidir — a ausência de `else` é o bug.
+ *
+ * Separada da tela para ter teste: é a única lógica que erra em SILÊNCIO.
+ */
+export function leituraDaTela(
+  f: unknown,
+  p: unknown,
+): { erro: string } | { fiscal: Fiscal; pend: Pendentes } {
+  const rf = (f ?? {}) as { ok?: boolean; info?: string; config?: unknown };
+  const rp = (p ?? {}) as { ok?: boolean; info?: string };
+
+  /* `!config` junto com `ok === false` de propósito: 200 sem config é resposta de outra rota (ou
+   * de um proxy), e seguir com ela estouraria no primeiro `config.prestadorCpf`. */
+  if (rf.ok === false || !rf.config) {
+    return { erro: rf.info ?? "Não deu para ler a sua configuração fiscal. Recarregue a página." };
+  }
+  if (rp.ok === false) {
+    return { erro: rp.info ?? "Não deu para ler o que falta emitir." };
+  }
+  return { fiscal: f as Fiscal, pend: p as Pendentes };
+}
+
+/* ── agrupamento por cliente ──────────────────────────────────────────────── */
+
+type Grupo = { nome: string; cpf: string | null; itens: PagamentoPendente[]; valor: number };
+
+/**
+ * Junta os pagamentos por pessoa.
+ *
+ * ⚠️ A SELEÇÃO É POR CLIENTE, E OS SEM CPF NÃO ENTRAM. A Receita recusa recibo sem CPF do
+ * beneficiário, então oferecê-los para marcar seria oferecer um erro. Eles aparecem contados
+ * numa linha separada, com o caminho para resolver — que é a ficha do cliente, não esta tela.
+ *
+ * Exportada para ter teste: agrupar é a única lógica desta tela que erra em silêncio.
+ */
+export function agrupar(pagamentos: PagamentoPendente[]): Grupo[] {
+  const mapa = new Map<string, Grupo>();
+  for (const p of pagamentos) {
+    if (!p.cpf) continue;
+    const chave = `${p.nome}|${p.cpf}`;
+    const g = mapa.get(chave) ?? { nome: p.nome, cpf: p.cpf, itens: [], valor: 0 };
+    g.itens.push(p);
+    g.valor += p.valor;
+    mapa.set(chave, g);
+  }
+  /* Maior valor primeiro: num fechamento de mês, é por onde o olho começa. */
+  return [...mapa.values()].sort((a, b) => b.valor - a.valor);
+}
+
+/* ── peças da tela ────────────────────────────────────────────────────────── */
+
+const ETAPAS = ["Recibos", "Conferência"] as const;
+
+function BarraDeEtapas({ etapa, ir }: { etapa: number; ir: (n: number) => void }) {
+  return (
+    <Card pad={0} style={s("padding:13px 20px;display:flex;align-items:center;gap:14px")}>
+      {ETAPAS.map((rotulo, i) => {
+        const n = i + 1;
+        const atual = n === etapa;
+        return (
+          <React.Fragment key={rotulo}>
+            {i > 0 && <span aria-hidden style={s("width:16px;height:2px;background:var(--line);flex:none")} />}
+            <button
+              onClick={() => ir(n)}
+              className="m-focus"
+              style={s(`border:none;background:transparent;cursor:pointer;font-family:inherit;padding:2px 0;font-size:var(--t-sm);font-weight:${atual ? "var(--w-emph)" : "var(--w-title)"};color:${atual ? "var(--primary)" : "var(--muted)"};transition:color var(--dur-fast) var(--ease)`)}
+              aria-current={atual ? "step" : undefined}
+            >
+              {n}. {rotulo}
+            </button>
+          </React.Fragment>
+        );
+      })}
+      {/* A barra à direita não é enfeite: é a única coisa na tela que diz "falta pouco". */}
+      <span
+        aria-hidden
+        style={s("flex:1;min-width:40px;height:5px;border-radius:20px;background:var(--surface-2);overflow:hidden")}
+      >
+        <span style={s(`display:block;height:100%;border-radius:20px;background:var(--primary);width:${(etapa / ETAPAS.length) * 100}%;transition:width var(--dur) var(--ease)`)} />
+      </span>
+    </Card>
+  );
+}
+
+/** Linha do emitente. Read-only de propósito — quem muda é a tela de configuração. */
+function Emitente({ config }: { config: ConfigFiscal }) {
+  const st = useStore();
+  const nome = NOME_DA_OCUPACAO[config.ocupacaoSaude ?? "psicologo"];
+  return (
+    <div style={s("display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 4px")}>
+      <span style={s("font-size:var(--t-label);color:var(--muted)")}>Emitente</span>
+      <span className="n-mach" style={s("font-size:var(--t-label);color:var(--ink);font-weight:var(--w-title)")}>
+        {config.prestadorCpf}
+      </span>
+      <span style={s("font-size:var(--t-label);color:var(--muted)")}>·</span>
+      <span style={s("font-size:var(--t-label);color:var(--muted)")}>{nome}</span>
+      {config.registroProfissional && (
+        <>
+          <span style={s("font-size:var(--t-label);color:var(--muted)")}>·</span>
+          <span className="n-mach" style={s("font-size:var(--t-label);color:var(--muted)")}>
+            {config.registroProfissional}
+          </span>
+        </>
+      )}
+      <button
+        onClick={() => st.irPara("fiscal")}
+        className="m-focus"
+        style={s("margin-left:auto;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:var(--t-label);font-weight:var(--w-title);color:var(--primary);padding:2px 0")}
+      >
+        Documento fiscal
+      </button>
+    </div>
+  );
+}
+
+/* ── a tela ───────────────────────────────────────────────────────────────── */
+
+export function EmitirRecibos() {
+  const st = useStore();
+  const mobile = useIsMobile();
+
+  const [fiscal, setFiscal] = useState<Fiscal | null>(null);
+  const [pend, setPend] = useState<Pendentes | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [etapa, setEtapa] = useState(1);
+  /** `null` = ainda não mexeram: vale "todos". Depois disso, a escolha é dela. */
+  const [desmarcados, setDesmarcados] = useState<Set<string>>(new Set());
+  const [previa, setPrevia] = useState(0);
+
+  const carregar = useCallback(async () => {
+    setErro(null);
+    try {
+      /* `no-store` nas duas: `carregar()` roda DE NOVO depois de emitir, e o navegador servindo a
+       * resposta antiga mostraria os mesmos recibos ainda por emitir.
+       *
+       * ⚠️ E COM PRAZO. Requisição que nunca resolve deixa o esqueleto de carregamento na tela
+       * para sempre — o mesmo beco de antes, por outro caminho. 15s aqui vira "tente de novo"; o
+       * `maxDuration` das rotas de leitura é bem menor que isso. */
+      const [f, p] = await Promise.all([
+        fetch("/api/fiscal", { cache: "no-store", signal: AbortSignal.timeout(15_000) }).then((r) => r.json()),
+        fetch("/api/recibos", { cache: "no-store", signal: AbortSignal.timeout(15_000) }).then((r) => r.json()),
+      ]);
+
+      /* Ver `leituraDaTela`: nenhuma das duas respostas pode passar sem decidir nada. */
+      const lido = leituraDaTela(f, p);
+      if ("erro" in lido) { setErro(lido.erro); return; }
+
+      setFiscal(lido.fiscal);
+      setPend(lido.pend);
+    } catch {
+      setErro("Não deu para falar com o servidor. Tente de novo em um instante.");
+    }
+  }, []);
+
+  useEffect(() => { void carregar(); }, [carregar]);
+
+  const grupos = useMemo(() => agrupar(pend?.pagamentos ?? []), [pend]);
+  const escolhidos = useMemo(
+    () => grupos.filter((g) => !desmarcados.has(`${g.nome}|${g.cpf}`)),
+    [grupos, desmarcados],
+  );
+  const aEmitir = useMemo(() => escolhidos.flatMap((g) => g.itens), [escolhidos]);
+  const valor = useMemo(() => aEmitir.reduce((a, p) => a + p.valor, 0), [aEmitir]);
+
+  const alternar = (g: Grupo) => {
+    const chave = `${g.nome}|${g.cpf}`;
+    setDesmarcados((antes) => {
+      const novo = new Set(antes);
+      if (novo.has(chave)) novo.delete(chave); else novo.add(chave);
+      return novo;
+    });
+    setPrevia(0);
+  };
+
+  /* ── a emissão ───────────────────────────────────────────────────────────
+   *
+   * ★ ELA NÃO ACONTECE MAIS AQUI. Vive no store (`emitirRecibos`) e é mostrada pelo cartão do
+   * canto (`ProgressoDeEmissao`), montado no `AppShell`.
+   *
+   * Bruno, 26/08/2026: *"queria não ter que ficar olhando para uma telinha enquanto isso
+   * acontece"*. Um lote de 50 recibos é uma chamada por recibo, em série; o modal que ficava aqui
+   * prendia o dono na tela, e sair da tela desmontava o placar de uma emissão que continuava
+   * correndo.
+   *
+   * ⚠️ E A LISTA SE RELÊ DO SERVIDOR quando a emissão termina (`emissoesFeitas`). Descontar na mão
+   * mostraria o que a tela ACHA que saiu; o que vale é o que o banco diz. */
+  const emitir = () => void st.emitirRecibos(aEmitir.map((p) => ({ fonte: p.fonte, id: p.id, nome: p.nome })));
+
+  const emitindoAgora = st.emissao?.estado === "andando";
+
+  useEffect(() => {
+    /* Roda também na primeira montagem com o contador em 0 — inofensivo: `carregar` é idempotente
+     * e o efeito de cima já leu. Guardar contra isso exigiria um ref para economizar uma leitura. */
+    if (st.emissoesFeitas > 0) void carregar();
+  }, [st.emissoesFeitas, carregar]);
+
+  /* ── estados que não são a tela ──────────────────────────────────────────── */
+
+  if (erro) {
+    return <EmptyState icon="receipt" title="Não deu para carregar" sub={erro} action={<Btn onClick={() => void carregar()}>Tentar de novo</Btn>} />;
+  }
+  if (!fiscal || !pend) {
+    return <div style={s("height:220px;border-radius:var(--radius-card);background:var(--surface-2)")} aria-busy="true" />;
+  }
+
+  /* ⚠️ O REGISTRO NO CONSELHO É CONFERIDO AQUI, E NÃO EM `fiscalFaltando`.
+   *
+   * Aquela função espelha, de propósito, a `fiscal_configurado()` da migração 014 — e o comentário
+   * dela avisa que o conjunto de condições não pode divergir do banco. Acrescentar o registro lá
+   * exigiria mexer no SQL na mesma passada, num caminho que também serve a nota fiscal.
+   *
+   * Mas sem registro a emissão falha **no canal**, não aqui: o `/issuers` da Rebots exige
+   * `registration` para habilitar um emitente novo. Ou seja, o CTA ficaria clicável e cada recibo
+   * voltaria recusado, um por um. Bloquear com a frase certa é mais honesto que deixar tentar. */
+  const semRegistro = !(fiscal.config.registroProfissional ?? "").trim();
+
+  /* ⚠️ FALTA CONFIGURAÇÃO: a tela não oferece um botão que o servidor vai recusar. Um bloco, uma
+   * frase, um caminho — e o caminho é a outra tela, porque é lá que isso se resolve agora. */
+  if (fiscal.falta.length > 0 || semRegistro) {
+    const pendencias = [...fiscal.falta, ...(semRegistro ? ["o seu registro no conselho"] : [])];
+    return (
+      <Card style={s("display:flex;flex-direction:column;gap:14px;align-items:flex-start")}>
+        <Badge tone="warn" dot>Falta configurar</Badge>
+        <div>
+          <h2 style={s("font-size:var(--t-title);font-weight:var(--w-emph);letter-spacing:var(--ls-title);color:var(--ink);margin:0 0 6px")}>
+            Antes de emitir, complete seus dados
+          </h2>
+          <p style={s("font-size:var(--t-sm);color:var(--muted);margin:0;max-width:52ch;line-height:var(--lh-prose)")}>
+            {/* A lista sai do servidor, não de um texto fixo: dizer "complete seus dados" sem
+                dizer QUAIS manda procurar. */}
+            Falta {pendencias.join(", ").replace(/, ([^,]*)$/, " e $1")}. O recibo sai no seu CPF, e
+            a Receita recusa o documento sem isso.
+          </p>
+        </div>
+        <Btn icon="config" onClick={() => st.irPara("fiscal")}>Ir para Documento fiscal</Btn>
+      </Card>
+    );
+  }
+
+  /* ── ★ MÊS FECHADO NÃO É OUTRA TELA ──
+   *
+   * Bruno, 26/08/2026: *"não faz sentido aparecer essa tela, vai que eu quero colocar um recibo a
+   * mais à mão... a tela tem que sempre ser igual, se o mês estiver fechado, devo chegar na mesma
+   * tela que se tivesse 1000 pessoas, só que com a opção de clicar em novo recibo"*.
+   *
+   * Aqui morava um `EmptyState` de tela cheia ("Mês em dia") que substituía TUDO — inclusive o
+   * único caminho para lançar um pagamento que a agenda não pegou. Zero a emitir é um estado da
+   * lista, não uma tela diferente: a forma é a mesma com 0 e com 1000, e o que muda é o que a
+   * lista mostra e se o CTA está clicável. */
+
+  const previaItem = aEmitir[Math.min(previa, Math.max(aEmitir.length - 1, 0))];
+  const travado = aEmitir.length === 0 || emitindoAgora;
+
+  /* ── painel da direita: os números e o botão ─────────────────────────────── */
+
+  const painel = (
+    <Card
+      pad={0}
+      style={s(`background:var(--primary-soft);padding:20px 20px 22px;display:flex;flex-direction:column;gap:16px;${mobile ? "" : "width:380px;flex:none"}`)}
+    >
+      <div>
+        <span style={s("display:block;font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>
+          A emitir
+        </span>
+        <span className="n" style={s("display:block;font-size:var(--t-data);line-height:var(--lh-tight);font-weight:var(--w-emph);letter-spacing:var(--ls-data);color:var(--ink);margin-top:6px")}>
+          {aEmitir.length}
+        </span>
+        <span className="n" style={s("display:block;font-size:var(--t-lg);font-weight:var(--w-title);letter-spacing:var(--ls-lg);color:var(--muted);margin-top:3px")}>
+          {fmt(valor)}
+        </span>
+      </div>
+
+      {previaItem && (
+        <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:7px")}>
+          <div style={s("display:flex;align-items:center;justify-content:space-between;gap:8px")}>
+            <span style={s("font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--muted)")}>
+              Prévia · {Math.min(previa + 1, aEmitir.length)} de {aEmitir.length}
+            </span>
+            {aEmitir.length > 1 && (
+              <span style={s("display:flex;gap:5px")}>
+                <button
+                  onClick={() => setPrevia((i) => (i - 1 + aEmitir.length) % aEmitir.length)}
+                  className="m-focus m-hov-bg"
+                  aria-label="Recibo anterior"
+                  style={s("width:26px;height:26px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;display:grid;place-items:center;color:var(--muted)")}
+                >
+                  <Icon name="chevron-left" size={14} />
+                </button>
+                <button
+                  onClick={() => setPrevia((i) => (i + 1) % aEmitir.length)}
+                  className="m-focus m-hov-bg"
+                  aria-label="Próximo recibo"
+                  style={s("width:26px;height:26px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;display:grid;place-items:center;color:var(--muted)")}
+                >
+                  <Icon name="chevron-right" size={14} />
+                </button>
+              </span>
+            )}
+          </div>
+          <span className="n" style={s("font-size:var(--t-lg);font-weight:var(--w-emph);letter-spacing:var(--ls-lg);color:var(--ink)")}>
+            {fmt(previaItem.valor)}
+          </span>
+          <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>{previaItem.nome}</span>
+          <span className="n-mach" style={s("font-size:var(--t-label);color:var(--muted)")}>
+            {previaItem.cpf} · {previaItem.data.slice(8, 10)}/{previaItem.data.slice(5, 7)}/{previaItem.data.slice(0, 4)}
+          </span>
+        </div>
+      )}
+
+      {/* ★ O CTA SOBERANO: o maior elemento clicável da tela, com a contagem dentro. Ele é o
+          assunto da página — e a contagem no rótulo é o que impede o clique às cegas. */}
+      {/* ⚠️ TRAVADO TAMBÉM ENQUANTO UMA EMISSÃO ANDA. O placar saiu para o canto da tela, então o
+          CTA continua visível durante a emissão — sem esta guarda, um segundo clique enfileiraria
+          os mesmos pagamentos de novo (o store também trava, e as duas travas são de propósito:
+          uma impede o pedido, a outra impede a promessa). */}
+      <button
+        onClick={emitir}
+        disabled={travado}
+        className={travado ? "" : "m-hov-bright m-press m-focus"}
+        style={s(`width:100%;height:${mobile ? 54 : 60}px;border-radius:14px;border:none;background:var(--primary);color:#fff;font-family:inherit;font-size:var(--t-body);font-weight:var(--w-title);letter-spacing:var(--ls-lg);cursor:${travado ? "not-allowed" : "pointer"};opacity:${travado ? ".42" : "1"};box-shadow:var(--shadow-card)`)}
+      >
+        {emitindoAgora
+          ? "Emitindo…"
+          : aEmitir.length === 0
+            ? "Nada a emitir"
+            : aEmitir.length === 1 ? "Emitir 1 recibo" : `Emitir ${aEmitir.length} recibos`}
+      </button>
+      <span style={s("text-align:center;font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+        {aEmitir.length === 0
+          ? "Todo atendimento pago do mês já tem recibo."
+          : "Emissão definitiva. Cancelamento em até 10 dias."}
+      </span>
+    </Card>
+  );
+
+  /* ── painel da esquerda: a etapa ─────────────────────────────────────────── */
+
+  const conteudo = etapa === 1 ? (
+    <>
+      <div style={s("display:flex;align-items:baseline;justify-content:space-between;gap:12px")}>
+        <h2 style={s("font-size:var(--t-title);font-weight:var(--w-emph);letter-spacing:var(--ls-title);color:var(--ink);margin:0")}>
+          Recibos
+        </h2>
+        {pend.semCpf > 0 && (
+          <span style={s("font-size:var(--t-label);color:var(--muted)")}>
+            {pend.semCpf} sem CPF {pend.semCpf === 1 ? "fica" : "ficam"} fora
+          </span>
+        )}
+      </div>
+
+      <div style={s("border:1px solid var(--border);border-radius:12px;overflow:hidden")}>
+        {/* Mês fechado: a lista fica no lugar e diz que está vazia. Ver o ⚠️ acima — a tela é a
+            mesma com 0 e com 1000. */}
+        {grupos.length === 0 && (
+          <div style={s("display:flex;align-items:center;gap:11px;padding:22px 16px")}>
+            <span aria-hidden style={s("width:28px;height:28px;flex:none;border-radius:9px;display:grid;place-items:center;background:var(--success-soft);color:var(--success)")}>
+              <Icon name="check" size={15} sw={2.4} />
+            </span>
+            <span style={s("min-width:0")}>
+              <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>
+                Mês em dia
+              </span>
+              <span style={s("display:block;font-size:var(--t-label);color:var(--muted);line-height:var(--lh-prose)")}>
+                {pend.semCpf > 0
+                  ? `Todo atendimento pago já tem recibo. ${pend.semCpf} ${pend.semCpf === 1 ? "está" : "estão"} sem CPF e ${pend.semCpf === 1 ? "ficou" : "ficaram"} de fora.`
+                  : "Todo atendimento pago do mês já tem recibo. Dá para lançar um por fora abaixo."}
+              </span>
+            </span>
+          </div>
+        )}
+        {grupos.map((g, i) => {
+          const on = !desmarcados.has(`${g.nome}|${g.cpf}`);
+          return (
+            <button
+              key={`${g.nome}|${g.cpf}`}
+              onClick={() => alternar(g)}
+              className="m-focus m-hov-bg"
+              aria-pressed={on}
+              style={s(`width:100%;display:flex;align-items:center;gap:14px;padding:13px 16px;border:none;${i < grupos.length - 1 ? "border-bottom:1px solid var(--line);" : ""}background:transparent;cursor:pointer;text-align:left;font-family:inherit;color:inherit`)}
+            >
+              <span
+                aria-hidden
+                style={s(`width:20px;height:20px;flex:none;border-radius:6px;display:grid;place-items:center;border:1.5px solid ${on ? "var(--primary)" : "var(--border-field)"};background:${on ? "var(--primary)" : "var(--surface)"};color:#fff`)}
+              >
+                {on && <Icon name="check" size={13} />}
+              </span>
+              <span style={s("flex:1;min-width:0;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
+                {g.nome}
+              </span>
+              <span className="n" style={s("font-size:var(--t-label);color:var(--muted);flex:none")}>
+                {g.itens.length}
+              </span>
+              <span className="n" style={s("width:104px;text-align:right;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink);flex:none")}>
+                {fmt(g.valor)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </>
+  ) : (
+    <>
+      <h2 style={s("font-size:var(--t-title);font-weight:var(--w-emph);letter-spacing:var(--ls-title);color:var(--ink);margin:0")}>
+        Conferência
+      </h2>
+      <dl style={s("margin:0;display:flex;flex-direction:column")}>
+        {[
+          ["Clientes", String(escolhidos.length)],
+          ["Recibos a emitir", String(aEmitir.length)],
+          ["Valor", fmt(valor)],
+          ["Emitente", fiscal.config.prestadorCpf ?? "—"],
+        ].map(([k, v], i, arr) => (
+          <div
+            key={k}
+            style={s(`display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;${i < arr.length - 1 ? "border-bottom:1px solid var(--line)" : ""}`)}
+          >
+            <dt style={s("font-size:var(--t-sm);color:var(--muted)")}>{k}</dt>
+            <dd className={k === "Clientes" || k === "Recibos a emitir" || k === "Valor" || k === "Emitente" ? "n-mach" : ""} style={s("margin:0;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </>
+  );
+
+  return (
+    <div style={s("display:flex;flex-direction:column;gap:12px")}>
+      <Emitente config={fiscal.config} />
+      <BarraDeEtapas etapa={etapa} ir={setEtapa} />
+
+      <div style={s(`display:flex;gap:12px;align-items:flex-start;${mobile ? "flex-direction:column" : ""}`)}>
+        <Card style={s(`flex:1;min-width:0;display:flex;flex-direction:column;gap:16px;${mobile ? "width:100%" : ""}`)}>
+          {conteudo}
+          <div style={s("display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding-top:14px;border-top:1px solid var(--line)")}>
+            {etapa > 1 && <Btn variant="ghost" onClick={() => setEtapa(etapa - 1)}>Voltar</Btn>}
+            {etapa < ETAPAS.length && (
+              <Btn variant="secondary" onClick={() => setEtapa(etapa + 1)}>Continuar</Btn>
+            )}
+          </div>
+
+          {/* ★ O CAMINHO QUE FALTAVA. Sessão por fora, pacote adiantado, paciente que voltou: sem
+              isto, mês fechado era uma tela sem nenhuma ação — e era exatamente o que o Bruno viu.
+              ⚠️ Ele NÃO emite: lança na fila, e quem emite é o CTA ao lado. */}
+          <NovoPagamento onLancado={() => void carregar()} rotulo="Novo recibo — lançar à mão" />
+        </Card>
+        {mobile ? <div style={s("width:100%")}>{painel}</div> : painel}
+      </div>
+
+    </div>
+  );
+}

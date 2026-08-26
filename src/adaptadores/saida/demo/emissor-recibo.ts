@@ -41,19 +41,24 @@ let sequencia = 0;
  */
 export function resolverReciboDemo(
   protocolo: string,
-  p: { situacao: "emitido" | "recusado"; erro?: string },
+  p: { situacao: "emitido" | "recusado" | "cancelado"; erro?: string },
 ): DesfechoDeRecibo {
   const reg = emitidos.get(protocolo);
   if (!reg) throw new DadoInvalido(`Protocolo ${protocolo} não existe no demo.`, "protocolo");
 
+  const comArquivo = p.situacao === "emitido";
   reg.desfecho = {
     protocolo,
     situacao: p.situacao,
-    chave: p.situacao === "emitido" ? `DEMO-${protocolo}` : null,
-    /* Validade curta de propósito: a Rebots descarta em 48h, e a tela tem que saber esconder o
-     * botão quando vence. Ver `pdfDisponivel`. */
-    pdfUrl: p.situacao === "emitido" ? `https://demo.local/recibos/${protocolo}.pdf` : null,
-    pdfExpiraEm: p.situacao === "emitido" ? "2099-12-31T00:00:00-03:00" : null,
+    chave: p.situacao === "recusado" ? null : `DEMO-${protocolo}`,
+    /* ⚠️ VALIDADE CURTA, E O NÚMERO IMPORTA. A `file_url` da Rebots vale CINCO MINUTOS
+     * (medido no sandbox em 25/08/2026) — o "48h" que estava escrito aqui era a retenção do
+     * resultado, não do link. Cinco minutos é curto o bastante para que "guardar a URL" e
+     * "perder o documento" sejam a mesma coisa: por isso existe a `GuardaDeComprovante`. */
+    pdfUrl: comArquivo ? `https://demo.local/recibos/${protocolo}.pdf` : null,
+    pdfExpiraEm: comArquivo ? "2099-12-31T00:00:00-03:00" : null,
+    /* O demo não tem bucket. Quem preenche isto é o caso de uso, com a porta da guarda. */
+    comprovanteCaminho: null,
     erro: p.situacao === "recusado" ? (p.erro ?? "Recusado pelo canal de demonstração.") : null,
   };
   return reg.desfecho;
@@ -70,6 +75,10 @@ export const emissorReciboDemo: EmissorDeReciboSaude = {
   /* Ele se apresenta como `automacao` porque é o lugar dela na cascata: o demo é o canal que
    * roda quando não há credencial, que é exatamente a posição da nossa automação hoje. */
   canal: "automacao",
+
+  /* O demo devolve um protocolo próprio (ver `emitir`), então não há o que gravar antes. Mantém o
+   * outro caminho do caso de uso coberto pela demo. */
+  protocoloEhNossaReferencia: false,
 
   async cadastrarEmissor(_t, e: EmissorCredenciado): Promise<void> {
     /* Idempotente por contrato — o `Set` é a prova de que chamar duas vezes não cria dois. */
@@ -111,8 +120,16 @@ export const emissorReciboDemo: EmissorDeReciboSaude = {
   },
 
   async cancelar(_t, p): Promise<void> {
-    const alvo = [...emitidos.values()].find((r) => r.desfecho?.chave === p.chave);
-    if (!alvo?.desfecho) throw new DadoInvalido(`Recibo ${p.chave} não existe no demo.`, "chave");
-    alvo.desfecho = { ...alvo.desfecho, situacao: "recusado", erro: `Cancelado: ${p.motivo}` };
+    /* ⚠️ ACHA PELO PROTOCOLO, e antes achava pela `chave`. A porta mudou porque a Rebots cancela
+     * pelo `receipt_id` — o número que nós cunhamos — e não pela chave que a Receita devolveu. */
+    const reg = emitidos.get(p.protocolo);
+    if (!reg?.desfecho) {
+      throw new DadoInvalido(`Recibo ${p.protocolo} não existe no demo.`, "protocolo");
+    }
+    /* ⚠️ `cancelado`, NÃO `recusado`, e a diferença aqui é a mesma do domínio: `recusado` é o
+     * único estado do qual a cascata pode tentar outro canal (ver `podeTentarOutroCanal`).
+     * Marcar um cancelamento como recusa devolveria o pagamento para a lista e emitiria o
+     * segundo recibo — em cima de um documento que existiu e foi cancelado de propósito. */
+    reg.desfecho = { ...reg.desfecho, situacao: "cancelado", erro: `Cancelado: ${p.motivo}` };
   },
 };

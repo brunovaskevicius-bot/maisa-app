@@ -21,6 +21,8 @@ renovar sessão.
 | `notas.ts` | servidor | `RepositorioNotas`: `v_a_faturar` e a RPC `abrir_nota()`. ⚠️ `abrir` é RPC e não duas escritas daqui — criar a nota e prender os atendimentos **tem** que ser uma transação, senão uma falha no meio deixa a nota criada com os atendimentos soltos e a próxima tentativa emite a segunda. |
 | `fiscal.ts` | servidor | `RepositorioFiscal`: a `config_fiscal` do inquilino (CNPJ, município, regime, `focus_empresa_id`, vencimento do certificado). ⚠️ **Não lê nem escreve segredo** — o token da Focus é pedido ao provedor na hora de emitir, e o `.pfx` nunca chega ao banco. `upsert` com `.select()` porque escrita barrada por RLS volta sem erro e sem linha. |
 | `contatos.ts` | servidor | `RepositorioContatos`: o caderno de nomes (tabela `contatos`) e o modo do número (`integracoes_whatsapp.modo`). ⚠️ Lido pelo AGENTE, sem sessão — a RLS sai de cena e o `.eq("tenant_id")` daqui é o cinto único. O upsert da importação **não toca em `cliente`**: reimportar não pode apagar o que o dono marcou. |
+| `livro-de-recibos.ts` | servidor | `LivroDeRecibos`: a linha do razão da emissão unitária + `tenantDoProtocolo` (o resolvedor de inquilino do callback). ⚠️ `fechar` sai de `pendente` para emitido/recusado **e de `emitido` para `cancelado`** — sem a segunda transição o cancelamento se perdia calado. |
+| `guarda-de-comprovante.ts` | servidor | `GuardaDeComprovante`: a nossa cópia do PDF do recibo no bucket privado `comprovantes-recibo`. ⚠️ Existe porque a `file_url` do canal vale **5 minutos** e a API dele não tem consulta — fora da janela do callback o documento é irrecuperável. Falha em silêncio (`null`) de propósito: perder o PDF é ruim, perder o desfecho é irreversível. |
 
 ## Duas decisões estruturais
 

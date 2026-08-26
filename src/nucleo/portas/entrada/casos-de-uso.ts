@@ -33,6 +33,7 @@ import type {
 } from "../saida/repositorio-negocio";
 import type { AjustesDaAssistente, AjustesParciais } from "../saida/repositorio-assistente";
 import type { Canal, Pareamento } from "../../dominio/canal";
+import type { DesfechoDeRecibo } from "../../dominio/recibo-unitario";
 import type { SemanaAnunciada } from "../../dominio/horarios";
 import type {
   AFaturar, AmbienteFiscal, CadastroDoCnpj, CaminhoFiscal, ConfigFiscal, NotaGravada,
@@ -800,6 +801,36 @@ export type EmitirRecibo = (
   t: ContextoTenant,
   p: { fonte: "atendimento" | "avulso"; id: string },
 ) => Promise<ReciboLancado>;
+
+/**
+ * O que aconteceu ao fechar uma linha do razão com a resposta do canal.
+ *
+ * `ja_fechado` não é falha: é reentrega de webhook, ou a reconciliação tendo chegado primeiro. A
+ * rota do callback responde **200** para ele — pedir reentrega de algo já gravado é um laço.
+ */
+export type ReciboFechado = {
+  desfecho: "emitido" | "recusado" | "cancelado" | "ja_fechado";
+  /**
+   * A nossa cópia do PDF ficou guardada?
+   *
+   * ⚠️ `false` NÃO É ERRO, e não pode virar erro. A URL do comprovante vale cinco minutos e o
+   * canal não tem consulta: a cópia é melhor-esforço dentro da janela. O que não pode falhar é o
+   * desfecho — ver `criarFecharReciboDoCallback`.
+   */
+  comprovanteGuardado: boolean;
+};
+
+/**
+ * Fecha a linha do razão com o desfecho que o canal mandou.
+ *
+ * ⚠️ O `DesfechoDeRecibo` VEM DO CORPO DO REQUEST, traduzido pelo adaptador do canal — mas o
+ * `ContextoTenant` **não**. Ele nasce de `tenantDoProtocolo`, que é dado durável nosso. A regra
+ * do `dominio/tenant.ts` vale aqui como em toda porta de entrada: o inquilino não vem de fora.
+ */
+export type FecharReciboDoCallback = (
+  t: ContextoTenant,
+  d: DesfechoDeRecibo,
+) => Promise<ReciboFechado>;
 
 /** O placar de uma rodada de reconciliação. */
 export type ResultadoDaReconciliacao = {

@@ -11,13 +11,20 @@ oficial** — não existe uma: verificado na lista de serviços do Integra Conta
 soluções e nenhuma de Carnê-Leão, IRPF ou Receita Saúde. É automação em cima do canal oficial,
 assinando com certificado, sob procuração e-CAC.
 
-Doc: <https://rebots.com.br/documentacao-api>
+### ★ A fonte da verdade é o OpenAPI, não a página comercial
+
+<https://api.rebots.com.br/static/openapi.yaml> — 80 KB, versão 2.0.0. O Swagger em
+`/receita-saude/v2/docs/` é só a casca dele. A página `rebots.com.br/documentacao-api` lista
+**cinco** endpoints; o OpenAPI tem **nove**, e descreve formatos que ela não descreve.
+
+Antes de mexer em qualquer coisa aqui, releia o OpenAPI. Foi a leitura dele + o sandbox que
+achou os cinco defeitos consertados em 25/08/2026.
 
 | O que | Onde |
 |---|---|
 | `config.ts` | env vars, `isRebotsConfigured`, `rebotsFaltando()`, `rebotsAvisos()` |
 | `cliente.ts` | JWT com `master_key`, POST com segunda chance em 401 |
-| `emissor-recibo.ts` | o adaptador de `EmissorDeReciboSaude` + `desfechoDoCallbackRebots` |
+| `emissor-recibo.ts` | o adaptador de `EmissorDeReciboSaude` + `lerCallbackRebots` |
 
 ## Pode importar
 
@@ -28,36 +35,52 @@ outro adaptador — eles se encontram em `src/composicao.ts`.
 
 | Variável | Obrigatória | O que é |
 |---|---|---|
-| `REBOTS_IDENTIFICADOR` | sim | o nome da conta. Viaja no corpo de toda chamada. **Não é segredo** |
+| `REBOTS_IDENTIFICADOR` | sim | o CNPJ da conta. Viaja no corpo de toda chamada. **Não é segredo** |
 | `REBOTS_MASTER_KEY` | sim | ⚠️ **o segredo.** Só aparece no `POST /auth/token` |
-| `REBOTS_BASE_URL` | não | padrão `https://api.rebots.com.br` |
+| `REBOTS_BASE_URL` | não | padrão `https://api.rebots.com.br`. Sandbox: `https://sandbox.api.rebots.com.br` |
 | `REBOTS_PRODUCAO` | não | ⚠️ **sem ela, toda emissão sai com `test: true`** |
 | `REBOTS_TIMEOUT_MS` | não | padrão 20s |
+| `RECIBOS_CALLBACK_SECRET` | **sim, para receber desfecho** | o token que registramos no `POST /endpoint` deles. Eles o devolvem em `Authorization: Bearer` no callback. Sem ele a rota responde 401 a tudo, e todo recibo fica `pendente` |
 
 ⚠️ **`REBOTS_PRODUCAO` é a única flag do repo cujo padrão é "não valendo", e isso é desenho.** O
 desfecho de errar não é simétrico: nascer em teste custa uma variável esquecida; nascer em
 produção custa um documento fiscal no CPF de uma paciente, que se cancela um por um, em dez dias
 (art. 7º da IN RFB 2.240/2024). Mesma lógica do `ambiente` da config fiscal.
 
+⚠️ **A `master_key` não se gera de novo.** O `POST /auth/masterkey-generate` responde uma vez por
+conta. Perder o valor é abrir chamado com eles.
+
+## ✅ O certificado é UM, da conta — a profissional não compra nada
+
+`POST /client/certificate` vincula o A1 ao **cliente** (nós), e o `/issuers` não tem nenhum campo
+de credencial: só `cpf`, `occupation_code`, `registration`. Então a delegação acontece no e-CAC,
+por autorização de acesso, e **um e-CNPJ A1 serve a base toda**.
+
+Era a pergunta que decidia a viabilidade comercial do canal ("ela vai ter que comprar
+certificado?") e a resposta é não.
+
 ## ★ `receipt_id` é nosso, e isso melhora o desenho
 
-O `POST /receipts` aceita `receipt_id` **de entrada**, e o callback o devolve. Então o protocolo
-é a nossa chave, conhecida antes da chamada.
+O `POST /receipts` aceita `receipt_id` **de entrada**, e o callback o devolve. Então o protocolo é
+a nossa chave, conhecida antes da chamada.
 
 Consequência concreta: **para este canal, o estado `pendente` sem protocolo não nasce.** Aquele
 estado vem do intervalo entre "o canal aceitou" e "gravei o protocolo" — aqui não há intervalo.
 Ver `precisaDeOlhoHumano` em `nucleo/dominio/recibo-unitario.ts`.
 
+⚠️ **Mas ele é INTEIRO, e não é chave de replay.** Ver a tabela abaixo.
+
 ## ⚠️ A dívida que é DELES: não existe consulta
 
-Cinco endpoints, todos `POST`. **Nenhum jeito de perguntar "o que aconteceu com o protocolo X".**
+Nove endpoints, e **nenhum GET**. Não há como perguntar "o que aconteceu com o protocolo X".
+(`/expenses/list` existe, mas lê despesa do Carnê-Leão, não recibo.)
 
 Então `consultar` devolve sempre `null`, e no nosso desenho `null` significa "o canal não me
 disse": a linha fica `pendente`, nunca vira recusa, nunca libera a cascata. Seguro — e inútil,
 porque a reconciliação deste canal **não converge**. Ela pergunta para sempre e nunca ouve.
 
-Pior: a doc deles diz que o dado é descartado depois do nosso 200 — *"will be discarded and
-cannot be recovered"*. Daí a regra da rota de callback:
+Pior: a doc deles diz que o dado é descartado depois do nosso 200 — *"will be discarded and cannot
+be recovered"*. Daí a regra da rota de callback:
 
 > **Gravar ANTES de responder 200.** Se a gravação falhar, responder erro para eles reentregarem.
 > Um 200 sem gravação apaga a única cópia do desfecho que existe no mundo.
@@ -65,20 +88,90 @@ cannot be recovered"*. Daí a regra da rota de callback:
 Um `pendente` da Rebots com callback perdido só se resolve **olhando o e-CAC**. É a limitação que
 mais pesa a favor de construirmos a automação própria: ela pode ler.
 
-## ⚠️ Formatos por confirmar
+## ✅ Os formatos, medidos no sandbox em 25/08/2026
 
-A doc lista os nomes dos campos, mas não dá exemplo com valores. Duas escolhas estão marcadas no
-código com `⚠️ FORMATO A CONFIRMAR`, num lugar só cada:
+Não são mais inferência. Cada linha tem o teste correspondente em `emissor-recibo.test.ts`.
 
-| Campo | Nossa escolha | O risco de estar errado |
+| Campo | O que é | Como se sabe |
 |---|---|---|
-| `amount` | número decimal (`250.00`) | se eles esperam centavos inteiros, `250` vira **R$ 2,50** — recibo de valor errado |
-| `date` | ISO `YYYY-MM-DD` | o CSV do Carnê-Leão usa `DD/MM/AAAA`, e eles falam com a Receita |
+| `amount` | **reais decimais** (`250.50` = R$ 250,50) | o teto: `99999999.99` passa, `100000000` devolve `RECEIPT_ERROR_016 maximum allowed value of 99,999,999.99`. Em centavos o teto bateria 10.000× mais alto |
+| `date` | ISO, **só-data basta** | `2026-08-20` aceito, apesar de o campo ser `date-time`. Futura devolve `RECEIPT_ERROR_017` |
+| `receipt_id` | **inteiro** | uuid devolve `RECEIPT_ERROR_024 invalid literal for int()` |
+| `receipt_id` repetido | **409, não replay** | `RECEIPT_ERROR_023`. É unicidade, não idempotência — não dá para reenviar em cima |
+| `issuer_code` | obrigatório **no cancelamento também** | sem ele, `RECEIPT_ERROR_005 Missing field: issuer_code` |
+| callback de recibo | envelopado em **`data`** | `CallbackPayload` tem um campo só. Os de despesa **não** são envelopados |
+| `file_url` | presigned S3 de **5 minutos** | `X-Amz-Expires=300`, e o OpenAPI diz "válida por 5 minutos" |
 
-Por isso a primeira emissão de verdade sai com `test: true` e **alguém confere o valor no PDF**.
+### ⚠️ A consequência dos cinco minutos: nós guardamos o PDF
+
+Cinco minutos + nenhuma consulta = o PDF existe durante a chamada do callback e não existe depois.
+"Guardar só a URL" deixou de ser uma política conservadora e passou a significar perder o
+documento — que é a única coisa que o canal pago entrega e o lote CSV não.
+
+Então a cópia acontece dentro do callback, pela porta `GuardaDeComprovante`. Os limites em que
+isso é aceitável estão escritos em `supabase/023_recibo_numero_e_comprovante.sql`, e eles
+contradizem de propósito o que a migração 020 dizia.
+
+## ✅ Os códigos de ocupação: a doc DELES está errada, a nossa tabela está certa
+
+O enum deles é `[225, 226, 230, 231, 232, 255]` — **exatamente os seis números** do nosso
+`CODIGO_OCUPACAO` — mas com três rótulos trocados. Conferido na
+[tabela oficial da Receita](https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/pagamento/carne-leao/manual/ocupacoes)
+em 25/08/2026:
+
+| Código | Receita Federal (oficial) | Rebots diz |
+|---|---|---|
+| 230 | Fonoaudiólogo (a partir de 2024) | Psicólogo ❌ |
+| 232 | Terapeuta ocupacional (a partir de 2024) | Fonoaudiólogo ❌ |
+| 255 | **Psicólogo** | Nutricionista ❌ |
+
+Nutricionista nem é 255: é **227**, que não está no enum deles. Os códigos 230/231/232 nasceram do
+desdobramento do antigo 229 pela IN de março/2024 — provavelmente é aí que eles se perderam.
+
+⚠️ **O que fica em aberto, e não dá para verificar de fora:** mandamos o número certo, e o enum
+deles o aceita. Mas se o robô deles procurar o **rótulo** na tabela interna errada em vez de
+repassar o inteiro, o recibo de uma psicóloga sai preenchido como nutricionista. É pergunta para o
+suporte, e é a última coisa a confirmar antes de emitir em produção por este canal.
+
+## ✅ O callback registrado — e a corrida que ele revelou (26/08/2026)
+
+`POST /endpoint` com `{ identificador, url, token }`. **Uma url por cliente: cada chamada
+substitui a anterior.** O `token` que mandamos é o que eles devolvem em `Authorization: Bearer` —
+é o nosso `RECIBOS_CALLBACK_SECRET`.
+
+Rode `npm run callback -- <base-https>`. O script sonda a url antes de registrar (401 sem segredo,
+400 com), porque registrar uma url que responde 307 ou 404 **não dá erro nenhum** na Rebots: ela
+aceita, e o silêncio começa depois, um recibo por vez.
+
+### ★ No sandbox o callback é SÍNCRONO — e isso achou um bug de produção
+
+O sandbox dispara o callback **dentro do próprio `POST /receipts`**, antes de a chamada retornar.
+O primeiro teste real (recibo nº 56) recebeu o callback e respondeu **404
+`protocolo_desconhecido`**: o caso de uso gravava o protocolo DEPOIS da chamada ao canal, então o
+aviso chegou numa janela em que a linha existia sem protocolo — e `tenantDoProtocolo` procura por
+ele.
+
+Não é artefato de sandbox: em produção a janela é menor, não inexistente. E como não existe
+consulta (seção acima), um `pendente` que perdeu o callback não tem saída automática nenhuma.
+
+A correção é possível porque **aqui o protocolo é a nossa referência**: `protocoloEhNossaReferencia:
+true` na porta faz o caso de uso gravá-lo antes de falar com o mundo. Ver o teste
+`★ protocolo gravado antes da chamada`.
+
+O PDF do sandbox tem ~100 KB e é sempre o mesmo arquivo de exemplo, seja qual for o recibo.
 
 ## Estado
 
-**Nunca rodou contra a API real.** Não temos conta nem chave — o preço deles só sai por WhatsApp.
-Os testes exercitam o adaptador com `fetch` dublado: o que está verificado é a forma das
-requisições e a tradução das respostas, não que a Rebots as aceite.
+**O sandbox rodou.** Conta `62025689000166` ("Junior Poli Estudos"), liberada em 25/08/2026;
+credenciais no `.env.local`, que é ignorado pelo git. O que foi exercitado contra a API real:
+`auth/masterkey-generate`, `auth/token`, `issuers`, `receipts` (emissão e cancelamento, com os
+casos de erro).
+
+**O ciclo completo fechou no sandbox em 26/08/2026** — recibo nº 57: emissão pela tela, callback
+entregue num túnel `cloudflared` para o dev local, linha fechada como `emitido` com chave
+`SANDBOX14CF…`, e o PDF (100.661 bytes) arquivado no bucket privado. A emissão está montada no
+`composicao.ts`, com rota (`POST /api/recibos/emitir`) e botão (tela Fiscal).
+
+**Nada rodou em produção**, e falta o que não é código: a conta de produção (a `master_key` do
+sandbox não serve), `RECIBOS_CALLBACK_SECRET` na Vercel, deploy, e o registro do callback apontando
+para o domínio — nessa ordem.

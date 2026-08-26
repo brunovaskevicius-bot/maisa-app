@@ -14,6 +14,8 @@ propósito. Quando dois arquivos dizem a mesma coisa, um envelhece e ninguém sa
 | `npm test` | vitest: a suíte inteira, incluindo as guardas abaixo |
 | `npm run guardas` | só as guardas de arquitetura e documentação |
 | `npm run typecheck` | `tsc --noEmit`, sem cache incremental de propósito — com cache ele já reprovou código que compila |
+| `npm run semear` | enche os últimos 30 dias de atendimentos pagos, para ter o que emitir na tela Fiscal. `-- --limpar` desfaz. ⚠️ **escreve no Supabase de produção** — ver o cabeçalho de [`scripts/semear-demo.mjs`](scripts/semear-demo.mjs) |
+| `npm run callback -- <url>` | registra na Rebots para onde mandar o desfecho dos recibos. Sonda a url antes (401 sem segredo, 400 com) — url torta é `pendente` para sempre. ⚠️ **substitui a url anterior**: registrar o túnel local derruba a de produção |
 | `npm run lint` · `npm run build` | eslint · next build |
 
 Os quatro primeiros rodam no CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)),

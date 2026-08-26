@@ -103,6 +103,16 @@ import { notasSupabase } from "@/adaptadores/saida/supabase/notas";
 import { notasDemo } from "@/adaptadores/saida/demo/notas";
 import { recibosSupabase } from "@/adaptadores/saida/supabase/recibos";
 import { recibosDemo } from "@/adaptadores/saida/demo/recibos";
+import { livroDeRecibosSupabase } from "@/adaptadores/saida/supabase/livro-de-recibos";
+import { livroDeRecibosDemo } from "@/adaptadores/saida/demo/livro-de-recibos";
+import { guardaDeComprovanteSupabase } from "@/adaptadores/saida/supabase/guarda-de-comprovante";
+import { guardaDeComprovanteDemo } from "@/adaptadores/saida/demo/guarda-de-comprovante";
+import {
+  criarEmitirRecibo, criarFecharReciboDoCallback,
+} from "@/nucleo/aplicacao/recibo-unitario";
+import { emissorReciboRebots } from "@/adaptadores/saida/rebots/emissor-recibo";
+import { emissorReciboDemo } from "@/adaptadores/saida/demo/emissor-recibo";
+import { isRebotsConfigured } from "@/adaptadores/saida/rebots/config";
 import {
   criarDesligarReciboSaude, criarExcluirPagamentoAvulso, criarFecharLoteDeRecibos,
   criarGerarLoteDeRecibos, criarLancarPagamentoAvulso, criarLerRecibosPendentes,
@@ -161,6 +171,29 @@ const notasRepo = isSupabaseConfigured ? notasSupabase : notasDemo;
 /* O lote do Receita Saúde. Repositório próprio e não método de `notasRepo`: o documento é
  * outro, a unidade é a sessão (não o cliente) e quem emite é a profissional, no e-CAC. */
 const recibosRepo = isSupabaseConfigured ? recibosSupabase : recibosDemo;
+
+/* O livro-razão da emissão unitária, a guarda do PDF e o canal. */
+const livroRecibos = isSupabaseConfigured ? livroDeRecibosSupabase : livroDeRecibosDemo;
+const guardaComprovante = isSupabaseConfigured
+  ? guardaDeComprovanteSupabase
+  : guardaDeComprovanteDemo;
+
+/**
+ * Por onde o recibo unitário sai.
+ *
+ * ⚠️ A ESCOLHA É POR CREDENCIAL, e a queda é o demo — que se apresenta como canal `automacao`.
+ * Sem `REBOTS_MASTER_KEY` no ambiente, a emissão roda no `/laboratorio` sem falar com ninguém;
+ * com a chave, sai pela Rebots de verdade.
+ *
+ * ⚠️ E O `REBOTS_PRODUCAO` CONTINUA SENDO O QUE DECIDE SE VALE. Estar configurado não é estar
+ * emitindo: sem aquela variável, toda emissão sai com `test: true`. São dois interruptores de
+ * propósito — ver `rebotsAvisos()`.
+ *
+ * ⚠️ NÃO EXISTE CASCATA AQUI, e a ausência é a decisão. Cair de um canal para outro é o que
+ * emite o mesmo recibo duas vezes, e a única transição segura para isso é `recusado` — ver
+ * `podeTentarOutroCanal`. Enquanto houver um canal só, não há de onde cair.
+ */
+const emissorRecibo = isRebotsConfigured ? emissorReciboRebots : emissorReciboDemo;
 /* Sem banco, demo — junto com `fiscalRepo`, e é o par que impede empresa de verdade com
  * `empresaId` em memória. Com banco e sem token, o `cadastroFocus` fica: é ele que sabe
  * DIZER o que falta, e é essa frase que faz a tela recusar o caminho do CNPJ em vez de
@@ -576,6 +609,25 @@ export const app = {
   lerRecibosPendentes: criarLerRecibosPendentes({ recibos: recibosRepo }),
   lancarPagamentoAvulso: criarLancarPagamentoAvulso({ recibos: recibosRepo, fiscal: fiscalRepo }),
   excluirPagamentoAvulso: criarExcluirPagamentoAvulso({ recibos: recibosRepo }),
+
+  /* ★ A EMISSÃO UNITÁRIA, finalmente ligada. Ela existia com teste e sem rota desde 24/08/2026 —
+   * e foi justamente por não ser exercitada de ponta a ponta que cinco defeitos do adaptador da
+   * Rebots sobreviveram até o sandbox responder. Porta sem fio ligado não é porta testada. */
+  emitirRecibo: criarEmitirRecibo({
+    livro: livroRecibos,
+    emissor: emissorRecibo,
+    recibos: recibosRepo,
+    fiscal: fiscalRepo,
+    guarda: guardaComprovante,
+  }),
+
+  /* O callback do canal de emissão. ⚠️ Ele grava a única cópia do desfecho que existe no mundo:
+   * a API da Rebots não tem consulta, então um callback perdido só se resolve olhando o e-CAC.
+   * Ver `criarFecharReciboDoCallback` e a rota `/api/recibos/callback`. */
+  fecharReciboDoCallback: criarFecharReciboDoCallback({
+    livro: livroRecibos,
+    guarda: guardaComprovante,
+  }),
 };
 
 /** Exposto para as rotas relatarem configuração (o que falta, qual ambiente fiscal). */

@@ -24,6 +24,7 @@ const recibo = (over: Partial<ReciboEmitido> = {}): ReciboEmitido => ({
   chave: null,
   pdfUrl: null,
   pdfExpiraEm: null,
+  comprovanteCaminho: null,
   erro: null,
   criadoEm: "2026-08-23T12:00:00-03:00",
   emitidoEm: null,
@@ -89,23 +90,24 @@ describe("precisaReconciliar", () => {
 
 describe("pdfDisponivel", () => {
   const agora = new Date("2026-08-23T15:00:00-03:00");
+  const sem = { pdfUrl: null, pdfExpiraEm: null, comprovanteCaminho: null };
 
-  it("sem URL, não há PDF", () => {
-    expect(pdfDisponivel({ pdfUrl: null, pdfExpiraEm: null }, agora)).toBe(false);
+  it("sem URL e sem cópia, não há PDF", () => {
+    expect(pdfDisponivel(sem, agora)).toBe(false);
   });
 
   /* ⚠️ O botão tem que DESAPARECER, não dar 404: link morto numa tela fiscal faz o dono achar
    * que perdeu o documento — e ele está no e-CAC dele, intacto. */
   it("URL expirada não está disponível", () => {
     expect(pdfDisponivel(
-      { pdfUrl: "https://x/recibo.pdf", pdfExpiraEm: "2026-08-23T14:59:00-03:00" },
+      { ...sem, pdfUrl: "https://x/recibo.pdf", pdfExpiraEm: "2026-08-23T14:59:00-03:00" },
       agora,
     )).toBe(false);
   });
 
   it("URL dentro do prazo está disponível", () => {
     expect(pdfDisponivel(
-      { pdfUrl: "https://x/recibo.pdf", pdfExpiraEm: "2026-08-25T00:00:00-03:00" },
+      { ...sem, pdfUrl: "https://x/recibo.pdf", pdfExpiraEm: "2026-08-25T00:00:00-03:00" },
       agora,
     )).toBe(true);
   });
@@ -113,7 +115,22 @@ describe("pdfDisponivel", () => {
   /* Sem prazo declarado, vale o que temos. O canal que não informa validade não deveria fazer a
    * tela esconder um link que funciona. */
   it("sem prazo declarado, assume disponível", () => {
-    expect(pdfDisponivel({ pdfUrl: "https://x/recibo.pdf", pdfExpiraEm: null }, agora)).toBe(true);
+    expect(pdfDisponivel({ ...sem, pdfUrl: "https://x/recibo.pdf" }, agora)).toBe(true);
+  });
+
+  /* ★ ESTES DOIS SÃO O PONTO DA MIGRAÇÃO 023. A URL do canal vale CINCO MINUTOS: quando a dona
+   * abre a tela, ela já venceu. Se `pdfDisponivel` dependesse só dela, o botão nunca apareceria
+   * — e o PDF oficial é a única coisa que o canal pago entrega e o lote CSV não. */
+  it("a nossa cópia vale mesmo com a URL do canal vencida", () => {
+    expect(pdfDisponivel({
+      pdfUrl: "https://s3/presigned?X-Amz-Expires=300",
+      pdfExpiraEm: "2026-08-23T14:00:00-03:00",
+      comprovanteCaminho: "t1/1042.pdf",
+    }, agora)).toBe(true);
+  });
+
+  it("a cópia vale sem URL nenhuma — é ela que sobrevive", () => {
+    expect(pdfDisponivel({ ...sem, comprovanteCaminho: "t1/1042.pdf" }, agora)).toBe(true);
   });
 });
 

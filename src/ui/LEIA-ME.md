@@ -23,17 +23,21 @@ componentes perto do `app/`. Conceitualmente é irmão do `http/` e do futuro `w
 | `Cartao.tsx` | O cartão genérico das grades. |
 | `UserMenu.tsx` | Conta e sair. |
 | `CampoSenha.tsx` | O campo de senha com o olho, usado nas cinco entradas de senha do produto (`/cadastro` ×2, `/login`, `/nova-senha` ×2). |
+| `EmitirRecibos.tsx` | **A tela Fiscal para quem atende como pessoa física.** Duas etapas (Recibos → Conferência), painel de emissão fixo e um CTA com a contagem dentro. ⚠️ **A forma é a mesma com 0 e com 1000 a emitir** (Bruno, 26/08/2026): mês fechado é uma linha na lista, não outra tela — o `EmptyState` de tela cheia que ficava aqui escondia o único caminho para lançar um recibo à mão. ⚠️ Ela **não emite**: chama `st.emitirRecibos`, e quem mostra o andamento é `ProgressoDeEmissao`. Ver `agrupar`, `leituraDaTela` e o teste ao lado. |
+| `NovoPagamento.tsx` | **Lançar à mão o que a agenda não pegou** — sessão por fora, pacote adiantado. Usado pela tela de emissão e pelo `LoteReceitaSaude`: era código duplicado até 26/08/2026. ⚠️ `faltaDoLancamento` confere o CPF no **dígito verificador**, porque a Receita recusa o arquivo inteiro por causa de uma linha. Não emite nada — só lança. |
+| `ProgressoDeEmissao.tsx` | **O cartão do canto que conta os recibos saindo**, com o nome de quem está saindo agora. ⚠️ Montado no `AppShell`, nunca na tela: o estado vive no store (`EmissaoDeRecibos`) para que sair da tela não desmonte o placar de uma emissão que continua correndo. Substituiu um modal que prendia o dono na tela. Sem botão de cancelar, e a ausência é decisão — ver o cabeçalho. |
 | `Pareamento.tsx` | As peças do "Conectar com número de telefone": o código de 8 caracteres, a conferência do número antes de enviar e a etiqueta que mantém o número na tela. Compartilhado entre o wizard e o painel porque o conteúdo de valor é a INSTRUÇÃO — os nomes exatos do menu do WhatsApp. |
 
-## `telas/` — as cinco telas
+## `telas/` — as telas
 
 | Tela | O que mostra |
 |---|---|
 | `FluxoHoje.tsx` | O kanban do dia: chegando → atendendo → feito. |
 | `Agenda.tsx` | A grade (dia/semana/mês) com a agenda REAL do Google. Também define a janela desenhada (`AGENDA_INICIO`/`AGENDA_HORAS` — geometria de tela, não expediente). |
 | `Conversas.tsx` | As conversas de WhatsApp, do servidor (`st.conversas` / `st.threadDe`). Responder aqui manda mensagem de verdade. |
-| `Grades.tsx` | Clientes, equipe, catálogo, faturamento, "Mais". ⚠️ O **Faturamento tem dois vocabulários**, e quem escolhe é `st.fiscal.caminho`, nunca o estado das notas: quem atende como pessoa física não emite nota fiscal, e para ela o hero, a tabela e a gaveta de nota simplesmente não existem. Ver `vocabulario` e o teste ao lado. |
+| `Grades.tsx` | Clientes, equipe, catálogo, Fiscal (id `faturamento`; o rótulo virou "Fiscal" em 26/08/2026, o id continua por causa dos links já compartilhados), "Mais". ⚠️ O **Faturamento bifurca**, e quem escolhe é `st.fiscal.caminho`, nunca o estado das notas. Desde 26/08/2026 os dois lados são telas diferentes: pessoa física cai em `componentes/EmitirRecibos.tsx` (assunto único, guiado) e CNPJ segue no hero+tabela daqui — **guardado como estava, para a v2 reestruturar**. Enquanto o caminho é desconhecido, nenhum dos dois aparece: piscar a promessa errada por meio segundo foi o defeito reclamado. Ver `vocabulario` e o teste ao lado. |
 | `AMaisa.tsx` | Os ajustes da assistente + preview de WhatsApp. |
+| `DocumentoFiscal.tsx` | **Nota fiscal ou recibo do Receita Saúde** — a escolha e o que cada caminho pede. Fora do rail, como `Contatos`: é decisão de uma vez só. ⚠️ Ela **não reimplementa** os dois fluxos: `LoteReceitaSaude` decide sozinho se aparece, e o `LigarNotaFiscal` vem **controlado** (props `modo`/`onModo`) — o seletor daqui é o passo 0 dele. ⚠️ E o cartão marcado sai de `escolhaFeita`, **nunca do `caminho`**: caminho de config vazia é `municipal`, e derivar dali marcou "Tenho CNPJ" para quem nunca escolheu — o clique seguinte virou troca, a troca virou `DELETE`, e o DELETE apagou CPF, profissão, registro e ambiente em produção (26/08/2026). |
 
 ## A dívida conhecida
 

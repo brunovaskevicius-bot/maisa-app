@@ -13,8 +13,12 @@ import * as D from "@/adaptadores/saida/demo";
 import { useIsMobile, useEstreita } from "@/ui/useIsMobile";
 import { useStore, type LinhaDeFaturamento, type TelaId } from "@/ui/estado/store";
 import { Cartao, GradeCartoes, Hero, TelaGrade, type TomTag } from "@/ui/componentes/Cartao";
+import { EmitirRecibos } from "@/ui/componentes/EmitirRecibos";
+/* ⚠️ AINDA AQUI, e só no caminho da NOTA FISCAL. Ele também aparece em `Documento fiscal`, que é
+ * o endereço novo — mas o caminho do CNPJ ficou guardado como estava para a v2, e arrancar o
+ * cartão dele desta tela agora tiraria o único aviso de "falta o certificado" de quem emite nota.
+ * Quando a v2 reestruturar a nota fiscal, esta linha sai. */
 import { LigarNotaFiscal } from "@/ui/componentes/LigarNotaFiscal";
-import { LoteReceitaSaude } from "../componentes/LoteReceitaSaude";
 
 /* Estado da nota → como o cartão se apresenta. Um lugar só, para as duas telas
    que mostram nota (Faturamento e a ficha do cliente) contarem a mesma coisa. */
@@ -72,11 +76,24 @@ type Vocabulario = {
   emiteNota: boolean;
   /** Enquanto não sabemos, nenhum verbo aparece — nem o certo, nem o errado. */
   sabemos: boolean;
+  /**
+   * A leitura FALHOU — e isto não é o mesmo que "ainda não chegou".
+   *
+   * ⚠️ Os dois começam iguais (`sabemos: false`) e terminam diferentes: carregando vira tela em
+   * um instante, erro não vira nada nunca. Desenhar os dois como esqueleto deixa um retângulo
+   * cinza para sempre, sem palavra e sem botão — foi o que Bruno viu em 26/08/2026, e é pior que
+   * erro na cara, porque erro tem "tentar de novo".
+   */
+  falhou: boolean;
 };
 
 export function vocabulario(fiscal: { status: string; caminho: string | null }): Vocabulario {
   const sabemos = fiscal.status === "ok";
-  return { sabemos, emiteNota: sabemos && fiscal.caminho !== "recibo_saude" };
+  return {
+    sabemos,
+    falhou: fiscal.status === "erro",
+    emiteNota: sabemos && fiscal.caminho !== "recibo_saude",
+  };
 }
 
 /* ═══════════════════════════════ CLIENTES ═══════════════════════════════ */
@@ -157,6 +174,53 @@ export function Faturamento() {
   const voz = vocabulario(st.fiscal);
   const semCpf = base.filter((c) => c.semCpf).length;
 
+  /* ── ★ UM ASSUNTO POR TELA, e é isto que mudou em 26/08/2026 ──
+   *
+   * Bruno, 25/08: *"uma página com três assuntos, CTA que ainda diz emitir notas no modo
+   * recibo"*. Os três assuntos eram o onboarding fiscal (`LigarNotaFiscal`), o arquivo do e-CAC
+   * (`LoteReceitaSaude`) e o livro-caixa do mês — empilhados, sem hierarquia.
+   *
+   * Os dois primeiros saíram para a tela `Documento fiscal`. Quem atende como pessoa física passa
+   * a ver aqui **só a emissão**, guiada, em `EmitirRecibos`.
+   *
+   * ⚠️ ENQUANTO NÃO SABEMOS O CAMINHO, NÃO MOSTRAMOS NADA além do esqueleto. Piscar a tela do
+   * recibo para quem emite nota (ou o contrário) por meio segundo é a mesma promessa errada, só
+   * mais curta — foi exatamente esse o defeito reclamado. Ver `EstadoFiscalUI`.
+   *
+   * ⚠️ O CAMINHO DA NOTA FISCAL SEGUE COMO ESTAVA, de propósito: fica guardado para a v2. */
+  /* ⚠️ `erro` NÃO É `carregando`, E CONFUNDIR OS DOIS FAZ UM BECO SEM SAÍDA. Enquanto carrega,
+   * esqueleto: meio segundo de cinza é melhor que meio segundo prometendo o documento errado. Mas
+   * `erro` desenhado como esqueleto fica cinza PARA SEMPRE, sem uma palavra e sem botão — e é o
+   * mais provável dos dois, porque sessão vence e rota falha. Ver `EstadoFiscalUI`. */
+  if (voz.falhou) {
+    return (
+      <TelaGrade>
+        <EmptyState
+          icon="receipt"
+          title="Não deu para saber o que você emite"
+          sub="Nota fiscal e recibo têm telas diferentes, e sem essa resposta a MAISA não mostra nenhuma das duas para não prometer o documento errado."
+          action={<Btn onClick={() => void st.recarregarFiscal()}>Tentar de novo</Btn>}
+        />
+      </TelaGrade>
+    );
+  }
+
+  if (!voz.sabemos) {
+    return (
+      <TelaGrade>
+        <div style={s("height:220px;border-radius:var(--radius-card);background:var(--surface-2)")} aria-busy="true" />
+      </TelaGrade>
+    );
+  }
+
+  if (!voz.emiteNota) {
+    return (
+      <TelaGrade>
+        <EmitirRecibos />
+      </TelaGrade>
+    );
+  }
+
   return (
     <TelaGrade>
       <Hero
@@ -195,11 +259,6 @@ export function Faturamento() {
           quando não há nada a fazer (e quando o emissor não está configurado no ambiente,
           que não é problema do dono). */}
       <LigarNotaFiscal />
-
-      {/* Some sozinho quando o negócio emite nota fiscal — quem decide é `caminhoDaNota`, e
-          esta tela nunca escolhe. Para quem atende como pessoa física é o oposto: é o ÚNICO
-          documento que ela emite, e o `LigarNotaFiscal` acima é que fica invisível. */}
-      <LoteReceitaSaude />
 
       {base.length === 0 ? (
         <EmptyState icon="receipt" title="Nada a faturar" sub="Nenhum cliente ativo com valor fechado nesta competência." />
@@ -660,7 +719,10 @@ export function Mais() {
 
   /** Atalhos para telas — lista compacta de links, não cartões: navegar não é "abrir e editar". */
   const atalhos: { id: TelaId; titulo: string; sub: string; icone: string }[] = [
-    { id: "faturamento", titulo: "Faturamento", sub: `${D.PERIODO} · notas do mês`, icone: "receipt" },
+    { id: "faturamento", titulo: "Fiscal", sub: `${D.PERIODO} · o que falta emitir`, icone: "receipt" },
+    /* A configuração de qual documento sai. Fica no "Mais" porque é decisão de uma vez só — e é
+     * daqui que se chega a ela no celular, onde não existe rail. */
+    { id: "fiscal", titulo: "Documento fiscal", sub: "Nota fiscal ou recibo do Receita Saúde", icone: "config" },
     { id: "equipe", titulo: "Equipe", sub: "Quem atende e quando", icone: "equipe" },
     { id: "servicos", titulo: "Serviços", sub: "O que você oferece e por quanto", icone: "tag" },
     // o item que faltava: a tab bar diz que "Mais" cobre `assistente` e não havia caminho nenhum

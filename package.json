@@ -15,7 +15,9 @@
     "typecheck": "tsc --noEmit --incremental false",
     "test": "vitest run",
     "test:watch": "vitest",
-    "guardas": "vitest run src/arquitetura.test.ts src/documentacao.test.ts"
+    "guardas": "vitest run src/arquitetura.test.ts src/documentacao.test.ts",
+    "semear": "node scripts/semear-demo.mjs",
+    "callback": "node scripts/registrar-callback.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

@@ -39,6 +39,17 @@ import type { FontePagamento } from "./repositorio-recibos";
 /** O que a claim devolve. `valor` vem do BANCO — ver o porquê no método. */
 export type ReciboAberto = {
   id: string;
+  /**
+   * O protocolo, quando o canal exige inteiro.
+   *
+   * ★ SAI DA MESMA TRANSAÇÃO QUE PRENDEU O PAGAMENTO, e é isso que importa: pedir o número
+   * depois, ao adaptador, faria o protocolo existir só quando o canal já tivesse aceitado — de
+   * volta à janela do `pendente` sem protocolo que esta porta existe para fechar.
+   *
+   * Inteiro porque a Rebots recusa uuid no `receipt_id` (`RECEIPT_ERROR_024`), medido no sandbox
+   * em 25/08/2026. Ver `PedidoDeRecibo.referencia`.
+   */
+  numero: number;
   valor: number;
 };
 
@@ -72,10 +83,24 @@ export interface LivroDeRecibos {
   /**
    * Grava o desfecho — vindo do callback ou da reconciliação.
    *
-   * ⚠️ **IDEMPOTENTE, e só sai de `pendente`.** Devolve `null` quando não havia nada para mudar.
-   * O mesmo callback entregue duas vezes é rotina em qualquer webhook; e o callback pode chegar
-   * no instante em que a reconciliação está perguntando a mesma coisa. Sem esta guarda, os dois
-   * caminhos disparariam duas vezes o que vem depois — inclusive o aviso ao paciente.
+   * ⚠️ **IDEMPOTENTE.** Devolve `null` quando não havia nada para mudar. O mesmo callback
+   * entregue duas vezes é rotina em qualquer webhook; e o callback pode chegar no instante em
+   * que a reconciliação está perguntando a mesma coisa. Sem esta guarda, os dois caminhos
+   * disparariam duas vezes o que vem depois — inclusive o aviso ao paciente.
+   *
+   * ── ⚠️ DE ONDE ELE ACEITA SAIR, E POR QUE NÃO É SÓ `pendente` ──
+   *
+   *   `pendente` → `emitido` · `recusado`     o desfecho da emissão
+   *   `emitido`  → `cancelado`                o desfecho do cancelamento
+   *
+   * A segunda linha faltava até 25/08/2026, e a falta tinha uma consequência silenciosa: quando
+   * o canal confirmasse um cancelamento, a linha já não estaria `pendente` — estaria `emitido` —
+   * então `fechar` não acharia nada, devolveria `null`, e a rota responderia "já fechado". O
+   * cancelamento seria perdido, e a tela seguiria dizendo "emitido" para um documento que não
+   * existe mais.
+   *
+   * Qualquer outra transição continua não existindo. `recusado` → `emitido` inventaria um
+   * documento; `cancelado` → qualquer coisa reescreveria um ato fiscal já consumado.
    */
   fechar(t: ContextoTenant, d: DesfechoDeRecibo): Promise<ReciboEmitido | null>;
 

@@ -105,6 +105,7 @@ muda o comportamento da tela — procure o nome no store antes.
 | `/api/nf/cancelar` | POST | `sessaoOuDemo` | `CancelarNota` |
 | `/api/recibos/lote` | POST · PATCH | `exigirSessao` | `GerarLoteDeRecibos` · `FecharLoteDeRecibos` — o CSV do Receita Saúde, para quem atende como pessoa física. `PATCH { avisar: true }` manda a notícia do recibo aos pacientes no WhatsApp |
 | `/api/recibos` | GET · POST · DELETE | `exigirSessao` | `LerRecibosPendentes` · `LancarPagamentoAvulso` · `ExcluirPagamentoAvulso` — o que vai no arquivo, e o pagamento que a agenda não pegou |
+| `/api/recibos/emitir` | POST | `exigirSessao` | `EmitirRecibo` — UM pagamento, pelo canal programático (Rebots, ou o demo quando não há credencial). Recebe só `{fonte, id}`: valor, CPF e data saem do banco. ⚠️ 200 quer dizer "o canal aceitou", **não** "emitido" — o desfecho chega no callback |
 | `/api/recibos/callback` | POST | **segredo** (`RECIBOS_CALLBACK_SECRET`) | o canal de emissão diz o que aconteceu com o recibo. Sem sessão: quem chama é o servidor do fornecedor |
 
 **O `/api/fiscal` é o onboarding fiscal, e ele faz UMA pergunta: o CNPJ.** Razão social,

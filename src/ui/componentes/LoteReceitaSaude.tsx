@@ -40,6 +40,7 @@ import type { OcupacaoSaude } from "@/nucleo/dominio/recibo-saude";
 import { hojeISO } from "@/nucleo/dominio/tempo";
 import type { ConfigFiscal } from "@/nucleo/dominio/fiscal";
 import { mensagemDaFalha } from "@/ui/falhas";
+import { NovoPagamento, mascaraCpf } from "@/ui/componentes/NovoPagamento";
 import type { PagamentoPendente, RecibosPendentes } from "@/nucleo/portas/entrada/casos-de-uso";
 
 /**
@@ -163,15 +164,9 @@ const brl = (v: number) =>
 
 const diaMes = (iso: string) => iso.slice(8, 10) + "/" + iso.slice(5, 7);
 
-const hojeSP = () =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-
-/** Só dígitos com a pontuação de CPF, para o campo não parecer senha. */
-const mascaraCpf = (v: string) =>
-  v.replace(/\D/g, "").slice(0, 11)
-    .replace(/^(\d{3})(\d)/, "$1.$2")
-    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/\.(\d{3})(\d)/, ".$1-$2");
+/* `hojeSP` e `mascaraCpf` moraram aqui até 26/08/2026. Foram para `NovoPagamento` com o
+ * formulário que os usava — duas cópias de uma máscara de CPF é como se começa a ter duas
+ * validações de CPF. */
 
 /**
  * A partir de quantos pagamentos a lista começa fechada.
@@ -316,14 +311,10 @@ export function LoteReceitaSaude() {
   const [avisar, setAvisar] = useState(true);
   const [placar, setPlacar] = useState<{ avisados: number; semTelefone: number; falhas: number } | null>(null);
 
-  /* o formulário do avulso */
-  const [abrindo, setAbrindo] = useState(false);
-  const [nome, setNome] = useState("");
-  const [cpf, setCpf] = useState("");
-  const [data, setData] = useState(hojeSP);
-  const [valor, setValor] = useState("");
-  const [cpfPagador, setCpfPagador] = useState("");
-  const [clienteId, setClienteId] = useState("");
+  /* ⚠️ O FORMULÁRIO DO AVULSO NÃO MORA MAIS AQUI. Ele virou `NovoPagamento`, porque a tela de
+   * emitir recibos precisa do mesmo lançamento (Bruno, 26/08/2026) e duas cópias das validações de
+   * CPF divergiriam na primeira correção — num campo onde divergir significa a Receita recusando o
+   * arquivo inteiro por causa de uma linha. O estado dele foi junto. */
 
   const lerPendentes = useCallback(async () => {
     try {
@@ -444,55 +435,6 @@ export function LoteReceitaSaude() {
     }
   }, [lote, avisar, lerPendentes]);
 
-  /**
-   * Escolher um cliente preenche nome e CPF — e deixa os dois EDITÁVEIS.
-   *
-   * ⚠️ Travar os campos seria pior no caso que mais acontece: cliente cadastrado **sem CPF**.
-   * Aí o dono precisa digitar o CPF ali mesmo, no meio do lançamento, em vez de abandonar o
-   * fluxo, ir na tela de Clientes e voltar. O que ele digita fica no lançamento; o cadastro
-   * continua sem CPF (e é a tela de Clientes que conserta isso de verdade).
-   */
-  const escolherCliente = (id: string) => {
-    setClienteId(id);
-    const c = clientes.find((x) => x.id === id);
-    if (!c) return;
-    setNome(c.nome);
-    setCpf(mascaraCpf(c.cpf ?? ""));
-  };
-
-  const limparForm = () => {
-    setNome(""); setCpf(""); setValor(""); setCpfPagador("");
-    setClienteId(""); setData(hojeSP());
-  };
-
-  const lancar = useCallback(async () => {
-    setOcupado(true);
-    setErro(null);
-    try {
-      const r = await fetch("/api/recibos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nome, cpf, data, cpfPagador,
-          /* Vazio vira `null` na rota: lançamento de quem não é cadastro é caso de primeira
-           * classe, não erro de preenchimento. */
-          clienteId: clienteId || null,
-          /* Vírgula vira ponto AQUI, e não no servidor: quem digita "250,50" está certo, e a
-           * rota recusa NaN de propósito em vez de gravar 250. */
-          valor: Number(valor.replace(",", ".")),
-        }),
-      }).then((x) => x.json());
-      if (!r?.ok) throw new Error(mensagemDaFalha(r, "Não consegui lançar."));
-      limparForm();
-      setAbrindo(false);
-      void lerPendentes();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : "Não consegui lançar.");
-    } finally {
-      setOcupado(false);
-    }
-  }, [nome, cpf, data, valor, cpfPagador, clienteId, lerPendentes]);
-
   const excluir = useCallback(async (id: string) => {
     setOcupado(true);
     try {
@@ -528,37 +470,8 @@ export function LoteReceitaSaude() {
 
   if (!ehRecibo) return null;
 
-  /* ── ⚠️ A VALIDAÇÃO DO CPF ACONTECE AQUI, E NÃO SÓ NO SERVIDOR ──
-   *
-   * O caso de uso recusa CPF que não fecha no módulo 11 (a Receita recusa, ver `cpfValido`).
-   * Só que a recusa chegava como uma frase no PÉ do cartão, longe do campo e longe do botão —
-   * e o efeito era o pior possível: "cliquei em lançar e não lançou".
-   *
-   * Pior ainda no caminho principal: escolher um cliente **sem CPF cadastrado** (que é o caso
-   * do primeiro cliente de qualquer negócio) preenchia o nome e deixava o CPF vazio. O botão
-   * continuava clicável, o POST ia, e a resposta morria embaixo da dobra.
-   *
-   * Agora o botão diz a verdade antes de ser clicado, e o motivo fica embaixo do campo.
-   */
-  const digitosCpf = cpf.replace(/\D/g, "");
-  const digitosPagador = cpfPagador.replace(/\D/g, "");
-  const cpfOk = cpfValido(digitosCpf);
-  const pagadorOk = !digitosPagador || cpfValido(digitosPagador);
-  const valorNum = Number(valor.replace(",", "."));
-  const podeLancar = nome.trim().length > 1 && cpfOk && pagadorOk && valorNum > 0;
-
-  /** O que falta, na ordem em que se resolve. Vazio = pode lançar. */
-  const faltaNoForm = !nome.trim()
-    ? "o nome de quem foi atendido"
-    : !digitosCpf
-      ? "o CPF de quem foi atendido"
-      : !cpfOk
-        ? "um CPF válido — esse não fecha, confira os dígitos"
-        : !pagadorOk
-          ? "um CPF válido de quem pagou"
-          : !(valorNum > 0)
-            ? "o valor recebido"
-            : "";
+  /* ⚠️ A validação do lançamento (CPF no módulo 11, valor, nome) mora em `faltaDoLancamento`,
+   * dentro de `NovoPagamento` — junto do formulário que ela protege, e com teste. */
 
   /* Calculado na hora: é função pura sobre a config que já está em memória. Não vale uma rota
    * nem um estado — e um `useMemo` aqui só esconderia que a conta é de três `if`. */
@@ -856,87 +769,10 @@ export function LoteReceitaSaude() {
             </div>
           )}
 
-          {/* ── ★ lançar o que a agenda não pegou ── */}
-          {!abrindo ? (
-            <Btn variant="ghost" icon="plus" onClick={() => setAbrindo(true)}>
-              Lançar um pagamento que não está na agenda
-            </Btn>
-          ) : (
-            <div style={s("display:grid;gap:9px;padding:14px;border-radius:13px;border:1px dashed var(--border)")}>
-              <span style={s("font-size:var(--t-label);color:var(--muted)")}>
-                Sessão marcada por fora, pacote pago adiantado, paciente que voltou. Entra no
-                mesmo arquivo.
-              </span>
-
-              {/* O caminho principal: quem pagou quase sempre já é cadastro. A opção em
-                  branco continua existindo para quem não é — e não é exceção escondida. */}
-              <select
-                value={clienteId}
-                onChange={(e) => escolherCliente(e.target.value)}
-                className="n m-focus"
-                style={s(CAMPO)}
-              >
-                <option value="">Quem foi atendido? Escolha ou digite abaixo</option>
-                {clientes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nome}{c.cpf ? "" : " — sem CPF"}
-                  </option>
-                ))}
-              </select>
-
-              <input value={nome} onChange={(e) => { setNome(e.target.value); setClienteId(""); }} placeholder="Nome de quem foi atendido" className="n m-focus" style={s(CAMPO)} />
-              <div style={s("display:flex;gap:9px;flex-wrap:wrap")}>
-                <input value={cpf} onChange={(e) => setCpf(mascaraCpf(e.target.value))} inputMode="numeric" placeholder="CPF de quem foi atendido" className="n m-focus" style={s(`${CAMPO};flex:2;min-width:170px`)} />
-                <input value={data} onChange={(e) => setData(e.target.value)} type="date" max={hojeSP()} className="n m-focus" style={s(`${CAMPO};flex:1;min-width:130px`)} />
-                <input value={valor} onChange={(e) => setValor(e.target.value)} inputMode="decimal" placeholder="Valor" className="n m-focus" style={s(`${CAMPO};flex:1;min-width:90px`)} />
-              </div>
-              {digitosCpf.length === 11 && !cpfOk && (
-                <span style={s("font-size:var(--t-label);color:var(--warn)")}>
-                  Esse CPF não fecha na conta do dígito verificador — a Receita recusa o arquivo
-                  inteiro por causa de uma linha.
-                </span>
-              )}
-              {clienteId && !digitosCpf && (
-                <span style={s("font-size:var(--t-label);color:var(--warn)")}>
-                  Esse cliente está sem CPF no cadastro. Digite aqui para este recibo — e
-                  complete a ficha dele depois, em Clientes.
-                </span>
-              )}
-
-              {/* Opcional, e o rótulo diz PARA QUE serve: quem paga é quem deduz no IRPF e
-                  pede reembolso — mãe que paga a terapia do filho precisa do recibo no CPF
-                  dela. Vazio significa "pagou por si". */}
-              <input value={cpfPagador} onChange={(e) => setCpfPagador(mascaraCpf(e.target.value))} inputMode="numeric" placeholder="CPF de quem pagou — só se for outra pessoa" className="n m-focus" style={s(CAMPO)} />
-              <div style={s("display:flex;gap:9px;align-items:center;flex-wrap:wrap")}>
-                {/* `button` cru e não `Btn`: o primitivo não aceita `disabled`, e um botão
-                    clicável que sempre falha é o bug que este bloco existe para matar. */}
-                <button
-                  onClick={lancar}
-                  disabled={ocupado || !podeLancar}
-                  className="m-press m-focus"
-                  style={s(`display:flex;align-items:center;gap:7px;padding:9px 14px;border-radius:11px;border:none;background:var(--primary);color:var(--on-primary);font-family:inherit;font-size:var(--t-sm);font-weight:var(--w-title);cursor:${ocupado || !podeLancar ? "default" : "pointer"};opacity:${ocupado || !podeLancar ? 0.5 : 1}`)}
-                >
-                  <Icon name="check" size={14} sw={2.4} stroke="var(--on-primary)" />
-                  {ocupado ? "Lançando…" : "Lançar"}
-                </button>
-                <button onClick={() => { setAbrindo(false); setErro(null); limparForm(); }} className="m-focus" style={s("background:none;border:none;padding:0;font-family:inherit;font-size:var(--t-label);color:var(--muted);cursor:pointer;text-decoration:underline")}>
-                  cancelar
-                </button>
-                {faltaNoForm && (
-                  <span style={s("font-size:var(--t-label);color:var(--muted)")}>falta {faltaNoForm}</span>
-                )}
-              </div>
-
-              {/* O erro do servidor TAMBÉM aqui, e não só no pé do cartão: é aqui que o olho
-                  está depois de clicar em "Lançar". */}
-              {erro && (
-                <div style={s("display:flex;gap:8px;color:var(--danger);font-size:var(--t-label)")}>
-                  <Icon name="alert" size={16} />
-                  <span>{erro}</span>
-                </div>
-              )}
-            </div>
-          )}
+          {/* ── ★ lançar o que a agenda não pegou ──
+              Mesmo componente que a tela de emissão usa. Ver `NovoPagamento`: as validações são de
+              documento fiscal, e duas cópias delas divergiriam. */}
+          <NovoPagamento onLancado={() => void lerPendentes()} />
 
           {/* ── ★ O BOTÃO DIZ O QUE FAZ, E O QUE NÃO FAZ ──
               Bruno, 25/08/2026: *"o gerar arquivo nn está com um texto claro do que ele faz"*.

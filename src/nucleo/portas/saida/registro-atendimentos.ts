@@ -1,35 +1,53 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * PORTA DE SAÍDA — o ESPELHO do que a MAISA marcou.
+ * PORTA DE SAÍDA — o REGISTRO dos atendimentos. É a fonte PRIMÁRIA de ocupação.
  *
- * ⚠️ Leia isto antes de usar, porque a tentação de usar errado é grande.
+ * ⚠️ ISTO MUDOU, e o texto anterior dizia o contrário. Vale ler o porquê antes de usar.
  *
- * A verdade dos horários é a AGENDA EXTERNA, não esta porta. `supabase/LEIA-ME.md` §3.1
- * escreveu a invariante em voz alta: **não desenhe tela de agenda a partir daqui.** Um
- * evento criado direto no Google não passa por esta porta, então uma grade montada a
- * partir do espelho mentiria — e mentiria justamente no caso que mais acontece, o dono
- * marcando um encaixe no celular.
+ * Até aqui esta porta era um ESPELHO: a verdade dos horários era a agenda externa, e o
+ * cabeçalho proibia em voz alta desenhar agenda a partir dela. O problema é o que isso
+ * fazia com quem NÃO conecta o Google — e é muita gente, entre quem não quer (barbeiro de
+ * caderno, terapeuta que não entrega a agenda inteira a um terceiro) e quem não consegue
+ * (o app ainda não tem selo de verificado). Para essas pessoas o produto simplesmente não
+ * funcionava: `oferecerHorarios` estourava, o agente escalava para humano em toda tentativa
+ * de marcar, e — o pior — como o espelho era escrito DEPOIS do provedor, `atendimentos`
+ * ficava vazio. Sem linha não há faturamento, não há lembrete e não há nota fiscal. Sem
+ * Google, a promessa fiscal também não existia.
  *
- * Então por que ela existe? Porque três perguntas não têm resposta no Google:
+ * Agora a ocupação sai DAQUI, e a agenda externa é uma camada ADITIVA em cima: ela
+ * acrescenta os compromissos que nasceram fora da MAISA (o encaixe que o dono marcou no
+ * celular) e, quando não existe ou falha, acrescenta zero. Não derruba mais nada.
  *
- *   1. IDEMPOTÊNCIA sem ida ao provedor — `unique (tenant_id, maisa_ag)`. Hoje o caso de
- *      uso procura a marca VARRENDO dias de agenda. O painel faz isso uma vez por clique;
- *      um modelo de linguagem que não recebeu a resposta retenta sozinho, e não pode
- *      pagar uma varredura de agenda por tentativa.
+ * É o padrão que o Ludi já roda em produção desde 05/2026 — `get_staff_availability` lê o
+ * banco como passo obrigatório e o FreeBusy do Google dentro de um `try` que segue em
+ * frente ("prosseguindo sem Google"). Ver o ADR.
+ *
+ * ⚠️ O que NÃO mudou: a conta continua pura e fora daqui (`dominio/vagas.ts`). Esta porta
+ * entrega dado, não decide disponibilidade. A tentação de resolver "está livre?" numa
+ * função do banco é exatamente o que deixou o Smiller com a regra mais cara do produto
+ * escrita em plpgsql sem fonte versionada.
+ *
+ * As três perguntas que já só tinham resposta aqui continuam valendo, e agora são quatro:
+ *
+ *   1. IDEMPOTÊNCIA sem ida ao provedor — `unique (tenant_id, maisa_ag)`. Um modelo de
+ *      linguagem que não recebeu a resposta retenta sozinho, e não pode pagar uma
+ *      varredura de agenda por tentativa.
  *   2. FATURAMENTO — `Cliente.atendimentos` e `Cliente.valor` são a base da nota do mês.
- *      Não há como somar a competência a partir do Google sem reler a agenda inteira a
- *      cada abertura de tela.
- *   3. AUDITORIA DO ATOR — `dominio/tenant.ts` pede que um atendimento criado pela IA
- *      seja distinguível de um criado à mão. O Google guarda o texto da descrição, não
- *      quem escreveu. É o que vai responder "quantos horários a MAISA marcou sozinha?".
+ *   3. AUDITORIA DO ATOR — `dominio/tenant.ts` pede que um atendimento criado pela IA seja
+ *      distinguível de um criado à mão. O Google guarda a descrição, não quem escreveu.
+ *   4. DISPONIBILIDADE SEM PROVEDOR — `listarJanela`. É o que faz a MAISA marcar para quem
+ *      nunca vai conectar agenda nenhuma.
  *
- * ⚠️ GRAVAR AQUI NUNCA PODE DERRUBAR UM AGENDAMENTO. O espelho é escrito DEPOIS de o
- * provedor confirmar, e se a escrita falhar o atendimento continua existindo — porque
- * ele existe no Google, que é a verdade. Lançar daqui produziria o pior resultado
- * possível: o evento criado na agenda do dono e o cliente ouvindo "não deu certo".
- * Quem implementa esta porta registra a falha em log e devolve normalmente.
+ * ⚠️ GRAVAR AQUI QUASE NUNCA PODE DERRUBAR UM AGENDAMENTO — e a palavra "quase" é nova.
+ * A regra continua sendo log-e-segue: se a escrita falhar por rede, permissão ou coluna
+ * torta, o atendimento não pode morrer por causa disso. A ÚNICA exceção é CONFLITO DE
+ * HORÁRIO (`23P01`, a constraint de exclusão): aí derrubar é o comportamento certo, porque
+ * a alternativa é vender o mesmo horário duas vezes. Quem implementa distingue os dois
+ * casos explicitamente — um `if` nomeado, não um `catch` genérico.
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type { ContextoTenant } from "../../dominio/tenant";
+import type { Janela } from "../../dominio/tempo";
+import type { Ocupado } from "../../dominio/vagas";
 
 /**
  * Uma linha do espelho. Desnormalizada de propósito, igual a `AtendimentoMarcado`: o
@@ -73,11 +91,33 @@ export type LinhaDeAtendimento = {
 
 export interface RegistroDeAtendimentos {
   /**
-   * Grava (ou reconhece) a linha do espelho. **Idempotente por `maisaAg`**: chamar duas
-   * vezes com a mesma chave não cria duas linhas — é a mesma proteção que o caso de uso
-   * já tem contra o modelo que retenta.
+   * O que já tem dono na agenda deste profissional, dentro da janela. É a **fonte
+   * primária de ocupação** — quem responde "está livre?" para todo mundo, com ou sem
+   * Google conectado.
    *
-   * Não lança. Ver o ⚠️ do cabeçalho.
+   * Devolve `Ocupado` (`{ data, inicio, fim }`) e não a linha inteira de propósito: quem
+   * chama quer saber o que está tomado, não quem marcou nem quanto custou. Entregar
+   * `LinhaDeAtendimento` aqui convidaria a tela de agenda a se montar a partir do
+   * faturamento, que é o acoplamento que essa porta passou a vida evitando.
+   *
+   * Só `situacao = 'marcado'`: cancelado não bloqueia horário. A projeção civil
+   * (`data_local`/`hora_inicio`) é o que sai daqui, porque é nela que `vagasDoDia`
+   * pensa — a conversão de fuso já aconteceu na escrita, e refazê-la na leitura é a
+   * chance de as duas discordarem.
+   *
+   * **Lança** se não conseguir ler, ao contrário do resto desta porta. Aqui o silêncio é
+   * pior: devolver lista vazia por causa de uma falha de banco significa "o dia inteiro
+   * está livre", e a MAISA ofereceria horários já vendidos. É o mesmo raciocínio do
+   * Passo B do Ludi, onde falha ao ler `appointments` é 500 e não lista vazia.
+   */
+  listarJanela(t: ContextoTenant, p: { agendaId: string; janela: Janela }): Promise<Ocupado[]>;
+
+  /**
+   * Grava (ou reconhece) a linha. **Idempotente por `maisaAg`**: chamar duas vezes com a
+   * mesma chave não cria duas linhas — é a mesma proteção que o caso de uso já tem contra
+   * o modelo que retenta.
+   *
+   * Não lança, EXCETO em conflito de horário. Ver o ⚠️ do cabeçalho.
    */
   registrar(t: ContextoTenant, a: LinhaDeAtendimento): Promise<void>;
 
