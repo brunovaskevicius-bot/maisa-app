@@ -147,3 +147,32 @@ describe("recuperação de senha", () => {
     expect(isPublic("/esqueci-tudo")).toBe(false);
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * O TUTORIAL DA AUTORIZAÇÃO — a rota que atende quem ainda não é usuário.
+ *
+ * `/autorizar` ensina a dar à MAISA a Autorização de Acesso do e-CAC. Quem lê está com o site
+ * da Receita aberto, quase sempre no celular, mandado por WhatsApp — e pode nem ter conta na
+ * MAISA ainda (o contador da cliente, por exemplo).
+ *
+ * ⚠️ ATRÁS DO LOGIN, O SINTOMA É INVISÍVEL: ninguém abre um chamado dizendo "a página de
+ * tutorial pediu senha". A pessoa fecha, não autoriza, e o que aparece do nosso lado é a
+ * emissão parada por semanas sem motivo aparente — porque a autorização é o único item que
+ * bloqueia os recibos inteiros.
+ * ────────────────────────────────────────────────────────────────────────────── */
+describe("tutorial da Autorização de Acesso", () => {
+  it("/autorizar é pública — quem lê ainda não entrou no app", () => {
+    expect(isPublic("/autorizar")).toBe(true);
+  });
+
+  /* A checagem é por segmento, então uma sub-rota futura (`/autorizar/contador`) já nasce
+   * pública. É o comportamento que se quer aqui, e está escrito para não virar surpresa. */
+  it("sub-rota do tutorial também é pública", () => {
+    expect(isPublic("/autorizar/contador")).toBe(true);
+  });
+
+  it("não abre vizinho por prefixo", () => {
+    expect(isPublic("/autorizarem")).toBe(false);
+    expect(isPublic("/autorizacoes")).toBe(false);
+  });
+});

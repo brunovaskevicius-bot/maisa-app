@@ -47,6 +47,21 @@ importa só `@/ui/primitivos` e os componentes de `_lib/`, nada do núcleo.
 Ver a tabela "Onde está cada LP no código" no `CLAUDE.md` do projeto (uma pasta acima
 do repo) e o script `scripts/espelha-lp.mjs` para a LP estática de terapeutas.
 
+### Nem tudo aqui é LP
+
+Três rotas do grupo são **documento**, não venda: `/privacidade`, `/termos` e — desde
+26/08/2026 — `/autorizar`, o tutorial da Autorização de Acesso do e-CAC. Elas não usam o
+`<World>`, e por isso estão na lista `NAO_SAO_LP` do `juridico.test.ts`.
+
+⚠️ **A lista dispensa o mecanismo, nunca o resultado.** Toda página pública tem que levar à
+política de privacidade — é o que o revisor do Google abre e confere. Há teste que lê o texto
+da página e o do invólucro direto dela procurando os dois links; entrar em `NAO_SAO_LP` não
+escapa dele.
+
+`/autorizar` é pública de propósito: quem lê está no site da Receita, mandado por WhatsApp, e
+pode nem ter conta na MAISA. Os passos vêm de `passosDaProcuracao()`, o mesmo do painel — uma
+fonte, dois lugares.
+
 ## Regra
 
 Rota é **tradutora**, não decisora:

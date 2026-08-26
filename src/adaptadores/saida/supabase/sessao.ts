@@ -40,6 +40,12 @@ const PUBLIC_PREFIXES = [
    * `/nova-senha` NÃO entra aqui de propósito: só faz sentido com sessão, e o link de
    * recuperação já cria uma ao passar pelo `/auth/callback`. */
   "/esqueci",
+  /* ⚠️ `/autorizar` É PÚBLICA PELO MESMO MOTIVO DE `/esqueci`: ela atende quem ainda NÃO está no
+   * app. É o tutorial da Autorização de Acesso do e-CAC, e o uso previsto é mandar o link no
+   * WhatsApp para uma profissional que está com o site da Receita aberto, não com a MAISA. Atrás
+   * do login ela mostraria um formulário de senha para alguém que só quer saber onde clicar — e
+   * o sintoma seria a autorização não sair, que é o item que bloqueia a emissão inteira. */
+  "/autorizar",
 ];
 
 /* Exportada para o teste. É a única função deste arquivo que decide quem entra, e o

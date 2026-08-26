@@ -659,3 +659,224 @@ body:has(.mundo-terapeutas) {
   font-size: 0.86rem;
   color: var(--mk-footer-muted);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * TUTORIAL DA AUTORIZAÇÃO — `/autorizar`.
+ *
+ * Coluna estreita e tipo grande como as jurídicas, e pelo mesmo motivo: aqui ninguém está
+ * sendo convencido, está SEGUINDO — com o site da Receita aberto na outra aba, provavelmente
+ * no celular. Cada linha é uma ação, e uma linha perdida é um clique errado.
+ *
+ * ⚠️ A DIFERENÇA PARA `.lp-juridico` É A HIERARQUIA DOS PASSOS. Lista numerada com o número
+ * grande e fora do texto: quem volta para a página depois de clicar precisa achar "eu estava
+ * no 7" em um relance, e `list-style: decimal` padrão não dá esse relance.
+ *
+ * Escopo em `.lp-tuto` para não vazar nas LPs, que têm regras próprias (ver `.lp-v3`).
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+.lp-tuto {
+  max-width: 66ch;
+  margin: 0 auto;
+  padding: 28px 22px 72px;
+  color: #16233a;
+  font-size: 17px;
+  line-height: 1.7;
+  background: #fff;
+}
+
+.lp-tuto-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid #e6ebf3;
+}
+
+.lp-tuto-marca {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #1b53d6;
+  text-decoration: none;
+}
+
+.lp-tuto-voltar { font-size: 15px; font-weight: 600; color: #1b53d6; text-decoration: none; }
+.lp-tuto-voltar:hover { text-decoration: underline; }
+
+.lp-tuto-cabecalho { padding: 40px 0 0; }
+
+.lp-tuto-sobrancelha {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: #1b53d6;
+}
+
+.lp-tuto-cabecalho h1 {
+  font-size: clamp(30px, 5vw, 42px);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  margin: 0;
+}
+
+.lp-tuto-resumo {
+  margin: 18px 0 0;
+  padding: 15px 17px;
+  border-left: 3px solid #1b53d6;
+  background: #f3f6fd;
+  border-radius: 0 10px 10px 0;
+  font-size: 17px;
+  color: #24344f;
+}
+
+/* O que ela precisa TER antes de começar. Fica no cabeçalho porque descobrir que a conta é
+   bronze no passo 1 é descobrir tarde — e a solução (subir de nível) leva outro dia. */
+.lp-tuto-requisitos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 18px;
+  font-size: 15px;
+  color: #40506d;
+}
+.lp-tuto-requisitos span + span::before { content: "· "; color: #9aa8bf; }
+
+.lp-tuto-secao { padding-top: 40px; }
+.lp-tuto-secao h2 {
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 14px;
+}
+.lp-tuto-secao h3 { font-size: 17px; font-weight: 700; margin: 0 0 10px; }
+.lp-tuto-secao p { margin: 0 0 14px; }
+.lp-tuto-secao a { color: #1b53d6; }
+
+.lp-tuto code {
+  background: #f3f6fd;
+  border: 1px solid #dde5f5;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 0.92em;
+  font-weight: 600;
+  color: #1b3a7a;
+  white-space: nowrap;
+}
+
+/* Pode / não pode, lado a lado. Empilhados, o "não pode" — que é o que responde o medo —
+   ficaria abaixo da dobra justamente em quem está hesitando. */
+.lp-tuto-alcance {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 18px 0;
+}
+@media (max-width: 620px) { .lp-tuto-alcance { grid-template-columns: 1fr; } }
+
+.lp-tuto-pode,
+.lp-tuto-nao-pode {
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid #e6ebf3;
+}
+.lp-tuto-pode { background: #f2f8f4; border-color: #cfe6d8; }
+.lp-tuto-nao-pode { background: #fbfcfe; }
+
+.lp-tuto-pode ul,
+.lp-tuto-nao-pode ul { margin: 0; padding-left: 20px; font-size: 16px; }
+.lp-tuto-pode li,
+.lp-tuto-nao-pode li { margin-bottom: 8px; }
+.lp-tuto-pode li::marker { color: #2e8b57; }
+.lp-tuto-nao-pode li::marker { color: #9aa8bf; }
+
+/* Amarelo puro, sem opacidade reduzida — é a regra das LPs, e aqui o bloco é literalmente o
+   aviso que impede a cliente de entregar poder demais. */
+.lp-tuto-alerta {
+  margin: 20px 0 0;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 2px solid #f2c200;
+  background: #fff8dd;
+  font-size: 16px;
+  color: #3d3200;
+}
+.lp-tuto-alerta strong { color: #1a1500; }
+
+/* A variante calma é para a notícia que TRANQUILIZA ("ignore essa mensagem"). Amarelo ali
+   somaria susto a quem já está achando que errou. */
+.lp-tuto-alerta-calmo {
+  border-color: #cfdcf5;
+  background: #f3f6fd;
+  color: #24344f;
+}
+.lp-tuto-alerta-calmo strong { color: #0f1c30; }
+
+.lp-tuto-botao {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 4px 0 22px;
+  padding: 14px 24px;
+  border-radius: 13px;
+  background: #1b53d6;
+  color: #fff !important;
+  font-size: 17px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.lp-tuto-botao:hover { background: #1544b4; }
+
+/* ★ O NÚMERO FORA DO TEXTO E GRANDE. Ela vai alternar entre esta aba e a da Receita a cada
+   passo — "onde eu estava?" tem que ser respondido de relance, não relendo frases. */
+.lp-tuto-passos { margin: 0; padding: 0; list-style: none; counter-reset: passo; }
+.lp-tuto-passos li {
+  counter-increment: passo;
+  position: relative;
+  padding: 13px 0 13px 52px;
+  border-top: 1px solid #eef2f8;
+  font-size: 17px;
+}
+.lp-tuto-passos li:first-child { border-top: 0; }
+.lp-tuto-passos li::before {
+  content: counter(passo);
+  position: absolute;
+  left: 0;
+  top: 11px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #1b53d6;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lp-tuto-ressalva {
+  margin: 18px 0 0;
+  padding-left: 14px;
+  border-left: 2px solid #dde5f5;
+  font-size: 15px;
+  color: #5a6a85;
+}
+
+.lp-tuto-lista { margin: 0; padding-left: 22px; }
+.lp-tuto-lista li { margin-bottom: 12px; }
+
+.lp-tuto-rodape {
+  margin-top: 52px;
+  padding-top: 22px;
+  border-top: 1px solid #e6ebf3;
+  font-size: 15px;
+  color: #5a6a85;
+}
+.lp-tuto-rodape p { margin: 0 0 8px; }
+.lp-tuto-links { display: flex; gap: 16px; margin-top: 14px; }
+.lp-tuto-links a { color: #1b53d6; font-weight: 600; text-decoration: none; }
+.lp-tuto-links a:hover { text-decoration: underline; }

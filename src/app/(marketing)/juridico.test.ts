@@ -46,11 +46,46 @@ function paginas(): { nome: string; texto: string }[] {
   return achadas;
 }
 
-/* As páginas jurídicas são a EXCEÇÃO, e é a única que faz sentido: elas não usam o
- * <World> porque não são LP — usam a <PaginaJuridica>, que tem a própria navegação para
- * privacidade e termos no topo. Exigir <World> delas seria exigir que a política de
- * privacidade linkasse para si mesma pelo rodapé de uma landing page. */
-const NAO_SAO_LP = ["(marketing)/privacidade/page.tsx", "(marketing)/termos/page.tsx"];
+/* As páginas de DOCUMENTO são a exceção, e é a única que faz sentido: elas não usam o
+ * <World> porque não são LP — não vendem, não convertem, não têm preço. Exigir <World> da
+ * política de privacidade seria exigir que ela linkasse para si mesma pelo rodapé de uma
+ * landing page.
+ *
+ * ⚠️ MAS A EXCEÇÃO NÃO AS DISPENSA DO QUE O ARQUIVO PROTEGE. Até 26/08/2026 esta lista era
+ * um buraco: sair dela significava sair de toda checagem, e o teste seguinte não existia.
+ * `/autorizar` entrou aqui e obrigou a fechá-lo — ver o teste "levam à política pelas
+ * próprias mãos", que confere os dois links no texto da página ou do invólucro dela.
+ *
+ * | Página | Por que não é LP | Desde |
+ * |---|---|---|
+ * | `/privacidade`, `/termos` | documento legal; usam <PaginaJuridica>, com nav própria | 17/08/2026 |
+ * | `/autorizar` | tutorial da Autorização de Acesso do e-CAC; quem lê está no site da Receita, não comprando | 26/08/2026 |
+ */
+const NAO_SAO_LP = [
+  "(marketing)/privacidade/page.tsx",
+  "(marketing)/termos/page.tsx",
+  "(marketing)/autorizar/page.tsx",
+];
+
+/**
+ * O texto da página MAIS o dos componentes locais que ela importa.
+ *
+ * ⚠️ UMA CAMADA SÓ, de propósito. A tira legal mora sempre no invólucro DIRETO — <World> nas
+ * LPs, <PaginaJuridica> nos documentos — e nunca dois níveis abaixo. Varrer o grafo inteiro
+ * transformaria o teste num resolvedor de módulos e faria ele passar por acidente, achando um
+ * `href="/termos"` em qualquer canto do projeto.
+ */
+function textoComInvolucros(nome: string, texto: string): string {
+  const dir = join(MARKETING, "..", "..", "..", "src", "app", nome.replace(/\/page\.tsx$/, "").replace("(marketing)", "(marketing)"));
+  let junto = texto;
+  for (const [, rel] of texto.matchAll(/from\s+"(\.[^"]+)"/g)) {
+    for (const ext of [".tsx", ".ts", "/index.tsx"]) {
+      const alvo = join(dir, rel + ext);
+      try { junto += ler(alvo); break; } catch { /* import de tipo, pasta, ou não existe */ }
+    }
+  }
+  return junto;
+}
 
 describe("o caminho para a política existe em toda página pública", () => {
   it("toda LP passa pelo <World> — é ele que monta a tira legal", () => {
@@ -60,6 +95,33 @@ describe("o caminho para a política existe em toda página pública", () => {
       .map((p) => p.nome);
 
     expect(semWorld).toEqual([]);
+  });
+
+  /* ★ O TESTE QUE FECHA O BURACO DA LISTA DE EXCEÇÃO.
+   *
+   * Sem ele, `NAO_SAO_LP` é um jeito de sair da checagem: basta pôr o nome ali e a página
+   * pública nasce sem caminho nenhum para a política. O que a exceção dispensa é o
+   * MECANISMO (<World>), nunca o RESULTADO — e o resultado é o que o revisor do Google abre
+   * e confere.
+   *
+   * Escrito quando `/autorizar` entrou na lista, em 26/08/2026. */
+  it("as páginas que não são LP levam à política pelas próprias mãos", () => {
+    const semCaminho = paginas()
+      .filter((p) => NAO_SAO_LP.includes(p.nome))
+      .filter((p) => {
+        const texto = textoComInvolucros(p.nome, p.texto);
+        return !texto.includes('href="/privacidade"') || !texto.includes('href="/termos"');
+      })
+      .map((p) => p.nome);
+
+    expect(semCaminho).toEqual([]);
+  });
+
+  /* E a lista não cresce sozinha: cada entrada aqui é uma página que saiu do <World>, e a
+   * tabela no comentário acima diz por quê e desde quando. Se este número subir sem a linha
+   * correspondente, alguém usou a exceção como atalho. */
+  it("a lista de exceção tem o tamanho que está documentado", () => {
+    expect(NAO_SAO_LP).toHaveLength(3);
   });
 
   /* ★ O TESTE QUE JUSTIFICA O ARQUIVO. Se alguém tirar a tira do <World> para "limpar o
