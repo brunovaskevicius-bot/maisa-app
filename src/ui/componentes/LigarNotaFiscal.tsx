@@ -27,8 +27,9 @@
  * do código (ver `portas/saida/cadastro-de-emissor.ts`) e porque é ela que faz alguém clicar.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { s, Icon } from "@/ui/primitivos";
+import { useStore } from "@/ui/estado/store";
 import type { CadastroDoCnpj, ConfigFiscal } from "@/nucleo/dominio/fiscal";
 
 type Estado = {
@@ -130,14 +131,20 @@ function EsqueletoFiscal() {
 }
 
 export function LigarNotaFiscal() {
-  const [estado, setEstado] = useState<Estado | null>(null);
+  /* ⚠️ O ESTADO FISCAL SAIU DAQUI E FOI PARA O STORE, em 25/08/2026. Não é arrumação: o hero do
+   * Faturamento e o botão dourado da topbar precisam do MESMO `caminho` para não prometerem nota
+   * fiscal a quem emite recibo, e não tinham como ler daqui de dentro. Ver `EstadoFiscalUI`. */
+  const st = useStore();
+  const estado: Estado | null = st.fiscal.status === "ok" && st.fiscal.config && st.fiscal.caminho
+    ? { config: st.fiscal.config, caminho: st.fiscal.caminho, falta: st.fiscal.falta, provedorFaltando: st.fiscal.provedorFaltando }
+    : null;
   const [cnpj, setCnpj] = useState("");
   const [previa, setPrevia] = useState<CadastroDoCnpj | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   /* ⚠️ EXISTE POR CAUSA DO ESQUELETO. Sem ele, uma leitura que falha deixa `estado` em `null`
    * para sempre — e o esqueleto pulsa eternamente, prometendo um cartão que nunca chega. */
-  const [falhou, setFalhou] = useState(false);
+  const falhou = st.fiscal.status === "erro";
   const [senha, setSenha] = useState("");
   const arquivo = useRef<HTMLInputElement>(null);
 
@@ -146,21 +153,6 @@ export function LigarNotaFiscal() {
   const [cpf, setCpf] = useState("");
   const [ocupacao, setOcupacao] = useState<string>("psicologo");
   const [registro, setRegistro] = useState("");
-
-  const ler = useCallback(async () => {
-    try {
-      const r = await fetch("/api/fiscal", { cache: "no-store" });
-      const d = await r.json();
-      if (d?.ok) setEstado(d as Estado); else setFalhou(true);
-    } catch {
-      /* Silêncio: esta tela é configuração, não operação. Uma faixa de erro por causa de uma
-       * leitura que falhou competiria com o faturamento do mês, que é o que importa aqui.
-       * Silêncio não é imobilidade: o esqueleto precisa parar, senão a espera é infinita. */
-      setFalhou(true);
-    }
-  }, []);
-
-  useEffect(() => { void ler(); }, [ler]);
 
   /* Prévia com debounce. Só dispara com os 14 dígitos completos — consultar a Receita a cada
    * tecla é ruído para ela e piscada de nome errado para quem digita. */
@@ -188,7 +180,9 @@ export function LigarNotaFiscal() {
       });
       const d = await r.json();
       if (!d?.ok) { setErro(d?.mensagem ?? d?.erro ?? "Não deu. Tente de novo."); return; }
-      setEstado(d as Estado);
+      /* Grava no store, não num estado local: é o mesmo envelope que a leitura, e é o que faz o
+       * hero e a topbar mudarem de vocabulário no mesmo instante em que o caminho muda. */
+      st.aplicarFiscal(d);
     } catch {
       setErro("Não consegui falar com o servidor.");
     } finally {

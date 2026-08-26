@@ -100,6 +100,40 @@ export const LINK_PROCURACAO = "https://servicos.receitafederal.gov.br/servico/a
 export const PERMISSAO_CARNE_LEAO = "IRPF - Carnê Leão Web";
 export const PERMISSAO_CARNE_LEAO_CODIGO = "00204";
 
+/**
+ * O rótulo INTEIRO, do jeito que aparece na caixa de seleção.
+ *
+ * ⚠️ A lista mostra `IRPF - Carnê Leão Web (Cód. 00204)`, com o código entre parênteses no mesmo
+ * texto. A instrução dizia o nome e o código separados, em ordem diferente da tela ("… (cód.
+ * 00204)"), e conferir vira comparação de duas strings parecidas em vez de reconhecimento. A
+ * pessoa está marcando uma caixa numa lista de dezenas: ou o texto bate letra por letra, ou ela
+ * marca a de cima. Confirmado no tutorial da Rebots em 25/08/2026.
+ */
+export const PERMISSAO_CARNE_LEAO_NA_TELA =
+  `${PERMISSAO_CARNE_LEAO} (Cód. ${PERMISSAO_CARNE_LEAO_CODIGO})`;
+
+/**
+ * O que buscar no campo de busca da lista de serviços.
+ *
+ * ⚠️ "carne" E NÃO "carn". Parece a mesma coisa e não é: o tutorial da Rebots usa `carne`, e é o
+ * que está verificado. Mandar digitar um pedaço a menos foi economia sem motivo — se a busca da
+ * Receita exigir palavra inteira, "carn" volta vazio e ela conclui que a permissão não existe.
+ */
+export const BUSCA_CARNE_LEAO = "carne";
+
+/**
+ * Quem a cliente autoriza — o e-CNPJ da conta que assina pelos inquilinos.
+ *
+ * ⚠️ ISTO É O PADRÃO, NÃO A VERDADE DE CADA INQUILINO. Quem manda é
+ * `ConfigFiscal.procuradorDocumento`, gravado por tenant: uma cliente pode ter autorizado o
+ * contador dela, e os passos têm que mostrar o documento DELE. A constante serve para os lugares
+ * onde não existe inquilino — a página pública `/autorizar`, que é justamente a que se manda por
+ * WhatsApp para alguém que ainda não entrou no app.
+ *
+ * É a conta da Poli Júnior ("Junior Poli Estudos"), a mesma que guarda o certificado A1.
+ */
+export const PROCURADOR_PADRAO = "62025689000166";
+
 /** A página pública do gov.br. Fora do portal logado: não expira nem desloga. */
 export const LINK_PROCURACAO_SERVICO =
   "https://www.gov.br/pt-br/servicos/cadastrar-ou-cancelar-procuracao-para-acesso-ao-e-cac";
@@ -141,6 +175,15 @@ export type ItemDoChecklist = {
   linkAlternativo?: { url: string; rotulo: string };
   /** O que clicar do outro lado, com os nomes dos botões que ela VAI VER na tela. */
   passos?: string[];
+  /**
+   * A ressalva que NÃO é um passo — e por isso não entra na lista numerada.
+   *
+   * ⚠️ Existe porque "se você usa certificado digital, o Assinador Serpro precisa estar aberto"
+   * é verdade para uma minoria e falso para a maioria (conta gov.br prata/ouro assina sozinha).
+   * Enfiado como passo 12, ele manda todo mundo instalar um programa que quase ninguém precisa;
+   * omitido, quem usa certificado clica em "Assinar", nada acontece, e não há o que procurar.
+   */
+  aviso?: string;
 };
 
 /**
@@ -182,7 +225,27 @@ function documentoFormatado(d: string): string {
 }
 
 /**
- * Os passos da outorga, com os nomes que estão na tela — percorridos à mão em 25/08/2026.
+ * Os passos da outorga, com os nomes que estão na tela — percorridos à mão em 25/08/2026 e
+ * conferidos contra o tutorial da Rebots.
+ *
+ * ── ★ UMA AÇÃO POR PASSO, E FOI UMA RECLAMAÇÃO QUE IMPÔS ISSO ──
+ *
+ * Bruno, 25/08/2026: *"achei que faltou clareza no tutorial da receita, talvez devemos reformular
+ * para manter 100% de clareza, e objetividade"*.
+ *
+ * A versão anterior tinha seis passos, e três defeitos que só aparecem quando alguém tenta seguir:
+ *
+ *   1. **A ORDEM ESTAVA ERRADA.** "Escolha a validade" era o passo 5, depois dos serviços. Na
+ *      tela, a validade fica na PRIMEIRA etapa, ao lado da pessoa autorizada. Quem seguisse a
+ *      lista chegava ao fim procurando um campo que já tinha passado.
+ *   2. **O CAMPO TINHA OUTRO NOME.** A instrução dizia `Em "Pessoa"`; a tela diz "Quem", e o campo
+ *      se chama "Pessoa Autorizada". Nome que não bate é nome que se procura.
+ *   3. **UM PASSO CARREGAVA CINCO CLIQUES** — abrir "Selecionar Serviços", buscar, marcar,
+ *      "Confirmar", "Avançar" — numa linha só. Instrução assim não se segue, se decifra.
+ *
+ * Agora é uma ação por linha, na ordem da tela, com o texto do botão entre aspas. Ficou mais
+ * longo e mais curto de fazer, que é a troca certa: ninguém lê isto por prazer, lê enquanto
+ * clica.
  *
  * ⚠️ A PERMISSÃO É O PASSO QUE TODO MUNDO ERRA. A lista tem dezenas de serviços e um atalho
  * "Todos" logo acima; marcar o errado gera uma autorização **válida que não serve**, e a
@@ -198,14 +261,38 @@ function documentoFormatado(d: string): string {
  */
 export function passosDaProcuracao(procurador: string): string[] {
   return [
+    /* O nível fica colado no passo 1 e não vira passo próprio: não é uma ação, é a condição para
+     * ESTA ação. Quem tem conta bronze descobre aqui, antes de clicar, e não na tela de erro. */
     "Entre com a sua conta gov.br — precisa ser nível prata ou ouro",
-    "Clique em + Nova Autorização",
-    `Em "Pessoa", informe ${documentoFormatado(procurador)}`,
-    `Em "Serviços", digite "carn" na busca e marque só ${PERMISSAO_CARNE_LEAO} (cód. ${PERMISSAO_CARNE_LEAO_CODIGO}) — não use a opção "Todos"`,
-    "Escolha a validade — o máximo é 5 anos",
-    "Assine para concluir",
+    'Clique em "+ Nova Autorização"',
+    `Em "Pessoa Autorizada", digite ${documentoFormatado(procurador)}`,
+    'Em "Validade", escolha até quando vale — o máximo é 5 anos',
+    'Clique em "Avançar"',
+    'Clique em "Selecionar Serviços"',
+    `Digite "${BUSCA_CARNE_LEAO}" na busca`,
+    /* O rótulo inteiro, igualzinho ao da caixa — ela está comparando texto numa lista de dezenas.
+     * E o "Todos" vem colado no mesmo passo porque é aqui, com o dedo no mouse, que se erra. */
+    `Marque só "${PERMISSAO_CARNE_LEAO_NA_TELA}" — nunca a opção "Todos"`,
+    'Clique em "Confirmar"',
+    'Clique em "Avançar"',
+    `Confira que aparece "${PERMISSAO_CARNE_LEAO_NA_TELA}" e clique em "Assinar"`,
   ];
 }
+
+/**
+ * A ressalva de quem assina com certificado digital.
+ *
+ * ⚠️ VERIFICADO NOS DOIS SENTIDOS em 25/08/2026: a página oficial do gov.br diz que conta **prata
+ * ou ouro basta** para cadastrar a autorização — nenhum programa a instalar. O tutorial da Rebots
+ * trata o Assinador Serpro como "requisito essencial" porque o fluxo deles é por certificado.
+ *
+ * As duas coisas são verdade, e é por isso que isto não é um passo: como passo 12, manda a maioria
+ * instalar um programa que ela não precisa; omitido, quem usa certificado clica em "Assinar",
+ * **nada acontece**, e não existe nada na tela para procurar.
+ */
+export const AVISO_ASSINADOR =
+  "Se você assinar com certificado digital em vez da conta gov.br, o Assinador Serpro precisa "
+  + "estar aberto e atualizado no computador — senão o botão \"Assinar\" não conclui.";
 
 export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklist[] {
   const ano = hoje.slice(0, 4);
@@ -254,9 +341,12 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
    * produto que ela comprou, e o de baixo vira "a MAISA cuida". Para quem não outorgou, ele
    * não existe e nada muda. */
   const rep = representacao(c, hoje);
+  /* As duas saídas e a ressalva andam juntas: quem mostra os passos da outorga precisa das três,
+   * e esquecer uma delas num dos ramos daria instruções diferentes para o mesmo ato. */
   const saidas = {
     link: { url: LINK_PROCURACAO, rotulo: "Abrir no site da Receita" },
     linkAlternativo: { url: LINK_PROCURACAO_SERVICO, rotulo: "Travou no login? Entre pelo gov.br" },
+    aviso: AVISO_ASSINADOR,
   };
 
   /* ⚠️ NA TELA SE CHAMA "AUTORIZAÇÃO DE ACESSO", e no código continua `procuracao`. A Receita
@@ -325,13 +415,22 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
      * ★ O PASSO DE NAVEGAÇÃO É CONDICIONAL, e a condição é o que a gente não consegue verificar:
      * com `sistema=10028` ela DEVE cair dentro do Carnê-Leão, mas o que acontece depois do login
      * não se mede sem sessão. Afirmar que cai seria mentir se não cair; mandar navegar sempre
-     * faria ela procurar um menu que já não está na frente dela. Então a frase cobre os dois. */
+     * faria ela procurar um menu que já não está na frente dela. Então a frase cobre os dois — e
+     * fica num passo SÓ DELA, em vez de pendurada no fim do passo de entrar. Condicional escondida
+     * dentro de outra instrução é o jeito mais barato de perder alguém no meio da lista.
+     *
+     * ⚠️ Uma ação por passo, desde 25/08/2026. "Em Identificação → Ocupações, escolha X, digite o
+     * CRP e clique em Adicionar" eram quatro coisas numa linha — e a seta `→` obrigava a decifrar
+     * uma navegação que nenhum botão da tela desenha assim. */
     passos: [
-      "Entre com a conta gov.br — é a mesma do Meu INSS",
-      "Não caiu direto no Carnê-Leão? Em Declarações e Demonstrativos, clique em Acessar Carnê-Leão",
-      "No menu, abra Configurações e marque que você é trabalhador autônomo",
-      `Em Identificação → Ocupações, escolha "${profissao ?? "sua profissão"}", digite o ${conselho} e clique em Adicionar`,
-      "Salvar Identificação",
+      "Entre com a sua conta gov.br — é a mesma do Meu INSS",
+      'Se não abrir o Carnê-Leão, clique em "Declarações e Demonstrativos" e depois em "Acessar Carnê-Leão"',
+      'Abra "Configurações" e marque que você é trabalhador autônomo',
+      'Abra "Identificação" e vá em "Ocupações"',
+      `Escolha "${profissao ?? "sua profissão"}" na lista`,
+      `Digite o seu ${conselho}`,
+      'Clique em "Adicionar"',
+      'Clique em "Salvar Identificação"',
     ],
   });
 
@@ -345,10 +444,14 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
     link: { url: LINK_CARNE_LEAO, rotulo: "Abrir meu Carnê-Leão" },
     linkAlternativo: { url: LINK_ECAC_SERVICO, rotulo: "Travou no login? Entre pelo gov.br" },
     passos: [
-      "Entre com o gov.br — se não cair no Carnê-Leão, Declarações e Demonstrativos → Acessar Carnê-Leão",
-      "Clique em Importar Escrituração",
-      "Escolha o arquivo e clique em Analisar Arquivo",
-      "Voltou sem erro? Então importe de verdade",
+      "Entre com a sua conta gov.br",
+      'Se não abrir o Carnê-Leão, clique em "Declarações e Demonstrativos" e depois em "Acessar Carnê-Leão"',
+      'Clique em "Importar Escrituração"',
+      "Escolha o arquivo que a MAISA gerou",
+      'Clique em "Analisar Arquivo"',
+      /* O último passo nomeia o verbo que a tela inteira depende de não confundir: a MAISA gera,
+       * a IMPORTAÇÃO emite. "Importe de verdade" não dizia o que a importação faz. */
+      'Voltou sem erro? Aí sim clique em "Importar" — é a importação que emite os recibos',
     ],
   });
 
@@ -363,6 +466,39 @@ export function checklistDoRecibo(c: ConfigFiscal, hoje: string): ItemDoChecklis
  */
 export function faltaNoChecklist(itens: ItemDoChecklist[]): number {
   return itens.filter((i) => i.estado === "falta").length;
+}
+
+/**
+ * ★ OS ITENS QUE SÃO DADO NOSSO — e a razão de a lista existir é uma reclamação.
+ *
+ * Bruno, 25/08/2026: *"na mesma pagina temos nota fiscal, recibos, cadastro de dados etc. NN
+ * está legal e até eu que sei do que se trata estou CONFUSO"*.
+ *
+ * O checklist misturava dois assuntos numa lista só. "Seu CPF" é um campo que a gente guarda e
+ * que se conserta num formulário daqui; "Cadastro no Carnê-Leão" é uma tela do site da Receita
+ * que ninguém aqui alcança. Enfileirados com o mesmo desenho, os dois viravam a mesma coisa: uma
+ * lista de coisas erradas sem dizer QUEM resolve cada uma.
+ *
+ * Partido, cada metade ganha o desenho da sua natureza — formulário de um lado, instrução do
+ * outro — e o contador de pendências para de somar peras com maçãs.
+ */
+const ITENS_MEUS_DADOS: ItemDoChecklist["id"][] = ["cpf", "profissao", "registro"];
+
+/**
+ * Parte o checklist nos dois assuntos.
+ *
+ * ⚠️ A REGRA É POR `id`, e não por `estado`. Tentador seria "o que é `falta` vai para o
+ * formulário" — só que a autorização vencida também é `falta` e não se resolve com um campo:
+ * resolve-se no site da Receita. Estado diz o que está errado; `id` diz de quem é a bola.
+ */
+export function partesDoChecklist(itens: ItemDoChecklist[]): {
+  meusDados: ItemDoChecklist[];
+  noEcac: ItemDoChecklist[];
+} {
+  return {
+    meusDados: itens.filter((i) => ITENS_MEUS_DADOS.includes(i.id)),
+    noEcac: itens.filter((i) => !ITENS_MEUS_DADOS.includes(i.id)),
+  };
 }
 
 /**

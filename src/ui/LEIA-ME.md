@@ -8,7 +8,7 @@ componentes perto do `app/`. Conceitualmente é irmão do `http/` e do futuro `w
 
 | Arquivo | O que é |
 |---|---|
-| `estado/store.tsx` | **O coração do painel.** Uma fonte de verdade para tudo que o usuário muda: etapa do kanban, dia visível na agenda, quem conduz cada conversa, toggles, catálogo vivo, ciclo de vida das notas. Persiste em `localStorage` (`maisa.app.v3`) só o que é DECISÃO — navegação é volátil de propósito. É também quem fala com `/api/**`. |
+| `estado/store.tsx` | **O coração do painel.** Uma fonte de verdade para tudo que o usuário muda: etapa do kanban, dia visível na agenda, quem conduz cada conversa, toggles, catálogo vivo, ciclo de vida das notas e — desde 25/08/2026 — **qual documento o negócio emite** (`st.fiscal`, ver `EstadoFiscalUI`). Persiste em `localStorage` (`maisa.app.v3`) só o que é DECISÃO — navegação é volátil de propósito. É também quem fala com `/api/**`. |
 | `detalhe.tsx` | Um id → o conteúdo da Gaveta. O prefixo do id diz a entidade (`cl…` cliente, `pr…` profissional, `sv…` serviço, `cv…` conversa, `ag…` atendimento). |
 | `primitivos.tsx` | `s()` (string CSS → objeto de estilo), `Icon`, `Btn`, `Badge`, `Monogram`, `toast`, `fmt`… A base visual, usada também pelas landing pages. |
 | `useIsMobile.ts` | Um breakpoint, um hook. |
@@ -32,7 +32,7 @@ componentes perto do `app/`. Conceitualmente é irmão do `http/` e do futuro `w
 | `FluxoHoje.tsx` | O kanban do dia: chegando → atendendo → feito. |
 | `Agenda.tsx` | A grade (dia/semana/mês) com a agenda REAL do Google. Também define a janela desenhada (`AGENDA_INICIO`/`AGENDA_HORAS` — geometria de tela, não expediente). |
 | `Conversas.tsx` | As conversas de WhatsApp, do servidor (`st.conversas` / `st.threadDe`). Responder aqui manda mensagem de verdade. |
-| `Grades.tsx` | Clientes, equipe, catálogo, faturamento, "Mais". |
+| `Grades.tsx` | Clientes, equipe, catálogo, faturamento, "Mais". ⚠️ O **Faturamento tem dois vocabulários**, e quem escolhe é `st.fiscal.caminho`, nunca o estado das notas: quem atende como pessoa física não emite nota fiscal, e para ela o hero, a tabela e a gaveta de nota simplesmente não existem. Ver `vocabulario` e o teste ao lado. |
 | `AMaisa.tsx` | Os ajustes da assistente + preview de WhatsApp. |
 
 ## A dívida conhecida

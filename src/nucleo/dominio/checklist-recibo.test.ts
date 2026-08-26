@@ -17,7 +17,8 @@ import { describe, expect, it } from "vitest";
 import {
   EMAIL_RECEITA_SAUDE, LINK_CARNE_LEAO, LINK_ECAC_SERVICO, LINK_PROCURACAO,
   passosDaProcuracao,
-  checklistDoRecibo, faltaNoChecklist, seAindaRecusar,
+  AVISO_ASSINADOR,
+  checklistDoRecibo, faltaNoChecklist, partesDoChecklist, seAindaRecusar,
 } from "./checklist-recibo";
 import type { ConfigFiscal } from "./fiscal";
 
@@ -136,11 +137,15 @@ describe("★ o que está do outro lado do muro", () => {
     expect(passos[0]).toContain("Meu INSS");
   });
 
-  /* O ensaio também começa navegando — ele parte do mesmo lugar. */
+  /* O ensaio também começa navegando — ele parte do mesmo lugar.
+   *
+   * ⚠️ A NAVEGAÇÃO GANHOU PASSO PRÓPRIO em 25/08/2026. Antes ela vinha pendurada no fim do passo
+   * de entrar ("Entre com o gov.br — se não cair no Carnê-Leão, …"), e condicional escondida
+   * dentro de outra instrução é onde se perde quem está seguindo a lista com o dedo. */
   it("o ensaio começa navegando, não no botão de importar", () => {
     const passos = (item(carla(), "ensaio").passos ?? []);
-    expect(passos[0]).toContain("Acessar Carnê-Leão");
-    expect(passos).toContain("Clique em Importar Escrituração");
+    expect(passos[1]).toContain("Acessar Carnê-Leão");
+    expect(passos).toContain('Clique em "Importar Escrituração"');
   });
 
   /* ⚠️ O sintoma real, visto em 24/08/2026: ela clicou, foi para o login, tentou entrar e parou
@@ -293,7 +298,7 @@ describe("★ a procuração", () => {
   });
 });
 
-describe("★ os seis cliques da outorga", () => {
+describe("★ os onze cliques da outorga", () => {
   /* O TESTE QUE JUSTIFICA A FUNÇÃO. Ver o cabeçalho. */
   /* ⚠️ HÍFEN, NÃO TRAVESSÃO — e este teste já afirmou o contrário. A primeira versão copiava a
    * FAQ de um conselho, que escreve "–". A tela usa "-", e o passo manda a pessoa DIGITAR na
@@ -309,12 +314,55 @@ describe("★ os seis cliques da outorga", () => {
   /* ★ "Todos" é um atalho na mesma tela, e marcá-lo entrega poder sobre declaração, dívida e
    * pagamento da cliente por até cinco anos. O passo tem que desaconselhar em voz alta. */
   it("desaconselha a opção Todos", () => {
-    expect(passosDaProcuracao(PJ).join(" | ")).toContain('não use a opção "Todos"');
+    expect(passosDaProcuracao(PJ).join(" | ")).toContain('nunca a opção "Todos"');
   });
 
-  /* Buscar em vez de rolar: a lista tem dezenas de serviços e a busca reduz a uma linha. */
+  /* Buscar em vez de rolar: a lista tem dezenas de serviços e a busca reduz a uma linha.
+   *
+   * ⚠️ "carne", NÃO "carn". O tutorial da Rebots usa a palavra inteira, e é o que está
+   * verificado — cortar uma letra foi economia sem motivo numa busca cujo comportamento a gente
+   * não controla. Se ela voltar vazia, a conclusão da cliente é que a permissão não existe. */
   it("manda buscar, e diz o que digitar", () => {
-    expect(passosDaProcuracao(PJ).join(" | ")).toContain('digite "carn"');
+    expect(passosDaProcuracao(PJ).join(" | ")).toContain('Digite "carne" na busca');
+  });
+
+  /* ★ O RÓTULO INTEIRO, IGUAL AO DA CAIXA. Ela está comparando texto numa lista de dezenas de
+   * serviços: `IRPF - Carnê Leão Web (Cód. 00204)` se reconhece de relance; nome e código
+   * separados, em ordem diferente da tela, viram conferência de duas strings parecidas. */
+  it("marcar e conferir usam o rótulo exato da tela", () => {
+    const p = passosDaProcuracao(PJ);
+    const marcar = p.find((x) => x.startsWith("Marque"));
+    const conferir = p.find((x) => x.includes("Assinar"));
+    expect(marcar).toContain('"IRPF - Carnê Leão Web (Cód. 00204)"');
+    expect(conferir).toContain('"IRPF - Carnê Leão Web (Cód. 00204)"');
+  });
+
+  /* ★ UMA AÇÃO POR PASSO — a reclamação do Bruno em 25/08/2026, virada em regra.
+   *
+   * O passo que mais errava carregava CINCO cliques ("Em Serviços, digite … e marque só … — não
+   * use Todos"). O teste não consegue julgar clareza, mas consegue prender o sintoma: passo que
+   * manda clicar duas vezes tem dois "Clique em". */
+  it("nenhum passo empilha dois cliques", () => {
+    for (const passo of passosDaProcuracao(PJ)) {
+      expect(passo.match(/Clique em/g)?.length ?? 0).toBeLessThan(2);
+    }
+  });
+
+  /* ⚠️ A ORDEM ESTAVA ERRADA ATÉ 25/08/2026: "escolha a validade" era o quinto passo, DEPOIS dos
+   * serviços. Na tela a validade fica na primeira etapa, ao lado da pessoa autorizada — quem
+   * seguisse a lista chegava ao fim procurando um campo que já tinha passado. */
+  it("a validade vem antes dos serviços, como na tela", () => {
+    const p = passosDaProcuracao(PJ);
+    const validade = p.findIndex((x) => x.includes("Validade"));
+    const servicos = p.findIndex((x) => x.includes("Selecionar Serviços"));
+    expect(validade).toBeGreaterThan(-1);
+    expect(validade).toBeLessThan(servicos);
+  });
+
+  /* O campo se chama "Pessoa Autorizada" e a etapa se chama "Quem". A instrução dizia `Em
+   * "Pessoa"` — nome que não bate é nome que se procura. */
+  it("nomeia o campo como a tela o nomeia", () => {
+    expect(passosDaProcuracao(PJ).join(" | ")).toContain('Em "Pessoa Autorizada"');
   });
 
   it("mostra o documento formatado, do jeito que ela vai conferir na tela", () => {
@@ -342,5 +390,101 @@ describe("★ os seis cliques da outorga", () => {
     expect(LINK_PROCURACAO).not.toContain("eprocesso");
     expect(LINK_PROCURACAO).not.toContain("index/51");
     expect(item(comProcuracao("2026-08-01"), "procuracao").link?.url).toBe(LINK_PROCURACAO);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * ★ OS DOIS ASSUNTOS DO CHECKLIST
+ *
+ * Bruno, 25/08/2026: *"na mesma pagina temos nota fiscal, recibos, cadastro de dados etc. NN está
+ * legal e até eu que sei do que se trata estou CONFUSO"*.
+ *
+ * "Seu CPF" é um campo que a gente guarda e conserta num formulário; "Cadastro no Carnê-Leão" é
+ * uma tela do site da Receita que ninguém aqui alcança. Enfileirados com o mesmo desenho, os dois
+ * viravam a mesma coisa: uma lista de coisas erradas sem dizer de quem é a bola.
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+describe("★ o checklist parte em dois: o que é campo e o que é instrução", () => {
+  const partes = (c: ConfigFiscal) => partesDoChecklist(checklistDoRecibo(c, HOJE));
+
+  it("os três campos vão para 'meus dados'", () => {
+    expect(partes(carla()).meusDados.map((i) => i.id)).toEqual(["cpf", "profissao", "registro"]);
+  });
+
+  it("o que mora no site da Receita vai para o outro lado", () => {
+    expect(partes(carla()).noEcac.map((i) => i.id)).toEqual(["carne_leao", "ensaio"]);
+  });
+
+  /* Nenhum item pode sumir na partição: um checklist que perde uma linha no caminho é pior que
+   * um checklist confuso — a pendência some da tela e ninguém a resolve. */
+  it("junta tudo de volta, sem perder nem duplicar", () => {
+    const inteiro = checklistDoRecibo(carla({ procuradorDocumento: PJ }), HOJE);
+    const { meusDados, noEcac } = partesDoChecklist(inteiro);
+    expect([...meusDados, ...noEcac].map((i) => i.id).sort()).toEqual(inteiro.map((i) => i.id).sort());
+  });
+
+  /* ⚠️ O TESTE QUE PRENDE A REGRA CERTA. Tentador seria partir por `estado`: "o que é `falta` vai
+   * para o formulário". A autorização vencida também é `falta` e NÃO se resolve com um campo —
+   * resolve-se no site da Receita. Estado diz o que está errado; `id` diz de quem é a bola. */
+  it("autorização vencida é 'falta' e mesmo assim fica do lado do e-CAC", () => {
+    const c = carla({ procuradorDocumento: PJ, procuracaoValidaAte: "2026-01-01", procuracaoAceitaEm: "2025-06-01" });
+    const { meusDados, noEcac } = partesDoChecklist(checklistDoRecibo(c, HOJE));
+
+    expect(noEcac.find((i) => i.id === "procuracao")?.estado).toBe("falta");
+    expect(meusDados.some((i) => i.id === "procuracao")).toBe(false);
+    /* E o contador do formulário continua limpo: os campos dela estão todos preenchidos. */
+    expect(faltaNoChecklist(meusDados)).toBe(0);
+  });
+
+  /* O registro continua preenchido em `carla()`, então são DOIS — e o número importa: é ele que
+   * pinta o bloco de âmbar e escreve "Preencher meus dados" em vez de "Corrigir". */
+  it("sem CPF e sem profissão, a pendência é toda do formulário", () => {
+    const { meusDados, noEcac } = partes(carla({ prestadorCpf: null, ocupacaoSaude: null }));
+    expect(faltaNoChecklist(meusDados)).toBe(2);
+    expect(faltaNoChecklist(noEcac)).toBe(0);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * ★ O ASSINADOR SERPRO É RESSALVA, NUNCA PASSO
+ *
+ * Verificado nos dois sentidos em 25/08/2026: a página oficial do gov.br diz que conta prata ou
+ * ouro **basta** para cadastrar a autorização; o tutorial da Rebots chama o Assinador Serpro de
+ * "requisito essencial" porque o fluxo deles é por certificado digital. As duas coisas são
+ * verdade, para públicos diferentes.
+ *
+ * Como passo 12, ele manda a maioria instalar um programa que não vai usar — e um passo que não
+ * se aplica é o que faz alguém abandonar a lista no meio. Omitido, quem assina com certificado
+ * clica em "Assinar", **nada acontece**, e não existe nada na tela para procurar.
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+describe("★ a ressalva do certificado fica fora da lista numerada", () => {
+  const outorga = (c: ConfigFiscal) =>
+    checklistDoRecibo(c, HOJE).find((i) => i.id === "procuracao");
+
+  const vencida = carla({
+    procuradorDocumento: PJ, procuracaoValidaAte: "2026-01-01", procuracaoAceitaEm: "2025-06-01",
+  });
+
+  it("o item que mostra os passos também carrega o aviso", () => {
+    const i = outorga(vencida);
+    expect(i?.passos?.length).toBeGreaterThan(0);
+    expect(i?.aviso).toBe(AVISO_ASSINADOR);
+  });
+
+  /* O TESTE QUE JUSTIFICA O CAMPO: se um dia alguém "simplificar" jogando o aviso na lista, a
+   * instrução volta a mandar todo mundo abrir o Assinador. */
+  it("nenhum passo fala do Assinador", () => {
+    expect(passosDaProcuracao(PJ).join(" | ")).not.toContain("Assinador");
+  });
+
+  it("o aviso diz o que trava, e não só o que instalar", () => {
+    expect(AVISO_ASSINADOR).toContain("certificado digital");
+    expect(AVISO_ASSINADOR).toContain("Assinar");
+  });
+
+  /* Quem não outorgou não tem item nenhum — e portanto nenhum aviso sobre assinar coisa alguma. */
+  it("sem procuração, o item não existe", () => {
+    expect(outorga(carla())).toBeUndefined();
   });
 });

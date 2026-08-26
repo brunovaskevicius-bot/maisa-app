@@ -230,6 +230,15 @@ function AcaoPrimaria() {
   const dourado = "height:40px;padding:0 18px;border:none;border-radius:12px;background:var(--warm);color:var(--warm-ink);font-size:var(--t-sm);font-weight:var(--w-title);cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;text-decoration:none";
 
   if (st.tela === "faturamento") {
+    /* ⚠️ QUEM ATENDE COMO PESSOA FÍSICA NÃO EMITE NOTA FISCAL — e este era o "CTA lá em cima
+     * escrito emitir 14 notas" da reclamação de 25/08/2026. `emitiveis` conta clientes com valor
+     * fechado, não documentos possíveis: no caminho do recibo ele devolve os 14 do mês e a topbar
+     * prometia emiti-los em nota. A ação de verdade dela é gerar o arquivo, e mora no cartão do
+     * Faturamento, onde há espaço para dizer o que o arquivo faz.
+     *
+     * `carregando` também não mostra nada: piscar a promessa errada por meio segundo é a mesma
+     * mentira, mais curta. Ver `EstadoFiscalUI`. */
+    if (st.fiscal.status !== "ok" || st.fiscal.caminho === "recibo_saude") return null;
     // st.emitiveis: a MESMA lista que o hero mostra e que o lote emite. Esta topbar tinha a regra
     // duplicada à mão — e incluía "cancelada", que o lote não emite —, então prometia mais do que
     // entregava. A regra de negócio agora vive só no store.

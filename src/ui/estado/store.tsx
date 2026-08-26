@@ -20,6 +20,7 @@ import * as D from "@/adaptadores/saida/demo";
  * que o servidor não reconhece (ou manda antes dele). Ver as regras de import no LEIA-ME. */
 import { TELEFONE_MIN_DIGITOS, emailPlausivel, soDigitos } from "@/nucleo/dominio/clientes";
 import type { Canal } from "@/nucleo/dominio/canal";
+import type { CaminhoFiscal, ConfigFiscal } from "@/nucleo/dominio/fiscal";
 import type { Faq } from "@/nucleo/dominio/faq";
 import type { Faturamento } from "@/nucleo/portas/entrada/casos-de-uso";
 
@@ -702,6 +703,12 @@ export type StoreValue = {
   filtroCli: string;
   setFiltroCli: (f: string) => void;
 
+  /* qual documento este negócio emite */
+  /** Nota fiscal, recibo do Receita Saúde, ou ainda não sabemos. Ver `EstadoFiscalUI`. */
+  fiscal: EstadoFiscalUI;
+  /** Guarda o que uma rota de `/api/fiscal` devolveu. Os cartões chamam depois de gravar. */
+  aplicarFiscal: (bruto: unknown) => void;
+
   /* nota fiscal */
   notaDe: (clienteId: string) => D.Nota;
   emitirNota: (clienteId: string) => void;
@@ -850,6 +857,35 @@ export type EstadoAgendaGoogle = {
   info?: string;
   /** Já houve pelo menos uma leitura bem-sucedida? Separa "vazio" de "ainda não sei". */
   jaLeu: boolean;
+};
+
+/**
+ * ★ QUAL DOCUMENTO ESTE NEGÓCIO EMITE — e por que isto virou estado do store em 25/08/2026.
+ *
+ * A reclamação do Bruno: *"O CTA lá em cima ainda esta escrito emitir 14 notas mesmo depois de eu
+ * ter escolhido o modo de recibos"*.
+ *
+ * O `caminho` vinha de `/api/fiscal`, e quem o lia eram os DOIS CARTÕES do Faturamento, cada um
+ * com o seu `fetch` — ninguém mais. O hero da tela e o botão dourado da topbar não tinham como
+ * saber, então falavam de nota fiscal para todo mundo. Quem atende como pessoa física **nunca
+ * emite nota fiscal**: o botão não estava com o texto errado, estava prometendo um documento que
+ * não existe para ela.
+ *
+ * Aqui em cima, os quatro lugares leem a mesma resposta e param de divergir. De quebra, trocar de
+ * tipo de documento deixa de precisar de `window.location.reload()`.
+ *
+ * ⚠️ `carregando` NÃO É "nota fiscal". Enquanto a resposta não chega, ninguém promete verbo
+ * nenhum — piscar "Emitir 14 notas" por meio segundo e sumir é a mesma mentira, mais curta.
+ */
+export type EstadoFiscalUI = {
+  status: "carregando" | "ok" | "erro";
+  /** `null` até saber. Nunca chute. */
+  caminho: CaminhoFiscal | null;
+  config: ConfigFiscal | null;
+  /** O que falta para emitir, em português — vem de `fiscalFaltando`. */
+  falta: string[];
+  /** Variáveis de ambiente do emissor que faltam. Problema nosso, não do dono. */
+  provedorFaltando: string[];
 };
 
 /** O que a UI precisa saber sobre a integração antes de oferecer qualquer botão. */
@@ -3010,6 +3046,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     void enviarAjustes();
   }, [enviarAjustes]);
 
+  /* ── qual documento este negócio emite ──
+   * Uma leitura de `/api/fiscal`, e os quatro lugares que precisam dela leem daqui: o hero do
+   * Faturamento, o botão dourado da topbar e os dois cartões. Ver `EstadoFiscalUI`. */
+
+  const [fiscal, setFiscal] = useState<EstadoFiscalUI>({
+    status: "carregando", caminho: null, config: null, falta: [], provedorFaltando: [],
+  });
+
+  /** Traduz a resposta crua da rota para o estado da tela. Uma só, para as escritas e a leitura
+   *  não divergirem — todo método de `/api/fiscal` devolve o mesmo envelope. */
+  const aplicarFiscal = useCallback((bruto: unknown) => {
+    const d = bruto as { ok?: boolean; caminho?: CaminhoFiscal; config?: ConfigFiscal; falta?: string[]; provedorFaltando?: string[] } | null;
+    if (!d?.ok || !d.caminho) { setFiscal((v) => ({ ...v, status: "erro" })); return; }
+    setFiscal({
+      status: "ok",
+      caminho: d.caminho,
+      config: d.config ?? null,
+      falta: Array.isArray(d.falta) ? d.falta : [],
+      provedorFaltando: Array.isArray(d.provedorFaltando) ? d.provedorFaltando : [],
+    });
+  }, []);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const d = await fetch("/api/fiscal", { cache: "no-store" }).then((x) => x.json());
+        if (vivo) aplicarFiscal(d);
+      } catch {
+        /* `erro`, e não `ok` com caminho chutado: sem saber o caminho, as telas escondem os
+         * verbos em vez de inventar um. Ver `EstadoFiscalUI`. */
+        if (vivo) setFiscal((v) => ({ ...v, status: "erro" }));
+      }
+    })();
+    return () => { vivo = false; };
+  }, [aplicarFiscal]);
+
   /* ── google calendar ──
    * Duas metades bem separadas: a CONEXÃO (tokens) vive no Supabase e é consultada
    * do servidor; o VÍNCULO evento↔agendamento vive aqui no localStorage, porque o
@@ -3495,6 +3568,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, setFiltroSvc, filtroCli, setFiltroCli,
+    fiscal, aplicarFiscal,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,
@@ -3524,6 +3598,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, filtroCli,
+    fiscal, aplicarFiscal,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
     secAtiva, abrirSecao,

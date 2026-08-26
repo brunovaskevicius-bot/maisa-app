@@ -11,7 +11,7 @@ import React from "react";
 import { s, Icon, fmt, fmtK, Filtros, EmptyState, Tabela, CelulaNome, Badge, SectionTitle, Btn, Monogram } from "@/ui/primitivos";
 import * as D from "@/adaptadores/saida/demo";
 import { useIsMobile, useEstreita } from "@/ui/useIsMobile";
-import { useStore, type TelaId } from "@/ui/estado/store";
+import { useStore, type LinhaDeFaturamento, type TelaId } from "@/ui/estado/store";
 import { Cartao, GradeCartoes, Hero, TelaGrade, type TomTag } from "@/ui/componentes/Cartao";
 import { LigarNotaFiscal } from "@/ui/componentes/LigarNotaFiscal";
 import { LoteReceitaSaude } from "../componentes/LoteReceitaSaude";
@@ -46,6 +46,37 @@ function resumoNota(n: D.Nota): string {
   if (n.status === "cancelada") return "Nota cancelada. O valor do mês continua fechado.";
   if (n.status === "erro") return n.erro ?? "A emissão falhou.";
   return "Valor do mês fechado. Falta emitir a nota.";
+}
+
+/**
+ * ★ ESTA TELA TEM DOIS VOCABULÁRIOS, E QUEM ESCOLHE É O `caminho` — NUNCA O ESTADO DAS NOTAS.
+ *
+ * Bruno, 25/08/2026: *"O CTA lá em cima ainda esta escrito emitir 14 notas mesmo depois de eu ter
+ * escolhido o modo de recibos"*.
+ *
+ * Quem atende como pessoa física **não emite nota fiscal em hipótese nenhuma** — emite Recibo
+ * Eletrônico de Serviços de Saúde, dentro do e-CAC, e a MAISA não tem verbo nisso (ver
+ * `LoteReceitaSaude`). Para ela, `st.notaDe(c)` responde `pendente` para todo cliente e responde
+ * para sempre: não existe nota que possa sair. Traduzido em tela, isso virava um hero anunciando
+ * "14 a emitir", um botão dourado na topbar prometendo emiti-las, uma coluna "Nota" eternamente
+ * em "—" e uma gaveta com "Prévia da nota". Quatro superfícies falando de um documento que não
+ * existe naquele negócio.
+ *
+ * ⚠️ NÃO CONSERTE ISSO OLHANDO PARA `emitiveis.length === 0`. Um mês legitimamente fechado também
+ * dá zero, e aí o hero deve dizer "Mês fechado" — que é verdade para o CNPJ e mentira para a
+ * pessoa física, que tem 14 recibos por emitir logo abaixo. As duas perguntas são diferentes:
+ * "sobrou algo?" e "que documento este negócio emite?".
+ */
+type Vocabulario = {
+  /** Só no caminho da nota fiscal a tela tem verbo de emitir. */
+  emiteNota: boolean;
+  /** Enquanto não sabemos, nenhum verbo aparece — nem o certo, nem o errado. */
+  sabemos: boolean;
+};
+
+export function vocabulario(fiscal: { status: string; caminho: string | null }): Vocabulario {
+  const sabemos = fiscal.status === "ok";
+  return { sabemos, emiteNota: sabemos && fiscal.caminho !== "recibo_saude" };
 }
 
 /* ═══════════════════════════════ CLIENTES ═══════════════════════════════ */
@@ -121,28 +152,42 @@ export function Faturamento() {
   const noLote = st.emitiveis;
   const total = base.reduce((a, c) => a + c.valor, 0);
 
+  /* ★ O vocabulário da tela inteira sai daqui. Ver `vocabulario` — e leia o aviso lá antes de
+     "simplificar" qualquer condição abaixo para `noLote.length`. */
+  const voz = vocabulario(st.fiscal);
+  const semCpf = base.filter((c) => c.semCpf).length;
+
   return (
     <TelaGrade>
       <Hero
         rotulo={D.PERIODO}
         valor={fmt(total)}
         sub={`em ${base.length} clientes`}
-        marcos={[
-          { n: emitidas.length, label: "emitidas", tom: "success" },
-          { n: processando.length, label: "processando", tom: "primary" },
-          { n: noLote.length, label: "a emitir", tom: "warn" },
-          // cancelada tem marco PRÓPRIO: não é "a emitir" (o lote não a emite) nem "emitida".
-          // Antes ela era somada em "a emitir", que é a origem do número que não fechava.
-          ...(canceladas.length ? [{ n: canceladas.length, label: "canceladas", tom: "neutral" as const }] : []),
-        ]}
-        acao={noLote.length > 0
+        /* No caminho do recibo os marcos falam do MÊS, e não de documentos: os documentos são o
+           assunto do cartão logo abaixo, e ele os conta com o dado certo (`/api/recibos`). Repetir
+           aqui um contador de notas — que para ela é sempre zero-e-catorze-pendentes — era a fonte
+           do número que não fechava. */
+        marcos={voz.emiteNota
+          ? [
+            { n: emitidas.length, label: "emitidas", tom: "success" },
+            { n: processando.length, label: "processando", tom: "primary" },
+            { n: noLote.length, label: "a emitir", tom: "warn" },
+            // cancelada tem marco PRÓPRIO: não é "a emitir" (o lote não a emite) nem "emitida".
+            // Antes ela era somada em "a emitir", que é a origem do número que não fechava.
+            ...(canceladas.length ? [{ n: canceladas.length, label: "canceladas", tom: "neutral" as const }] : []),
+          ]
+          : [
+            { n: base.reduce((a, c) => a + c.atendimentos, 0), label: "atendimentos", tom: "primary" as const },
+            ...(semCpf ? [{ n: semCpf, label: "sem CPF", tom: "warn" as const }] : []),
+          ]}
+        acao={voz.emiteNota && noLote.length > 0
           ? {
             label: noLote.length === 1 ? "Emitir a nota pendente" : `Emitir as ${noLote.length} pendentes`,
             icon: "receipt",
             onClick: st.pedirLote,
           }
           : undefined}
-        pronto={noLote.length === 0 && processando.length === 0 ? "Mês fechado" : undefined}
+        pronto={voz.emiteNota && noLote.length === 0 && processando.length === 0 ? "Mês fechado" : undefined}
       />
 
       {/* Acima da lista de propósito: enquanto a nota fiscal não está ligada, todo botão de
@@ -163,6 +208,25 @@ export function Faturamento() {
           {base.map((c) => {
             const nota = st.notaDe(c.id);
             const tag = TAG_NOTA[nota.status];
+            /* ⚠️ No caminho do recibo o cartão perde o selo e a gaveta de nota — e o clique vai
+               para a FICHA do cliente. `nf-…` abre uma gaveta que se chama "Prévia da nota" e
+               oferece "Emitir de novo": o documento errado, na tela de quem não o emite. */
+            if (!voz.emiteNota) {
+              return (
+                <Cartao
+                  key={c.id}
+                  dot={c.semCpf ? "warn" : "neutral"}
+                  titulo={c.nome}
+                  sub={c.semCpf
+                    ? "Falta o CPF — sem ele o recibo não sai"
+                    : `${c.atendimentos} atendimentos · ${c.servico ?? st.nomeServico(c.servicoId)}`}
+                  meta={fmt(c.valor)}
+                  onClick={() => st.abrir(c.id)}
+                  resumo={`${c.atendimentos} atendimentos em ${D.PERIODO} · ${fmt(c.valor)}`}
+                  chips={[c.cpf ? `CPF ${c.cpf}` : "sem CPF", c.canal]}
+                />
+              );
+            }
             return (
               <Cartao
                 key={c.id}
@@ -187,13 +251,15 @@ export function Faturamento() {
           linhas={base}
           chaveDe={(c) => c.id}
           estreita={estreita}
-          onLinha={(c) => st.abrir(`nf-${c.id}`)}
-          rotuloLinha={(c) => `${c.nome}, ${fmt(c.valor)}, ${TAG_NOTA[st.notaDe(c.id).status].label}, abrir nota`}
+          onLinha={(c) => st.abrir(voz.emiteNota ? `nf-${c.id}` : c.id)}
+          rotuloLinha={(c) => voz.emiteNota
+            ? `${c.nome}, ${fmt(c.valor)}, ${TAG_NOTA[st.notaDe(c.id).status].label}, abrir nota`
+            : `${c.nome}, ${fmt(c.valor)}, abrir ficha`}
           colunas={[
             {
               chave: "nome", label: "Cliente", largura: "minmax(0,1.7fr)",
               ordenar: (c) => c.nome,
-              celula: (c) => <CelulaNome nome={c.nome} seed={c.id} sub={c.teste ? "tomador de teste fiscal" : c.semCpf ? "sem CPF — não entra no lote" : (c.servico ?? st.nomeServico(c.servicoId))} />,
+              celula: (c) => <CelulaNome nome={c.nome} seed={c.id} sub={c.teste ? "tomador de teste fiscal" : c.semCpf ? (voz.emiteNota ? "sem CPF — não entra no lote" : "sem CPF — fica fora do arquivo") : (c.servico ?? st.nomeServico(c.servicoId))} />,
             },
             {
               chave: "atend", label: "Atend.", num: true, largura: "90px", secundaria: true,
@@ -205,9 +271,13 @@ export function Faturamento() {
               ordenar: (c) => c.valor,
               celula: (c) => fmt(c.valor),
             },
+            /* ⚠️ AS DUAS COLUNAS DE NOTA SÓ EXISTEM NO CAMINHO DA NOTA. Para a pessoa física elas
+               eram um "—" e um selo "a emitir" em toda linha, todo mês, para sempre — uma coluna
+               inteira afirmando que há trabalho pendente de um documento que ela não emite. */
+            ...(!voz.emiteNota ? [] : [
             {
               chave: "nota", label: "Nota", largura: "minmax(0,1.1fr)", secundaria: true,
-              celula: (c) => {
+              celula: (c: LinhaDeFaturamento) => {
                 const n = st.notaDe(c.id);
                 return (
                   <span style={s(`min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${n.status === "erro" ? "var(--danger)" : "var(--muted)"}`)}>
@@ -223,12 +293,13 @@ export function Faturamento() {
             {
               chave: "estado", label: "Estado", largura: "140px",
               // ordena pelo que PEDE AÇÃO primeiro: erro, a emitir, processando, cancelada, emitida
-              ordenar: (c) => ORDEM_ACAO[st.notaDe(c.id).status],
-              celula: (c) => {
+              ordenar: (c: LinhaDeFaturamento) => ORDEM_ACAO[st.notaDe(c.id).status],
+              celula: (c: LinhaDeFaturamento) => {
                 const t = TAG_NOTA[st.notaDe(c.id).status];
                 return <Badge tone={t.tom} dot>{t.label}</Badge>;
               },
             },
+            ]),
           ]}
         />
       )}

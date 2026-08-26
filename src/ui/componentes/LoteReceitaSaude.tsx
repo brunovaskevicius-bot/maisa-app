@@ -33,7 +33,7 @@ import { useStore } from "@/ui/estado/store";
 import { cpfValido } from "@/nucleo/dominio/clientes";
 import {
   CONSELHO, LINK_CARNE_LEAO, NOME_DA_OCUPACAO, checklistDoRecibo, faltaNoChecklist,
-  seAindaRecusar,
+  partesDoChecklist, seAindaRecusar,
   type ItemDoChecklist,
 } from "@/nucleo/dominio/checklist-recibo";
 import type { OcupacaoSaude } from "@/nucleo/dominio/recibo-saude";
@@ -91,9 +91,21 @@ function ItemChecklist({ item }: { item: ItemDoChecklist }) {
         </span>
 
         {item.passos && (
-          <ol style={s("margin:2px 0 0;padding-left:17px;display:grid;gap:4px;font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+          /* `gap:6px` e não 4: uma ação por passo deixou a lista mais longa, e linhas de uma
+             frase coladas viram parágrafo — que é o oposto de lista de conferência. */
+          <ol style={s("margin:2px 0 0;padding-left:17px;display:grid;gap:6px;font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
             {item.passos.map((passo) => <li key={passo}>{passo}</li>)}
           </ol>
+        )}
+
+        {/* ⚠️ A RESSALVA VEM DEPOIS DA LISTA E FORA DELA, de propósito — ver `aviso` no domínio.
+            Como passo numerado, ela mandaria todo mundo instalar o Assinador Serpro; aqui embaixo,
+            só é lida por quem chegou ao fim e o botão não concluiu. */}
+        {item.aviso && (
+          <span style={s("display:flex;gap:7px;margin-top:4px;font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+            <span style={s("flex-shrink:0;margin-top:2px")}><Icon name="alert" size={13} sw={2.2} /></span>
+            <span>{negritar(item.aviso)}</span>
+          </span>
         )}
 
         {item.link && (
@@ -188,6 +200,64 @@ export function pagamentosNaTela<T extends { cpf?: string | null }>(
   return { dobravel, visiveis: dobravel && !aberta ? todos.filter((p) => !p.cpf) : todos };
 }
 
+/** "a", "a e b", "a, b e c". Uma frase, não uma lista de bullets, porque é meia linha de texto. */
+function juntar(xs: string[]): string {
+  if (xs.length <= 1) return xs[0] ?? "";
+  return `${xs.slice(0, -1).join(", ")} e ${xs[xs.length - 1]}`;
+}
+
+/**
+ * A LINHA QUE RESUME "SOB QUAIS DADOS OS RECIBOS SAEM" — pronta ou pendente.
+ *
+ * ★ Existe porque o "Preencher meus dados" estava enterrado. Bruno, 25/08/2026: *"o Preencher
+ * meus dados nn está com a mesma importância que deveria ter (tem que scrollar para mudar os
+ * dados)"* — eram quatro ações até o campo (rolar, abrir o acordeão, rolar, achar o botão).
+ *
+ * Agora o bloco é o primeiro do cartão, e precisava de uma frase curta: cheia, ela diz o que está
+ * gravado; vazia, ela diz o que falta, com o nome do campo que a pessoa vai procurar.
+ */
+export function resumoDosDados(
+  c: Pick<ConfigFiscal, "prestadorCpf" | "ocupacaoSaude" | "registroProfissional">,
+  itens: ItemDoChecklist[],
+): string {
+  /* ⚠️ Só a PRIMEIRA letra em minúscula. `toLowerCase()` no título inteiro devolve "seu crp" e
+   * "seu cpf" — as siglas são o nome do campo que ela vai procurar, e escrevê-las torto é a
+   * diferença entre uma frase escrita por gente e uma concatenação. */
+  const falta = itens
+    .filter((i) => i.estado === "falta")
+    .map((i) => i.titulo.charAt(0).toLowerCase() + i.titulo.slice(1));
+  if (falta.length) return `Falta ${juntar(falta)} — é o que vai em todas as linhas do arquivo.`;
+
+  const cpf = String(c.prestadorCpf ?? "").replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
+  const profissao = c.ocupacaoSaude ? NOME_DA_OCUPACAO[c.ocupacaoSaude as OcupacaoSaude] : null;
+  const registro = String(c.registroProfissional ?? "").trim();
+  return [cpf ? `CPF ${cpf}` : null, profissao, registro || null].filter(Boolean).join(" · ");
+}
+
+/**
+ * ★ O RÓTULO DO BOTÃO DIZ QUE ARQUIVO É, E PARA QUANTOS RECIBOS.
+ *
+ * Bruno, 25/08/2026: *"o gerar arquivo nn está com um texto claro do que ele faz (gerar o arquivo
+ * que vai ser usado para fazer os recibos do mes... só que menos longo)"*.
+ *
+ * "Gerar arquivo do mês" não diz que arquivo nem para quê — e num cartão que fala de e-CAC, CSV,
+ * Carnê-Leão e CPF, "do mês" é a palavra menos informativa disponível. O número é o que torna a
+ * promessa verificável: se saírem 11 e o botão dizia 14, dá para perceber.
+ *
+ * ⚠️ `null` = a lista ainda não chegou. O rótulo genérico é a única frase honesta aí — inventar
+ * uma contagem que muda meio segundo depois é pior que não contar.
+ */
+export function rotuloDeGerar(quantos: number | null): string {
+  if (quantos === null) return "Gerar o arquivo do mês";
+  if (quantos === 1) return "Gerar o arquivo de 1 recibo";
+  return `Gerar o arquivo dos ${quantos} recibos`;
+}
+
+/** Quantos pagamentos de fato entram no arquivo. Os sem CPF ficam de fora — a Receita recusa. */
+export function entramNoArquivo(p: RecibosPendentes | null): number | null {
+  return p ? Math.max(p.pagamentos.length - p.semCpf, 0) : null;
+}
+
 const CAMPO = "font-family:inherit;font-size:var(--t-sm);padding:10px 12px;border-radius:11px;border:1px solid var(--border);background:var(--bg);color:var(--ink);width:100%";
 
 export function LoteReceitaSaude() {
@@ -205,14 +275,18 @@ export function LoteReceitaSaude() {
    */
   const st = useStore();
   const clientes = st.cadastro.clientes;
-  /* `null` = ainda não sabemos o caminho; `false` = não é este negócio. Os dois somem da tela,
-   * e piscar o cartão antes de saber seria oferecer recibo a um barbeiro MEI. */
-  const [ehRecibo, setEhRecibo] = useState<boolean | null>(null);
-  const [falta, setFalta] = useState<string[]>([]);
-  const [cpfEmissor, setCpfEmissor] = useState<string | null>(null);
-  /* A config inteira, para o checklist. Já vinha na mesma resposta — só era descartada. */
-  const [config, setConfig] = useState<ConfigFiscal | null>(null);
-  const [checklistAberto, setChecklistAberto] = useState(false);
+  /* ⚠️ O ESTADO FISCAL VEM DO STORE DESDE 25/08/2026, e não de um `fetch` daqui de dentro. O
+   * custo do `fetch` próprio nunca foi a requisição repetida: era o hero do Faturamento e o botão
+   * dourado da topbar não terem como saber o caminho, e por isso prometerem nota fiscal a quem
+   * emite recibo. Ver `EstadoFiscalUI` no store.
+   *
+   * `carregando` e `erro` escondem o cartão, como antes: piscá-lo antes de saber seria oferecer
+   * recibo de saúde a um barbeiro MEI. */
+  const ehRecibo = st.fiscal.status === "ok" && st.fiscal.caminho === "recibo_saude";
+  const config = st.fiscal.config;
+  const falta = st.fiscal.falta;
+  /* `null` = ninguém tocou; aí quem decide é a pendência. Ver `ecacAberto`. */
+  const [checklistAberto, setChecklistAberto] = useState<boolean | null>(null);
   /* ── ★ EDITAR OS PRÓPRIOS DADOS, e o motivo de existir é um buraco de navegação ──
    *
    * CPF, profissão e registro só eram graváveis no onboarding (`LigarNotaFiscal`), e aquela
@@ -260,24 +334,8 @@ export function LoteReceitaSaude() {
     }
   }, []);
 
-  useEffect(() => {
-    let vivo = true;
-    (async () => {
-      try {
-        const r = await fetch("/api/fiscal", { cache: "no-store" }).then((x) => x.json());
-        if (!vivo) return;
-        const recibo = r?.caminho === "recibo_saude";
-        setEhRecibo(recibo);
-        setFalta(Array.isArray(r?.falta) ? r.falta : []);
-        setCpfEmissor(typeof r?.config?.prestadorCpf === "string" ? r.config.prestadorCpf : null);
-        setConfig(r?.config ?? null);
-        if (recibo) void lerPendentes();
-      } catch {
-        if (vivo) setEhRecibo(false);
-      }
-    })();
-    return () => { vivo = false; };
-  }, [lerPendentes]);
+  /* A lista de pendentes só faz sentido neste caminho — e só depois de saber que é ele. */
+  useEffect(() => { if (ehRecibo) void lerPendentes(); }, [ehRecibo, lerPendentes]);
 
   const abrirDados = () => {
     setFCpf(mascaraCpf(config?.prestadorCpf ?? ""));
@@ -316,16 +374,14 @@ export function LoteReceitaSaude() {
         }),
       }).then((x) => x.json());
       if (!r?.ok) throw new Error(mensagemDaFalha(r, "Não consegui salvar seus dados."));
-      setConfig(r.config ?? null);
-      setFalta(Array.isArray(r.falta) ? r.falta : []);
-      setCpfEmissor(typeof r.config?.prestadorCpf === "string" ? r.config.prestadorCpf : null);
+      st.aplicarFiscal(r);
       setEditando(false);
     } catch (e) {
       setErroDados(e instanceof Error ? e.message : "Não consegui salvar seus dados.");
     } finally {
       setSalvando(false);
     }
-  }, [fCpf, fOcupacao, fRegistro, fProc, fProcAte, fProcAceita, config]);
+  }, [fCpf, fOcupacao, fRegistro, fProc, fProcAte, fProcAceita, config, st]);
 
   const gerar = useCallback(async () => {
     setOcupado(true);
@@ -450,10 +506,11 @@ export function LoteReceitaSaude() {
   /**
    * Trocar o tipo de documento — a saída de quem escolheu errado.
    *
-   * ⚠️ RECARREGA A PÁGINA no sucesso, e é escolha, não preguiça. Este cartão e o
-   * `LigarNotaFiscal` são componentes independentes, cada um com o seu `fetch` de
-   * `/api/fiscal`. Desligar aqui esconderia este sem acordar o outro, e a tela ficaria sem
-   * nenhum dos dois. No dia em que o estado fiscal morar no store, isto vira um `setEstado`.
+   * ★ ERA UM `window.location.reload()`, e o comentário de então dizia: "no dia em que o estado
+   * fiscal morar no store, isto vira um `setEstado`". O dia foi 25/08/2026. Este cartão e o
+   * `LigarNotaFiscal` liam `/api/fiscal` cada um por conta própria, então desligar aqui escondia
+   * este sem acordar o outro e a tela ficava sem nenhum dos dois — recarregar era o conserto
+   * mais barato. Agora os dois leem o mesmo estado, e a troca acontece no mesmo tick.
    */
   const trocar = async () => {
     setOcupado(true);
@@ -461,9 +518,10 @@ export function LoteReceitaSaude() {
     try {
       const r = await fetch("/api/fiscal", { method: "DELETE" }).then((x) => x.json());
       if (!r?.ok) throw new Error(mensagemDaFalha(r, "Não consegui trocar agora."));
-      window.location.reload();
+      st.aplicarFiscal(r);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não consegui trocar agora.");
+    } finally {
       setOcupado(false);
     }
   };
@@ -505,7 +563,19 @@ export function LoteReceitaSaude() {
   /* Calculado na hora: é função pura sobre a config que já está em memória. Não vale uma rota
    * nem um estado — e um `useMemo` aqui só esconderia que a conta é de três `if`. */
   const checklist = config ? checklistDoRecibo(config, hojeISO()) : [];
-  const pendencias = faltaNoChecklist(checklist);
+  /* ★ DOIS ASSUNTOS, DOIS BLOCOS. Ver `partesDoChecklist`: o que é dado nosso vira formulário
+   * aqui em cima, o que acontece no site da Receita vira instrução lá embaixo. */
+  const { meusDados, noEcac } = partesDoChecklist(checklist);
+  const faltaMeusDados = faltaNoChecklist(meusDados);
+  const faltaNoEcac = faltaNoChecklist(noEcac);
+  /* ⚠️ `falta` (de `fiscalFaltando`) é o que IMPEDE gerar — CPF e profissão. O registro do
+   * conselho também aparece como pendência e NÃO impede: pintar o bloco de amarelo por causa
+   * dele mandaria a pessoa parar o fechamento do mês por um campo que não trava nada. */
+  const bloqueia = falta.length > 0;
+  /* Aberto por conta própria quando há pendência do outro lado do muro. Autorização vencida
+   * dentro de um acordeão fechado é a pior forma de dar a única notícia que para a emissão. */
+  const ecacAberto = checklistAberto ?? faltaNoEcac > 0;
+  const entram = entramNoArquivo(pendentes);
 
   /* ── ★ A LISTA LONGA NÃO SOME INTEIRA: SOBRA O QUE PRECISA DE AÇÃO ──
    *
@@ -519,159 +589,180 @@ export function LoteReceitaSaude() {
   return (
     <Card style={{ display: "grid", gap: 14 }}>
       <SectionTitle
-        title="Recibos do mês — Receita Saúde"
+        title="Recibos do mês"
         sub="A MAISA monta o arquivo. Quem emite e assina é você, no e-CAC."
       />
 
-      {/* ── ★ O "PRONTO PARA EMITIR?" ──
-          Existe porque o e-CAC recusa DEPOIS da viagem, em vocabulário de Receita. Os dois
-          erros mais comuns ("Ocupação não cadastrada", "Registro profissional não informado
-          pelo conselho") nascem do cadastro dela no Carnê-Leão — que a gente não alcança e não
-          pode fingir que checou. Ver `checklistDoRecibo`. */}
-      {checklist.length > 0 && (
+      {/* ── ★ BLOCO 1 — SEUS DADOS, e ele é o PRIMEIRO do cartão por causa de uma reclamação ──
+          Bruno, 25/08/2026: *"o Preencher meus dados nn está com a mesma importância que deveria
+          ter (tem que scrollar para mudar os dados)"*. O botão morava dentro do acordeão de
+          checklist, fechado por padrão, depois da lista de pacientes — quatro ações até um campo
+          que a própria tela cobrava. Agora o conserto está onde a cobrança é feita, e a cobrança
+          é a primeira coisa que se lê. */}
+      {config && (
+        <div style={s(`display:grid;gap:10px;padding:13px 15px;border-radius:13px;border:1px solid ${bloqueia ? "var(--warn)" : "var(--border)"};background:${bloqueia ? "var(--warn-soft)" : "var(--bg)"}`)}>
+          {!editando ? (
+            <div style={s("display:flex;gap:11px;align-items:center;flex-wrap:wrap")}>
+              <span style={s(`flex-shrink:0;display:flex;color:${bloqueia ? "var(--warn)" : faltaMeusDados > 0 ? "var(--muted)" : "var(--brand)"}`)}>
+                <Icon name={faltaMeusDados > 0 ? "alert" : "check"} size={17} sw={2.3} />
+              </span>
+              <span style={s("flex:1;min-width:170px;display:grid;gap:3px")}>
+                <strong style={s("font-size:var(--t-sm);color:var(--ink)")}>Seus dados</strong>
+                <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.5")}>
+                  {resumoDosDados(config, meusDados)}
+                </span>
+              </span>
+              {/* Primário só quando IMPEDE gerar. O registro do conselho é pendência sem ser
+                  bloqueio, e um botão âmbar por causa dele faria parar o mês à toa. */}
+              <Btn variant={bloqueia ? "primary" : "ghost"} icon="edit" onClick={abrirDados}>
+                {faltaMeusDados > 0 ? "Preencher meus dados" : "Corrigir"}
+              </Btn>
+            </div>
+          ) : (
+            <div style={s("display:grid;gap:9px")}>
+              <span style={s("font-size:var(--t-label);color:var(--muted)")}>
+                É o que vai no arquivo em todas as linhas. Muda quando você quiser — não
+                mexe nos recibos que já saíram.
+              </span>
+
+              <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                Seu CPF — o mesmo com que você entra no gov.br
+                <input
+                  value={fCpf}
+                  onChange={(e) => setFCpf(mascaraCpf(e.target.value))}
+                  inputMode="numeric"
+                  placeholder="000.000.000-00"
+                  className="n m-focus"
+                  style={s(CAMPO)}
+                />
+              </label>
+
+              <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                Sua profissão
+                {/* As seis da Receita, lidas do domínio: lista própria aqui daria um rótulo
+                    na tela e outro no arquivo para o mesmo código. */}
+                <select
+                  value={fOcupacao}
+                  onChange={(e) => setFOcupacao(e.target.value as OcupacaoSaude)}
+                  className="n m-focus"
+                  style={s(CAMPO)}
+                >
+                  {(Object.keys(NOME_DA_OCUPACAO) as OcupacaoSaude[]).map((o) => (
+                    <option key={o} value={o}>{NOME_DA_OCUPACAO[o]}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                Seu {CONSELHO[fOcupacao]} — não bloqueia gerar o arquivo
+                <input
+                  value={fRegistro}
+                  onChange={(e) => setFRegistro(e.target.value)}
+                  placeholder={`${CONSELHO[fOcupacao]} 00/000000`}
+                  maxLength={15}
+                  className="n m-focus"
+                  style={s(CAMPO)}
+                />
+              </label>
+
+              {/* ── ★ QUEM EMITE POR ELA ──
+                  Dois campos e um sim/não, e os três só existem porque a Receita exige que
+                  a autorização venha DELA e o aceite venha de NÓS. O terceiro é operado
+                  pela MAISA, não pela cliente — está escrito no rótulo, porque campo que
+                  parece do usuário e não é vira dado errado. */}
+              <div style={s("display:grid;gap:9px;padding-top:9px;border-top:1px solid var(--border)")}>
+                <strong style={s("font-size:var(--t-sm);color:var(--ink)")}>Quem emite por você</strong>
+
+                <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                  CPF ou CNPJ de quem você autorizou no site da Receita
+                  <input
+                    value={fProc}
+                    onChange={(e) => setFProc(e.target.value)}
+                    inputMode="numeric"
+                    placeholder="deixe vazio se você mesma emite"
+                    className="n m-focus"
+                    style={s(CAMPO)}
+                  />
+                </label>
+
+                <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
+                  Até quando a autorização vale
+                  <input
+                    value={fProcAte}
+                    onChange={(e) => setFProcAte(e.target.value)}
+                    type="date"
+                    className="n m-focus"
+                    style={s(CAMPO)}
+                  />
+                </label>
+
+                <label style={s("display:flex;gap:9px;align-items:flex-start;font-size:var(--t-label);color:var(--muted);cursor:pointer")}>
+                  <input
+                    type="checkbox"
+                    checked={fProcAceita}
+                    onChange={(e) => setFProcAceita(e.target.checked)}
+                    style={s("margin-top:2px")}
+                  />
+                  <span>
+                    <strong style={s("color:var(--ink)")}>A MAISA já confirmou no e-CAC.</strong>{" "}
+                    Quem marca isto somos nós, depois de aceitar a autorização na aba
+                    Recebidas — antes disso a Receita não deixa emitir.
+                  </span>
+                </label>
+              </div>
+
+              {erroDados && (
+                <span style={s("font-size:var(--t-label);color:var(--warn)")}>{erroDados}</span>
+              )}
+
+              {/* `Btn` não tem `disabled`, e a convenção da casa é o rótulo mudar — igual
+                  ao "Montando…" do botão de gerar. Clicar duas vezes aqui é inofensivo: são
+                  os mesmos três campos, e gravá-los de novo dá o mesmo resultado. */}
+              <div style={s("display:flex;gap:9px;flex-wrap:wrap")}>
+                <Btn onClick={salvarDados}>{salvando ? "Salvando…" : "Salvar"}</Btn>
+                <Btn variant="ghost" onClick={() => setEditando(false)}>Cancelar</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ★ BLOCO 2 — O QUE VOCÊ FAZ NO SITE DA RECEITA ──
+          O que sobrou do checklist depois de tirar os campos: a autorização de acesso, o cadastro
+          no Carnê-Leão do ano e a conferência que aponta erro sem emitir nada. Nenhum deles é um
+          campo — todos são instrução com link, e a gente não consegue verificar nenhum daqui
+          (ver `nao_da_para_saber`). Por isso viraram um bloco separado, com o desenho da sua
+          natureza, em vez de linhas idênticas às dos campos numa lista só.
+
+          ⚠️ Abre sozinho quando há pendência aqui dentro — autorização vencida é a única coisa
+          desta tela que PARA a emissão, e acordeão fechado é o pior lugar para essa notícia. */}
+      {noEcac.length > 0 && (
         <div style={s("display:grid;gap:0;border:1px solid var(--border);border-radius:12px;overflow:hidden")}>
           <button
             type="button"
-            onClick={() => setChecklistAberto((v) => !v)}
+            onClick={() => setChecklistAberto(!ecacAberto)}
             className="m-press m-focus"
             style={s("display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;border:0;background:var(--bg);color:var(--ink);cursor:pointer;text-align:left;font-size:var(--t-sm);font-weight:var(--w-title)")}
           >
-            <Icon name={pendencias > 0 ? "alert" : "check"} size={17} sw={2.3} />
+            <Icon name={faltaNoEcac > 0 ? "alert" : "link"} size={17} sw={2.3} />
             <span style={s("flex:1")}>
-              Pronto para emitir?
-              {pendencias > 0 && (
+              O que você faz no e-CAC
+              {faltaNoEcac > 0 && (
                 <span style={s("color:var(--warn);font-weight:var(--w-body)")}>
-                  {" "}· {pendencias} {pendencias === 1 ? "item" : "itens"} para você preencher
+                  {" "}· {faltaNoEcac} {faltaNoEcac === 1 ? "item pendente" : "itens pendentes"}
                 </span>
               )}
             </span>
             {/* `arrow-right` rotacionado: não existe `up`/`down` no conjunto de ícones,
                 e inventar um SVG solto aqui furaria o design system por uma seta. */}
-            <span style={s(`display:inline-flex;transition:transform .15s;transform:rotate(${checklistAberto ? 90 : 0}deg)`)}>
+            <span style={s(`display:inline-flex;transition:transform .15s;transform:rotate(${ecacAberto ? 90 : 0}deg)`)}>
               <Icon name="arrow-right" size={15} />
             </span>
           </button>
 
-          {checklistAberto && (
+          {ecacAberto && (
             <div style={s("display:grid;gap:2px;padding:4px 0 10px;border-top:1px solid var(--border)")}>
-              {checklist.map((i) => <ItemChecklist key={i.id} item={i} />)}
-
-              {/* ── ★ O CONSERTO MORA ONDE A COBRANÇA É FEITA ──
-                  Sem isto, o checklist dizia "preencha o seu CRP" e a única forma era desligar
-                  o Receita Saúde e ligar de novo — destrutivo, e recusado quando já existe lote
-                  importado. Ver `editando`. */}
-              <div style={s("margin:8px 14px 0;display:grid;gap:9px")}>
-                {!editando ? (
-                  <Btn variant="ghost" icon="edit" onClick={abrirDados}>
-                    {pendencias > 0 ? "Preencher meus dados" : "Corrigir meus dados"}
-                  </Btn>
-                ) : (
-                  <div style={s("display:grid;gap:9px;padding:14px;border-radius:13px;border:1px dashed var(--border)")}>
-                    <span style={s("font-size:var(--t-label);color:var(--muted)")}>
-                      É o que vai no arquivo em todas as linhas. Muda quando você quiser — não
-                      mexe nos recibos que já saíram.
-                    </span>
-
-                    <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
-                      Seu CPF — o mesmo com que você entra no gov.br
-                      <input
-                        value={fCpf}
-                        onChange={(e) => setFCpf(mascaraCpf(e.target.value))}
-                        inputMode="numeric"
-                        placeholder="000.000.000-00"
-                        className="n m-focus"
-                        style={s(CAMPO)}
-                      />
-                    </label>
-
-                    <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
-                      Sua profissão
-                      {/* As seis da Receita, lidas do domínio: lista própria aqui daria um rótulo
-                          na tela e outro no arquivo para o mesmo código. */}
-                      <select
-                        value={fOcupacao}
-                        onChange={(e) => setFOcupacao(e.target.value as OcupacaoSaude)}
-                        className="n m-focus"
-                        style={s(CAMPO)}
-                      >
-                        {(Object.keys(NOME_DA_OCUPACAO) as OcupacaoSaude[]).map((o) => (
-                          <option key={o} value={o}>{NOME_DA_OCUPACAO[o]}</option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
-                      Seu {CONSELHO[fOcupacao]} — não bloqueia gerar o arquivo
-                      <input
-                        value={fRegistro}
-                        onChange={(e) => setFRegistro(e.target.value)}
-                        placeholder={`${CONSELHO[fOcupacao]} 00/000000`}
-                        maxLength={15}
-                        className="n m-focus"
-                        style={s(CAMPO)}
-                      />
-                    </label>
-
-                    {/* ── ★ QUEM EMITE POR ELA ──
-                        Dois campos e um sim/não, e os três só existem porque a Receita exige que
-                        a autorização venha DELA e o aceite venha de NÓS. O terceiro é operado
-                        pela MAISA, não pela cliente — está escrito no rótulo, porque campo que
-                        parece do usuário e não é vira dado errado. */}
-                    <div style={s("display:grid;gap:9px;padding-top:9px;border-top:1px solid var(--border)")}>
-                      <strong style={s("font-size:var(--t-sm);color:var(--ink)")}>Quem emite por você</strong>
-
-                      <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
-                        CPF ou CNPJ de quem você autorizou no site da Receita
-                        <input
-                          value={fProc}
-                          onChange={(e) => setFProc(e.target.value)}
-                          inputMode="numeric"
-                          placeholder="deixe vazio se você mesma emite"
-                          className="n m-focus"
-                          style={s(CAMPO)}
-                        />
-                      </label>
-
-                      <label style={s("display:grid;gap:5px;font-size:var(--t-label);color:var(--muted)")}>
-                        Até quando a autorização vale
-                        <input
-                          value={fProcAte}
-                          onChange={(e) => setFProcAte(e.target.value)}
-                          type="date"
-                          className="n m-focus"
-                          style={s(CAMPO)}
-                        />
-                      </label>
-
-                      <label style={s("display:flex;gap:9px;align-items:flex-start;font-size:var(--t-label);color:var(--muted);cursor:pointer")}>
-                        <input
-                          type="checkbox"
-                          checked={fProcAceita}
-                          onChange={(e) => setFProcAceita(e.target.checked)}
-                          style={s("margin-top:2px")}
-                        />
-                        <span>
-                          <strong style={s("color:var(--ink)")}>A MAISA já confirmou no e-CAC.</strong>{" "}
-                          Quem marca isto somos nós, depois de aceitar a autorização na aba
-                          Recebidas — antes disso a Receita não deixa emitir.
-                        </span>
-                      </label>
-                    </div>
-
-                    {erroDados && (
-                      <span style={s("font-size:var(--t-label);color:var(--warn)")}>{erroDados}</span>
-                    )}
-
-                    {/* `Btn` não tem `disabled`, e a convenção da casa é o rótulo mudar — igual
-                        ao "Montando…" do botão de gerar. Clicar duas vezes aqui é inofensivo: são
-                        os mesmos três campos, e gravá-los de novo dá o mesmo resultado. */}
-                    <div style={s("display:flex;gap:9px;flex-wrap:wrap")}>
-                      <Btn onClick={salvarDados}>{salvando ? "Salvando…" : "Salvar"}</Btn>
-                      <Btn variant="ghost" onClick={() => setEditando(false)}>Cancelar</Btn>
-                    </div>
-                  </div>
-                )}
-              </div>
+              {noEcac.map((i) => <ItemChecklist key={i.id} item={i} />)}
 
               {/* A escada do "e se recusar mesmo com tudo certo?". O último degrau é um e-mail
                   da Receita que quase ninguém sabe que existe — sem ele, a profissional com
@@ -691,12 +782,11 @@ export function LoteReceitaSaude() {
         </div>
       )}
 
-      {falta.length > 0 ? (
-        <div style={s("display:flex;gap:10px;align-items:flex-start;color:var(--warn)")}>
-          <Icon name="alert" size={18} />
-          <span style={s("font-size:var(--t-sm)")}>Antes de gerar, falta {falta.join(", ")}.</span>
-        </div>
-      ) : !lote ? (
+      {/* ⚠️ SEM CPF E PROFISSÃO NÃO HÁ ARQUIVO, e quem cobra os dois é o bloco lá em cima — com o
+          botão que os preenche ao lado da frase. Aqui existia uma SEGUNDA faixa amarela dizendo a
+          mesma falta sem oferecer onde resolver; era um dos três assuntos empilhados que fizeram o
+          Bruno dizer que a tela estava confusa. */}
+      {bloqueia ? null : !lote ? (
         <>
           {/* ── o que vai no arquivo ── */}
           {pendentes && pendentes.pagamentos.length > 0 && (
@@ -848,14 +938,34 @@ export function LoteReceitaSaude() {
             </div>
           )}
 
-          <p style={s("margin:0;font-size:var(--t-sm);color:var(--muted);line-height:1.55")}>
-            Uma linha por pagamento, com data, valor e o CPF de quem pagou. Você importa em
-            <strong> Carnê-Leão → Escrituração → Importar</strong>, e a própria Receita valida o
-            arquivo antes de emitir nada.
-          </p>
-          <Btn icon="download" onClick={gerar} full>
-            {ocupado ? "Montando…" : "Gerar arquivo do mês"}
-          </Btn>
+          {/* ── ★ O BOTÃO DIZ O QUE FAZ, E O QUE NÃO FAZ ──
+              Bruno, 25/08/2026: *"o gerar arquivo nn está com um texto claro do que ele faz"*.
+
+              Duas trocas. O rótulo passou a nomear o documento e a quantidade (ver
+              `rotuloDeGerar`), e o parágrafo de três linhas que estava aqui — com data, valor,
+              CPF e o caminho `Carnê-Leão → Escrituração → Importar` — virou uma linha só. O
+              caminho não sumiu: ele aparece **depois** do download, na tela em que ela está com
+              o arquivo na mão. Antes estava nos dois lugares, e o daqui chegava cedo demais para
+              servir de instrução e comprido demais para servir de resumo.
+
+              ⚠️ A frase existe para separar dois verbos que a tela inteira depende de não
+              confundir: a MAISA GERA, o e-CAC EMITE. Ver o cabeçalho do arquivo. */}
+          {entram === 0 ? (
+            <p style={s("margin:0;font-size:var(--t-sm);color:var(--muted);line-height:1.55")}>
+              {pagamentos.length === 0
+                ? "Nenhum pagamento sem recibo por enquanto. Toda sessão paga cai aqui, e no fim do mês vira uma linha do arquivo."
+                : "Nada entra no arquivo ainda: todos os pagamentos estão sem o CPF de quem foi atendido."}
+            </p>
+          ) : (
+            <>
+              <Btn icon="download" onClick={gerar} full>
+                {ocupado ? "Montando…" : rotuloDeGerar(entram)}
+              </Btn>
+              <p style={s("margin:0;font-size:var(--t-label);color:var(--muted);line-height:1.55;text-align:center")}>
+                Você importa esse arquivo no e-CAC — é a importação que emite os recibos.
+              </p>
+            </>
+          )}
         </>
       ) : (
         <>
@@ -973,15 +1083,11 @@ export function LoteReceitaSaude() {
         </div>
       )}
 
-      {/* O rodapé responde "sob qual CPF isso vai sair?" sem ninguém abrir configuração — e é
-          a única informação desta tela que, errada, faz o arquivo inteiro ser recusado no
-          e-CAC (tem que ser o mesmo CPF que acessa o Carnê-Leão). */}
-      <div style={s("display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding-top:4px;border-top:1px solid var(--border)")}>
-        <span style={s("font-size:var(--t-label);color:var(--muted)")}>
-          {cpfEmissor
-            ? `Recibos no CPF ${cpfEmissor.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4")}`
-            : "Recibos do Receita Saúde"}
-        </span>
+      {/* ⚠️ O CPF SUBIU PARA O BLOCO 1 e não se repete aqui. Ele é a única informação desta tela
+          que, errada, faz o arquivo inteiro ser recusado no e-CAC — tem que ser o mesmo CPF que
+          acessa o Carnê-Leão —, e por isso passou a morar ao lado do botão que o corrige, no topo
+          do cartão, em vez de num rodapé onde só se lê por acaso. */}
+      <div style={s("display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap;padding-top:4px;border-top:1px solid var(--border)")}>
         <button
           onClick={trocar}
           disabled={ocupado}
