@@ -34,7 +34,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { s, Icon, fmt, Btn, Card, EmptyState, Badge } from "@/ui/primitivos";
+import { s, Icon, fmt, Btn, Card, EmptyState, Badge, Toggle } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { useIsMobile } from "@/ui/useIsMobile";
 import type { PagamentoPendente } from "@/nucleo/portas/entrada/casos-de-uso";
@@ -370,6 +370,35 @@ export function EmitirRecibos() {
 
       {/* ★ O CTA SOBERANO: o maior elemento clicável da tela, com a contagem dentro. Ele é o
           assunto da página — e a contagem no rótulo é o que impede o clique às cegas. */}
+      {/* ── ★ O AVISO AO PACIENTE, ENCOSTADO NO CTA ──
+       *
+       * Bruno, 26/08/2026: *"não cheguei a achar o toggle fácil, poderia ficar logo acima do
+       * emitir"*. Ele morava na tela de configuração, que é o lugar teoricamente certo e
+       * praticamente invisível — ninguém vai lá duas vezes.
+       *
+       * Aqui, encostado no botão, ele aparece no instante em que a pergunta existe de verdade:
+       * "quando eu clicar, meus pacientes vão saber disso?".
+       *
+       * ⚠️ MAS NÃO É UMA OPÇÃO DESTE LOTE, e a frase precisa dizer isso. É um ajuste do negócio
+       * que fica ligado — quem ler "avisar os pacientes" ao lado de "Emitir 18 recibos" pensa em
+       * caixinha de uma vez só, e desligaria achando que só pulou hoje. */}
+      <div style={s(`display:flex;align-items:flex-start;gap:11px;padding-top:14px;border-top:1px solid var(--border);${mobile ? "" : "margin-top:auto"}`)}>
+        <span style={s("flex:1;min-width:0")}>
+          <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>
+            Avisar os pacientes
+          </span>
+          <span style={s("display:block;font-size:var(--t-label);color:var(--muted);line-height:var(--lh-prose);margin-top:2px")}>
+            Uma mensagem por recibo, do seu WhatsApp, quando a Receita confirmar. Vale para todo
+            recibo — não só os deste mês.
+          </span>
+        </span>
+        <Toggle
+          on={st.cfg.avisarRecibo}
+          onChange={() => st.alternarCfg("avisarRecibo")}
+          rotulo="Avisar os pacientes quando o recibo sair"
+        />
+      </div>
+
       {/* ⚠️ TRAVADO TAMBÉM ENQUANTO UMA EMISSÃO ANDA. O placar saiu para o canto da tela, então o
           CTA continua visível durante a emissão — sem esta guarda, um segundo clique enfileiraria
           os mesmos pagamentos de novo (o store também trava, e as duas travas são de propósito:
@@ -382,7 +411,7 @@ export function EmitirRecibos() {
         disabled={travado}
 
         className={travado ? "" : "m-hov-bright m-press m-focus"}
-        style={s(`width:100%;height:${mobile ? 54 : 60}px;flex:none;${mobile ? "" : "margin-top:auto"};border-radius:14px;border:none;background:var(--primary);color:#fff;font-family:inherit;font-size:var(--t-body);font-weight:var(--w-title);letter-spacing:var(--ls-lg);cursor:${travado ? "not-allowed" : "pointer"};opacity:${travado ? ".42" : "1"};box-shadow:var(--shadow-card)`)}
+        style={s(`width:100%;height:${mobile ? 54 : 60}px;flex:none;border-radius:14px;border:none;background:var(--primary);color:#fff;font-family:inherit;font-size:var(--t-body);font-weight:var(--w-title);letter-spacing:var(--ls-lg);cursor:${travado ? "not-allowed" : "pointer"};opacity:${travado ? ".42" : "1"};box-shadow:var(--shadow-card)`)}
       >
         {emitindoAgora
           ? "Emitindo…"
