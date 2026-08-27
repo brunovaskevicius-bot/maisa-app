@@ -265,7 +265,28 @@ export function DocumentoFiscal() {
         modo={modo === "nota" ? "cnpj" : modo === "recibo" ? "cpf" : null}
         onModo={(m) => setEscolha(m === "cnpj" ? "nota" : m === "cpf" ? "recibo" : null)}
       />
-      <LoteReceitaSaude />
+      {/* ⚠️ SÓ OS DADOS DE EMITENTE. O arquivo do e-CAC saiu desta tela em 26/08/2026 (Bruno:
+          *"não precisamos mais dessa parte dos recibos do mês"*) — o caminho principal virou a
+          emissão automática, na tela Fiscal. O que fica é a identidade de quem emite, porque é
+          para cá que o "Voltar e editar meus dados" de lá aponta. */}
+      {modo === "recibo" && <LoteReceitaSaude apenasDados />}
+
+      {/* ── ★ O PRÓXIMO PASSO, DITO EM VOZ ALTA ──
+          Esta tela respondia uma pergunta e parava. Quem terminava de escolher ficava olhando para
+          uma configuração sem saber que o trabalho acontece em outro lugar. */}
+      {modo === "recibo" && (
+        <Card style={s("display:flex;align-items:center;gap:16px;flex-wrap:wrap")}>
+          <span style={s("flex:1;min-width:220px")}>
+            <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>
+              Pronto para emitir
+            </span>
+            <span style={s("display:block;font-size:var(--t-label);color:var(--muted);line-height:var(--lh-prose);margin-top:2px")}>
+              A MAISA junta os atendimentos pagos do mês e emite um recibo para cada um.
+            </span>
+          </span>
+          <Btn icon="receipt" onClick={() => st.irPara("faturamento")}>Continuar para emissão</Btn>
+        </Card>
+      )}
     </TelaGrade>
   );
 }

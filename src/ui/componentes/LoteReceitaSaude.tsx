@@ -255,7 +255,17 @@ export function entramNoArquivo(p: RecibosPendentes | null): number | null {
 
 const CAMPO = "font-family:inherit;font-size:var(--t-sm);padding:10px 12px;border-radius:11px;border:1px solid var(--border);background:var(--bg);color:var(--ink);width:100%";
 
-export function LoteReceitaSaude() {
+/**
+ * ⚠️ `apenasDados` RENDERIZA SÓ O BLOCO "SEUS DADOS" — CPF, profissão e registro, com o formulário
+ * de correção. O resto do cartão (o arquivo do mês, o passo a passo do e-CAC, a lista de
+ * pagamentos) fica de fora.
+ *
+ * Existe porque a tela `Documento fiscal` deixou de ser o endereço do arquivo do e-CAC em
+ * 26/08/2026 — Bruno: *"não precisamos mais dessa parte dos recibos do mês"* — mas continua sendo
+ * o lugar onde se corrige a identidade de quem emite, e é para lá que o botão "Voltar e editar
+ * meus dados" da tela Fiscal aponta. Sem isto, aquele botão levaria a uma tela sem o campo.
+ */
+export function LoteReceitaSaude({ apenasDados }: { apenasDados?: boolean } = {}) {
   /**
    * A lista de clientes sai do store, e não de uma rota nova.
    *
@@ -501,10 +511,18 @@ export function LoteReceitaSaude() {
 
   return (
     <Card style={{ display: "grid", gap: 14 }}>
-      <SectionTitle
-        title="Recibos do mês"
-        sub="A MAISA monta o arquivo. Quem emite e assina é você, no e-CAC."
-      />
+      {!apenasDados && (
+        <SectionTitle
+          title="Recibos do mês"
+          sub="A MAISA monta o arquivo. Quem emite e assina é você, no e-CAC."
+        />
+      )}
+      {apenasDados && (
+        <SectionTitle
+          title="Seus dados de emitente"
+          sub="É o que vai em todo recibo. Corrigir aqui não mexe no que já saiu."
+        />
+      )}
 
       {/* ── ★ BLOCO 1 — SEUS DADOS, e ele é o PRIMEIRO do cartão por causa de uma reclamação ──
           Bruno, 25/08/2026: *"o Preencher meus dados nn está com a mesma importância que deveria
@@ -640,6 +658,7 @@ export function LoteReceitaSaude() {
         </div>
       )}
 
+      {!apenasDados && (<>
       {/* ── ★ BLOCO 2 — O QUE VOCÊ FAZ NO SITE DA RECEITA ──
           O que sobrou do checklist depois de tirar os campos: a autorização de acesso, o cadastro
           no Carnê-Leão do ano e a conferência que aponta erro sem emitir nada. Nenhum deles é um
@@ -933,6 +952,7 @@ export function LoteReceitaSaude() {
           Trocar o tipo de documento
         </button>
       </div>
+      </>)}
     </Card>
   );
 }
