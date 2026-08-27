@@ -88,6 +88,7 @@ function ambiente(p: {
   const soltos: string[] = [];
   const fechados: DesfechoDeRecibo[] = [];
   const consultados: string[] = [];
+  const avisosAnotados: string[] = [];
   let pedidoEmitido: { valor: number; cpfBeneficiario: string; cpfPagador: string; descricao: string } | null = null;
 
   const livro: LivroDeRecibos = {
@@ -105,12 +106,14 @@ function ambiente(p: {
       return {
         id: "rec1", canal: "automacao", situacao: d.situacao,
         protocolo: d.protocolo, chave: d.chave, pdfUrl: d.pdfUrl,
-        pdfExpiraEm: d.pdfExpiraEm, comprovanteCaminho: d.comprovanteCaminho, erro: d.erro,
+        pdfExpiraEm: d.pdfExpiraEm, comprovanteCaminho: d.comprovanteCaminho, aviso: null, erro: d.erro,
         criadoEm: "2026-08-24T10:00:00-03:00", emitidoEm: null,
       };
     },
     async descartar(_t, x) { ordem.push("descartar"); descartados.push(x); },
     async soltar(_t, id) { ordem.push("soltar"); soltos.push(id); return true; },
+    async avisosPendentes() { return { falhou: 0, semTelefone: 0 }; },
+    async registrarAviso(_t, x) { ordem.push("registrarAviso"); avisosAnotados.push(x.desfecho); },
     async destinatario() {
       ordem.push("destinatario");
       return {
@@ -193,7 +196,7 @@ function ambiente(p: {
     fecharDoCallback: criarFecharReciboDoCallback({ livro, guarda, aviso: { canal, negocio, assistente } }),
     /* Sem as portas do aviso: é o mesmo caso de uso de antes, e tem que continuar mudo. */
     fecharSemAviso: criarFecharReciboDoCallback({ livro, guarda }),
-    ordem, protocolos, descartados, soltos, fechados, consultados, arquivados, enviadas,
+    ordem, protocolos, descartados, soltos, fechados, consultados, arquivados, enviadas, avisosAnotados,
     get pedido() { return pedidoEmitido; },
   };
 }
@@ -201,7 +204,7 @@ function ambiente(p: {
 const linha = (over: Partial<ReciboEmitido> = {}): ReciboEmitido => ({
   id: "rec1", canal: "automacao", situacao: "pendente",
   protocolo: "prot-1", chave: null, pdfUrl: null, pdfExpiraEm: null,
-  comprovanteCaminho: null,
+  comprovanteCaminho: null, aviso: null,
   erro: null, criadoEm: "2026-08-24T10:00:00-03:00", emitidoEm: null,
   ...over,
 });
@@ -449,7 +452,9 @@ describe("fecharReciboDoCallback", () => {
     const c = ambiente();
     await c.fecharDoCallback(t, desfechoDe());
 
-    expect(c.ordem).toEqual(["arquivar", "fechar"]);
+    /* `registrarAviso` fecha a fila: mesmo com o interruptor desligado, o desfecho `desligado` é
+       anotado — ver `DesfechoDoAviso`. */
+    expect(c.ordem).toEqual(["arquivar", "fechar", "registrarAviso"]);
     expect(c.arquivados[0].urlTemporaria).toBe("https://s3/f/1.pdf?X-Amz-Expires=300");
   });
 
@@ -469,7 +474,9 @@ describe("fecharReciboDoCallback", () => {
     const c = ambiente({ guardaFalha: true });
     const r = await c.fecharDoCallback(t, desfechoDe());
 
-    expect(c.ordem).toEqual(["arquivar", "fechar"]);
+    /* `registrarAviso` fecha a fila: mesmo com o interruptor desligado, o desfecho `desligado` é
+       anotado — ver `DesfechoDoAviso`. */
+    expect(c.ordem).toEqual(["arquivar", "fechar", "registrarAviso"]);
     expect(c.fechados[0].situacao).toBe("emitido");
     expect(c.fechados[0].comprovanteCaminho).toBeNull();
     expect(r).toEqual({ desfecho: "emitido", comprovanteGuardado: false });
@@ -533,7 +540,7 @@ describe("fecharReciboDoCallback", () => {
     const c = ambiente();
     await c.fecharDoCallback(t, desfechoDe({ comprovanteCaminho: "t1/ja-tinha.pdf" }));
 
-    expect(c.ordem).toEqual(["fechar"]);
+    expect(c.ordem).toEqual(["fechar", "registrarAviso"]);
     expect(c.fechados[0].comprovanteCaminho).toBe("t1/ja-tinha.pdf");
   });
 });
@@ -682,5 +689,57 @@ describe("★ avisar o paciente quando o recibo sai", () => {
     await a.fecharDoCallback(t, desfechoDe());
 
     expect(a.ordem.indexOf("fechar")).toBeLessThan(a.ordem.indexOf("enviar"));
+  });
+});
+
+
+/* ── ★ O DESFECHO DO AVISO VIRA DADO ─────────────────────────────────────────
+ *
+ * 26/08/2026: 20 recibos emitidos, 1 mensagem entregue, 19 recusadas pelo WhatsApp (`exists:
+ * false`). O sistema agiu certo — mas as 19 falhas foram idênticas a 19 sucessos, e o dono só
+ * percebeu porque contou.
+ *
+ * ⚠️ O erro continua ENGOLIDO: o recibo já existe, e mensagem que não sai não desemite documento
+ * fiscal. O que muda é que o QUE aconteceu vira coluna (025). Engolir sem anotar é esconder. */
+describe("★ o desfecho do aviso é anotado", () => {
+  it("enviado", async () => {
+    const a = ambiente({ avisarRecibo: true });
+    await a.fecharDoCallback(t, desfechoDe());
+    expect(a.avisosAnotados).toEqual(["enviado"]);
+  });
+
+  it("sem telefone vira `sem_telefone`, não `falhou`", async () => {
+    const a = ambiente({ avisarRecibo: true, telefoneDoPaciente: null });
+    await a.fecharDoCallback(t, desfechoDe());
+    expect(a.avisosAnotados).toEqual(["sem_telefone"]);
+  });
+
+  it("canal recusando vira `falhou`", async () => {
+    const a = ambiente({ avisarRecibo: true, envioQuebra: true });
+    await a.fecharDoCallback(t, desfechoDe());
+    expect(a.avisosAnotados).toEqual(["falhou"]);
+  });
+
+  /* ★ `desligado` NÃO É `null` NEM `falhou`. "Ele não quis" e "tentamos e não deu" são opostos:
+   * um é escolha, o outro é um paciente que ficou sem saber. */
+  it("interruptor desligado vira `desligado`", async () => {
+    const a = ambiente({ avisarRecibo: false });
+    await a.fecharDoCallback(t, desfechoDe());
+    expect(a.avisosAnotados).toEqual(["desligado"]);
+  });
+
+  it("recusado e cancelado não anotam nada — aviso só existe para emitido", async () => {
+    const a = ambiente({ avisarRecibo: true });
+    await a.fecharDoCallback(t, desfechoDe({ situacao: "recusado", chave: null }));
+    await a.fecharDoCallback(t, desfechoDe({ situacao: "cancelado" }));
+    expect(a.avisosAnotados).toEqual([]);
+  });
+
+  /* ⚠️ Anotar é a ÚLTIMA coisa: depois de gravar o desfecho fiscal e depois de tentar mandar. */
+  it("anota depois de fechar e depois de enviar", async () => {
+    const a = ambiente({ avisarRecibo: true });
+    await a.fecharDoCallback(t, desfechoDe());
+    expect(a.ordem.indexOf("fechar")).toBeLessThan(a.ordem.indexOf("registrarAviso"));
+    expect(a.ordem.indexOf("enviar")).toBeLessThan(a.ordem.indexOf("registrarAviso"));
   });
 });

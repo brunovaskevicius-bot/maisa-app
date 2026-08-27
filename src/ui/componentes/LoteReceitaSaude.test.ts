@@ -105,7 +105,7 @@ describe("★ quem conta são os que TÊM CPF", () => {
   /* O TESTE QUE IMPEDE O BOTÃO DE MENTIR: a Receita recusa linha sem CPF, então prometer 14 e
    * entregar 11 é o mesmo defeito que fez o hero do Faturamento ser reescrito. */
   it("desconta os sem CPF", () => {
-    expect(entramNoArquivo({ pagamentos: Array.from({ length: 14 }, pago), total: 0, semCpf: 3 })).toBe(11);
+    expect(entramNoArquivo({ pagamentos: Array.from({ length: 14 }, pago), total: 0, semCpf: 3, avisos: { falhou: 0, semTelefone: 0 } })).toBe(11);
   });
 
   it("nada ainda lido é null, não zero", () => {
@@ -115,7 +115,7 @@ describe("★ quem conta são os que TÊM CPF", () => {
   /* Defensivo: `semCpf` maior que a lista viria de resposta torta, e um rótulo negativo é pior
    * que um genérico. */
   it("nunca devolve negativo", () => {
-    expect(entramNoArquivo({ pagamentos: [pago()], total: 0, semCpf: 9 })).toBe(0);
+    expect(entramNoArquivo({ pagamentos: [pago()], total: 0, semCpf: 9, avisos: { falhou: 0, semTelefone: 0 } })).toBe(0);
   });
 });
 

@@ -606,7 +606,7 @@ export const app = {
 
   /* O que vai no próximo arquivo, e o lançamento do que a agenda não pegou. A MAISA cobre a
    * maioria dos pagamentos, não todos — e o recibo é obrigatório igual. */
-  lerRecibosPendentes: criarLerRecibosPendentes({ recibos: recibosRepo }),
+  lerRecibosPendentes: criarLerRecibosPendentes({ recibos: recibosRepo, livro: livroRecibos }),
   lancarPagamentoAvulso: criarLancarPagamentoAvulso({ recibos: recibosRepo, fiscal: fiscalRepo }),
   excluirPagamentoAvulso: criarExcluirPagamentoAvulso({ recibos: recibosRepo }),
 

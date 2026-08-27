@@ -30,6 +30,7 @@
  * seria um pagamento que desaparece do faturamento para sempre. Ver `precisaDeOlhoHumano`.
  * ────────────────────────────────────────────────────────────────────────────── */
 
+import type { DesfechoDoAviso } from "../../dominio/recibo-unitario";
 import type { ContextoTenant } from "../../dominio/tenant";
 import type {
   CanalDeEmissao, DesfechoDeRecibo, ReciboEmitido,
@@ -179,4 +180,23 @@ export interface LivroDeRecibos {
    * distinção de `DestinatarioDeRecibo` no lote, e pelo mesmo motivo — quem chama conta, não falha.
    */
   destinatario(t: ContextoTenant, reciboId: string): Promise<DestinatarioDoRecibo | null>;
+
+  /**
+   * ★ GRAVA O QUE ACONTECEU COM A MENSAGEM AO PACIENTE.
+   *
+   * ⚠️ ESCREVE RELATÓRIO, NUNCA DESFECHO FISCAL. Falhar aqui não pode mudar o estado do recibo —
+   * o documento já existe, e "não consegui anotar que avisei" não desemite nada. Quem chama engole.
+   *
+   * Existe porque o aviso engole o erro por desenho, e o que ele engolia não aparecia em lugar
+   * nenhum: 19 mensagens falharam em 26/08/2026 e ninguém soube. Ver a migração 025.
+   */
+  registrarAviso(t: ContextoTenant, p: { reciboId: string; desfecho: DesfechoDoAviso }): Promise<void>;
+
+  /**
+   * Quantos pacientes NÃO foram avisados — o número que a tela mostra.
+   *
+   * ⚠️ Só `falhou` e `sem_telefone`, porque só esses dois pedem ação de alguém: um telefone para
+   * conferir, uma ficha para completar. `enviado` e `desligado` não são pendência.
+   */
+  avisosPendentes(t: ContextoTenant): Promise<{ falhou: number; semTelefone: number }>;
 }

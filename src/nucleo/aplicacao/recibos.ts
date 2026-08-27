@@ -25,6 +25,7 @@ import type {
 } from "../portas/entrada/casos-de-uso";
 import type { PagamentoAFaturar, RepositorioRecibos } from "../portas/saida/repositorio-recibos";
 import type { RepositorioFiscal } from "../portas/saida/repositorio-fiscal";
+import type { LivroDeRecibos } from "../portas/saida/livro-de-recibos";
 import type { CanalDeMensagens } from "../portas/saida/canal-mensagens";
 import type { RepositorioNegocio } from "../portas/saida/repositorio-negocio";
 import type { RepositorioAssistente } from "../portas/saida/repositorio-assistente";
@@ -210,14 +211,27 @@ const paraPendente = (x: PagamentoAFaturar): PagamentoPendente => ({
  * arquivo, não o que foi atendido no mês. Somar tudo faria a tela prometer um número que o
  * CSV não confirma — e o dono só descobriria conferindo linha por linha.
  */
-export function criarLerRecibosPendentes({ recibos }: Pick<DepsRecibo, "recibos">): LerRecibosPendentes {
+export function criarLerRecibosPendentes(
+  { recibos, livro }: Pick<DepsRecibo, "recibos"> & { livro?: LivroDeRecibos },
+): LerRecibosPendentes {
   return async (t) => {
     const pendentes = (await recibos.pendentes(t, { ate: hojeISO() })).filter((x) => !x.teste);
     const semCpf = pendentes.filter((x) => !x.cpf).length;
+
+    /* ★ QUANTOS PACIENTES FICARAM SEM SABER. Vem junto porque é a MESMA leitura que a tela já faz —
+     * um segundo `fetch` para um número de relatório seria uma tela que pisca duas vezes.
+     *
+     * ⚠️ Falha macia (`catch → zero`): é informação, não a lista. Perder a contagem não pode
+     * esconder o que falta emitir. */
+    const avisos = livro
+      ? await livro.avisosPendentes(t).catch(() => ({ falhou: 0, semTelefone: 0 }))
+      : { falhou: 0, semTelefone: 0 };
+
     return {
       pagamentos: pendentes.map(paraPendente),
       total: pendentes.filter((x) => x.cpf).reduce((soma, x) => soma + x.valor, 0),
       semCpf,
+      avisos,
     };
   };
 }

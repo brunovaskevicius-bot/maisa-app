@@ -630,6 +630,14 @@ export type RecibosPendentes = {
   total: number;
   /** Quantos estão sem CPF. É a única pendência que o dono resolve sozinho. */
   semCpf: number;
+  /**
+   * ★ QUANTOS PACIENTES FICARAM SEM SABER, entre os recibos já emitidos.
+   *
+   * ⚠️ Isto NÃO é sobre o que falta emitir — é sobre o que já saiu e não foi comunicado. Está na
+   * mesma resposta porque é a mesma tela, e porque o número precisava existir em algum lugar: em
+   * 26/08/2026, 19 mensagens falharam e o silêncio foi idêntico ao sucesso.
+   */
+  avisos: { falhou: number; semTelefone: number };
 };
 
 /** O que vai no próximo arquivo, para a tela mostrar antes de gerar. */

@@ -42,7 +42,7 @@ const dataCivil = (iso: string) => civilSP(iso)?.data ?? String(iso).slice(0, 10
  * tipo da resposta do texto do `select` como tipo literal; quebrar isto em duas partes com `+`
  * faz a inferência desistir e todo `data` desta arquivo virar `GenericStringError`. O sintoma é
  * um TS2352 em cada `as LinhaRazao`, longe daqui. */
-const COLUNAS = "id, numero, canal, situacao, protocolo, chave, pdf_url, pdf_expira_em, comprovante_caminho, erro, criado_em, emitido_em";
+const COLUNAS = "id, numero, canal, situacao, protocolo, chave, pdf_url, pdf_expira_em, comprovante_caminho, aviso, erro, criado_em, emitido_em";
 
 const AVISO_020 =
   "O livro-razão do recibo unitário ainda não existe neste banco. Rode "
@@ -84,6 +84,7 @@ type LinhaRazao = {
   pdf_url: string | null;
   pdf_expira_em: string | null;
   comprovante_caminho: string | null;
+  aviso: string | null;
   erro: string | null;
   criado_em: string;
   emitido_em: string | null;
@@ -111,6 +112,9 @@ const doBanco = (l: LinhaRazao): ReciboEmitido => {
     pdfUrl: l.pdf_url,
     pdfExpiraEm: l.pdf_expira_em,
     comprovanteCaminho: l.comprovante_caminho,
+    /* `?? null` cobre o banco onde a 025 ainda não rodou: a leitura não pode quebrar por causa de
+     * uma coluna de relatório. */
+    aviso: (l.aviso as ReciboEmitido["aviso"]) ?? null,
     erro: l.erro,
     criadoEm: l.criado_em,
     emitidoEm: l.emitido_em,
@@ -284,6 +288,46 @@ export const livroDeRecibosSupabase: LivroDeRecibos = {
 
     estourar(error);
     return (data ?? []).map((l) => doBanco(l as LinhaRazao));
+  },
+
+  /**
+   * Anota o desfecho do aviso. Relatório, não desfecho fiscal — ver a porta.
+   *
+   * ⚠️ NÃO USA `estourar(error)`. Um erro aqui (a 025 não rodou, por exemplo) não pode subir: quem
+   * chama está no meio do callback, e derrubá-lo faria o canal reentregar um desfecho JÁ GRAVADO.
+   * Anotar é o que se perde; o recibo continua correto.
+   */
+  async registrarAviso(t: ContextoTenant, p): Promise<void> {
+    const supabase = clienteDoContexto(t);
+    const { error } = await supabase
+      .from("recibos_emitidos")
+      .update({ aviso: p.desfecho })
+      .eq("tenant_id", t.tenantId)
+      .eq("id", p.reciboId);
+
+    if (error) {
+      console.warn(`[supabase/livro-de-recibos] não anotei o aviso do recibo ${p.reciboId}: ${error.message}`);
+    }
+  },
+
+  /**
+   * Conta o que ficou sem aviso. Duas contagens, `head: true` — não traz linha nenhuma, só o total.
+   *
+   * ⚠️ Falha macia: devolve zero em erro. É um número de relatório na tela; derrubar a leitura da
+   * tela inteira por causa dele (inclusive quando a 025 não rodou) seria caro à toa.
+   */
+  async avisosPendentes(t: ContextoTenant): Promise<{ falhou: number; semTelefone: number }> {
+    const supabase = clienteDoContexto(t);
+    const contar = async (valor: string): Promise<number> => {
+      const { count, error } = await supabase
+        .from("recibos_emitidos")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", t.tenantId)
+        .eq("aviso", valor);
+      return error ? 0 : count ?? 0;
+    };
+    const [falhou, semTelefone] = await Promise.all([contar("falhou"), contar("sem_telefone")]);
+    return { falhou, semTelefone };
   },
 
   /**

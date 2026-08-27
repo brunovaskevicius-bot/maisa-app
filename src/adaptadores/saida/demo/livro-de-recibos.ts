@@ -78,6 +78,7 @@ export const livroDeRecibosDemo: LivroDeRecibos = {
         pdfUrl: null,
         pdfExpiraEm: null,
         comprovanteCaminho: null,
+        aviso: null,
         erro: null,
         criadoEm: new Date().toISOString(),
         emitidoEm: null,
@@ -164,6 +165,18 @@ export const livroDeRecibosDemo: LivroDeRecibos = {
 
   async listar(_t, p): Promise<ReciboEmitido[]> {
     return linhas.slice(0, p?.limite ?? 50).map(semInternos);
+  },
+
+  async avisosPendentes(): Promise<{ falhou: number; semTelefone: number }> {
+    return {
+      falhou: linhas.filter((l) => l.aviso === "falhou").length,
+      semTelefone: linhas.filter((l) => l.aviso === "sem_telefone").length,
+    };
+  },
+
+  async registrarAviso(_t, p): Promise<void> {
+    const l = linhas.find((x) => x.id === p.reciboId);
+    if (l) l.aviso = p.desfecho;
   },
 
   /**

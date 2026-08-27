@@ -22,6 +22,7 @@ const recibo = (over: Partial<ReciboEmitido> = {}): ReciboEmitido => ({
   situacao: "pendente",
   protocolo: "prot-1",
   chave: null,
+  aviso: null,
   pdfUrl: null,
   pdfExpiraEm: null,
   comprovanteCaminho: null,

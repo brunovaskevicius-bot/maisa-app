@@ -38,6 +38,7 @@ import type { RepositorioAssistente } from "../portas/saida/repositorio-assisten
  * duas MAISAs. Ver `avisoDeRecibo` — inclusive a parte que explica a pré-preenchida, que existe
  * para o paciente não responder "me manda o PDF". */
 import { avisoDeRecibo } from "../dominio/recibo-saude";
+import type { DesfechoDoAviso } from "../dominio/recibo-unitario";
 import type { EmissorDeReciboSaude } from "../portas/saida/emissor-recibo";
 import type { RepositorioRecibos } from "../portas/saida/repositorio-recibos";
 import type { RepositorioFiscal } from "../portas/saida/repositorio-fiscal";
@@ -370,7 +371,14 @@ export function criarFecharReciboDoCallback(
      * primeira é problema de dado que o dono resolve, e a segunda ele já sabe (foi ele quem pediu).
      */
     if (deps.aviso && fechada.situacao === "emitido") {
-      await avisarPaciente(deps.aviso, deps.livro, t, fechada.id).catch(() => {});
+      /* ⚠️ O DESFECHO DO AVISO É ANOTADO, e essa é a diferença entre engolir e esconder. O erro
+       * continua engolido — o recibo já existe, e mensagem que não sai não desemite nada — mas o
+       * QUE aconteceu vira dado. Antes, 19 falhas de envio ficavam idênticas a 19 sucessos, e o
+       * dono só descobria contando (26/08/2026). Ver a migração 025. */
+      const desfechoDoAviso = await avisarPaciente(deps.aviso, deps.livro, t, fechada.id)
+        .catch((): DesfechoDoAviso => "falhou");
+      await deps.livro.registrarAviso(t, { reciboId: fechada.id, desfecho: desfechoDoAviso })
+        .catch(() => {});
     }
 
     return { desfecho, comprovanteGuardado: Boolean(comprovanteCaminho) };
@@ -392,15 +400,17 @@ async function avisarPaciente(
   livro: DepsReciboUnitario["livro"],
   t: ContextoTenant,
   reciboId: string,
-): Promise<void> {
+): Promise<DesfechoDoAviso> {
   try {
     const ajustes = await aviso.assistente.ler(t);
-    if (!ajustes?.cfg.avisarRecibo) return;
+    /* ⚠️ `desligado` E NÃO `null`: "ele não quis" e "tentamos e não deu" são opostos, e a tela
+     * precisa saber qual é. Ver `DesfechoDoAviso`. */
+    if (!ajustes?.cfg.avisarRecibo) return "desligado";
 
     const quem = await livro.destinatario(t, reciboId);
     /* Sem telefone não há o que fazer, e não é erro: o avulso de quem não é cadastro nasce assim.
      * Ver `DestinatarioDoRecibo` — quem chama conta, não falha. */
-    if (!quem?.telefone) return;
+    if (!quem?.telefone) return "sem_telefone";
 
     const nomeDoNegocio = (await aviso.negocio.negocio(t)).nome;
     await aviso.canal.enviar(t, quem.telefone, [
@@ -410,8 +420,11 @@ async function avisarPaciente(
         nomeDaAssistente: ajustes.assistente.nome ?? "MAISA",
       }),
     ]);
+    return "enviado";
   } catch {
-    /* Engole. Telefone que mudou de dono, canal fora do ar, WhatsApp recusando: nenhum desses é
-     * motivo para o recibo emitido parecer roto. É a mesma escolha do caminho do lote. */
+    /* Engole o erro, guarda o fato. Telefone que mudou de dono, canal fora do ar, número que não
+     * existe no WhatsApp: nenhum desses é motivo para o recibo emitido parecer roto — mas todos
+     * são motivo para o dono saber. */
+    return "falhou";
   }
 }

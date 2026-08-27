@@ -58,6 +58,16 @@ export type CanalDeEmissao = "automacao" | "rebots" | "lote_csv";
 export type SituacaoDoRecibo = "pendente" | "emitido" | "recusado" | "cancelado";
 
 /** Uma linha do livro-razão. É ela que impede o mesmo pagamento de sair duas vezes. */
+/**
+ * ★ O QUE ACONTECEU COM A MENSAGEM AO PACIENTE.
+ *
+ * ⚠️ `desligado` É UM ESTADO, e não a ausência dele. Sem essa distinção, "não avisamos" e
+ * "tentamos e não deu" seriam a mesma coisa na tela — e são opostos: um é escolha do dono, o outro
+ * é um paciente que ficou sem saber. Foi essa confusão que fez 19 falhas passarem despercebidas em
+ * 26/08/2026 (ver a migração 025).
+ */
+export type DesfechoDoAviso = "enviado" | "sem_telefone" | "falhou" | "desligado";
+
 export type ReciboEmitido = {
   id: string;
   canal: CanalDeEmissao;
@@ -88,6 +98,8 @@ export type ReciboEmitido = {
    * essa guarda é aceitável.
    */
   comprovanteCaminho: string | null;
+  /** `null` = ainda não se aplica. Aviso só existe para recibo `emitido` — ver `DesfechoDoAviso`. */
+  aviso: DesfechoDoAviso | null;
   /** A frase do canal quando recusou. Vai para a tela — tem que ser legível. */
   erro: string | null;
   criadoEm: string;

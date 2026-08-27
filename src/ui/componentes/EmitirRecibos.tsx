@@ -44,7 +44,12 @@ import { NovoPagamento } from "@/ui/componentes/NovoPagamento";
 
 /* ── o que as rotas devolvem ─────────────────────────────────────────────── */
 
-type Pendentes = { pagamentos: PagamentoPendente[]; total: number; semCpf: number };
+type Pendentes = {
+  pagamentos: PagamentoPendente[];
+  total: number;
+  semCpf: number;
+  avisos?: { falhou: number; semTelefone: number };
+};
 type Fiscal = { config: ConfigFiscal; caminho: string; falta: string[] };
 
 /**
@@ -541,6 +546,29 @@ export function EmitirRecibos() {
   return (
     <div style={s(`display:flex;flex-direction:column;gap:12px;${esticar}`)}>
       <Emitente config={fiscal.config} />
+
+      {/* ★ QUEM FICOU SEM SABER. Em 26/08/2026 dezenove mensagens falharam e o silêncio foi
+          idêntico ao sucesso — o dono só descobriu contando. Agora é uma linha na tela. */}
+      {(() => {
+        const a = pend.avisos;
+        const n = (a?.falhou ?? 0) + (a?.semTelefone ?? 0);
+        if (n === 0) return null;
+        const partes = [
+          a!.falhou > 0 ? `${a!.falhou} com número que o WhatsApp recusou` : "",
+          a!.semTelefone > 0 ? `${a!.semTelefone} sem telefone no cadastro` : "",
+        ].filter(Boolean);
+        return (
+          <div style={s("display:flex;align-items:flex-start;gap:10px;padding:12px 15px;border-radius:12px;border:1px solid var(--warn-line);background:var(--warn-soft)")}>
+            <span aria-hidden style={s("flex:none;color:var(--warn);display:flex;padding-top:1px")}><Icon name="alert" size={16} /></span>
+            <span style={s("font-size:var(--t-label);color:var(--ink);line-height:var(--lh-prose)")}>
+              <strong style={s("font-weight:var(--w-title)")}>
+                {n === 1 ? "1 paciente não foi avisado" : `${n} pacientes não foram avisados`}
+              </strong>{" "}
+              — {partes.join(" e ")}. O recibo saiu; a mensagem não. Conserte o telefone em Clientes.
+            </span>
+          </div>
+        );
+      })()}
       <BarraDeEtapas etapa={etapa} ir={setEtapa} />
 
       {/* `align-items:stretch` no desktop: é o que faz os dois cartões terminarem na mesma linha,
