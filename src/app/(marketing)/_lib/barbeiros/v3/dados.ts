@@ -170,9 +170,11 @@ export const SUB_DOBRA =
  *
  * ⚠️ NENHUMA DAS TRÊS CONVERSAS FALA DE PRAZO DE LEMBRETE, e isso segue deliberado.
  *
- * A contradição que este bloco registrava foi resolvida em 14/08/2026: o produto manda o
- * lembrete 3h antes (`nucleo/dominio/lembretes.ts` → `HORAS_ANTES`), e a única cópia que
- * dizia "no dia anterior" — `lp/terapeutas/index.html:302` — foi corrigida.
+ * A contradição que este bloco registrava foi resolvida em 14/08/2026, e a decisão ficou
+ * ainda mais certa em 04/09/2026: o prazo virou escolha do inquilino
+ * (`assistente.lembreteHoras`, migração 026), então **não existe mais um número para citar**.
+ * `HORAS_ANTES` sobrou como padrão de quem nunca escolheu, não como a promessa do produto.
+ * A cópia da LP de terapeutas que trazia "3h antes" passou a falar em prazo escolhido.
  *
  * ⚠️ ESTE COMENTÁRIO CITAVA `RecursosBarbeiros.tsx:86` E `completa/dados.ts:89`, QUE NÃO
  * EXISTEM MAIS: sumiram na reescrita da v3. A referência sobreviveu ao arquivo e mandou

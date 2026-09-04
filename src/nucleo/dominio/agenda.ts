@@ -1,9 +1,14 @@
 /* ─────────────────────────────────────────────────────────────────────────────
  * AGENDA — atendimentos, etapas do dia e o que se lê de uma agenda externa.
  *
- * A fonte da verdade dos atendimentos é a AGENDA EXTERNA conectada (hoje o Google
- * Calendar). O app não mantém uma segunda lista: quando mantinha, nenhuma tela
- * conseguia dizer qual das duas era a real.
+ * A fonte da verdade dos atendimentos é a TABELA `atendimentos` do produto (ADR-0009). O
+ * calendário externo conectado é uma camada ADITIVA: acrescenta o compromisso que nasceu
+ * fora da MAISA e, quando não existe ou falha, acrescenta zero.
+ *
+ * ⚠️ Este cabeçalho dizia o contrário — "a fonte da verdade é a agenda externa… o app não
+ * mantém uma segunda lista". O que aquilo protegia continua valendo: duas listas
+ * SIMÉTRICAS deixam toda tela sem saber qual é a real. A assimetria é o que sustenta duas
+ * fontes — uma manda, a outra soma.
  * ────────────────────────────────────────────────────────────────────────────── */
 
 /** Etapa do dia — as três colunas do kanban. */

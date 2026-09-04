@@ -43,7 +43,7 @@ tela perde todo o CSS — parece bug do código, e não é.
 
 - De mexer em `src/nucleo/portas/`. Mudar uma porta muda todos os adaptadores dela de uma vez.
 - De trocar o modelo de linguagem em `composicao.ts`. Isso invalida o cache de prompt e muda o custo por mensagem.
-- De criar um segundo lugar que guarde atendimento. A agenda externa é a fonte da verdade; quando havia duas listas, nenhuma tela sabia qual era a real.
+- De criar um **terceiro** lugar que guarde atendimento. Desde o [ADR-0009](https://github.com/contasinovacao-dev/Product-House/blob/main/docs/adr) a fonte da verdade é a tabela `atendimentos`, e o calendário externo é uma camada **aditiva** por cima — soma o que nasceu fora e, quando falha ou não existe, soma zero. Esta regra dizia o contrário até 04/09/2026, e o que ela protegia continua valendo: quando havia duas listas simétricas, nenhuma tela sabia qual era a real. A assimetria é o que torna duas fontes sustentáveis — uma manda, a outra acrescenta.
 
 **SEMPRE**
 

@@ -28,6 +28,7 @@ import type { AjustesDaAssistente, AjustesParciais, RepositorioAssistente } from
 import type { ChaveCfg } from "../dominio/assistente";
 import { TONS } from "../dominio/assistente";
 import { DadoInvalido, NaoEncontrado } from "../dominio/erros";
+import { MAX_HORAS_ANTES } from "../dominio/lembretes";
 
 /** Cabe no cabeçalho de uma conversa de WhatsApp. */
 const NOME_MAX = 40;
@@ -90,6 +91,20 @@ export function criarAjustarAssistente(deps: { assistente: RepositorioAssistente
           throw new DadoInvalido("O campo 'ativa' é verdadeiro ou falso.", "ativa");
         }
         a.ativa = p.assistente.ativa;
+      }
+
+      if (p.assistente.lembreteHoras !== undefined) {
+        const horas = Number(p.assistente.lembreteHoras);
+        /* ⚠️ INTEIRO É REGRA, não capricho: a coluna é `smallint` e `2.5` chega no banco como
+         * `23514`/`22P02` — erro de Postgres, em inglês, numa tela de ajuste. O domínio recusa
+         * antes, com a frase que diz o que fazer. O teto tem que bater com o `check` da 026. */
+        if (!Number.isInteger(horas) || horas < 1 || horas > MAX_HORAS_ANTES) {
+          throw new DadoInvalido(
+            `O lembrete sai entre 1 e ${MAX_HORAS_ANTES} horas antes do atendimento.`,
+            "lembreteHoras",
+          );
+        }
+        a.lembreteHoras = horas;
       }
 
       if (Object.keys(a).length) patch.assistente = a;

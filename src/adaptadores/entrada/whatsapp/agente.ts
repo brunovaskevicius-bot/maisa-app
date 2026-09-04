@@ -3,7 +3,7 @@
  *
  * Irmão do `entrada/http/`: a diferença é só quem começa. Lá é o navegador do Bruno,
  * aqui é uma mensagem do cliente. E como o `LEIA-ME.md` desta pasta prometeu, ele NÃO
- * faz `fetch("/api/google/evento")` — chama o caso de uso direto, no mesmo processo.
+ * faz `fetch("/api/atendimentos")` — chama o caso de uso direto, no mesmo processo.
  *
  * ⚠️ NENHUM NOME DE PROVEDOR APARECE NESTE ARQUIVO. Ele fala `ModeloDeConversa`
  * (`portas/saida/modelo-conversa.ts`). Antes importava o SDK da Anthropic e falava

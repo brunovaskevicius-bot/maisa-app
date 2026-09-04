@@ -609,8 +609,57 @@ function ListaToggles({ itens }: { itens: { chave: D.ChaveCfg; titulo: string; d
   return (
     <div style={s("display:flex;flex-direction:column")}>
       {itens.map((t) => (
-        <LinhaToggle key={t.chave} titulo={t.titulo} desc={t.desc} on={st.cfg[t.chave]} alternar={() => st.alternarCfg(t.chave)} />
+        <React.Fragment key={t.chave}>
+          <LinhaToggle titulo={t.titulo} desc={t.desc} on={st.cfg[t.chave]} alternar={() => st.alternarCfg(t.chave)} />
+          {/* ★ O PRAZO MORA COLADO NO INTERRUPTOR QUE O LIGA, e não numa seção própria: são
+              a mesma decisão em duas metades ("manda?" e "quando?"), e separá-las faria o
+              dono ligar o lembrete numa tela e descobrir o prazo em outra. Aparece só com o
+              toggle ligado — escolher a antecedência de um lembrete que não sai é ajustar o
+              nada. */}
+          {t.chave === "lembrete" && st.cfg.lembrete && <Antecedencia />}
+        </React.Fragment>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Quanto antes o lembrete sai.
+ *
+ * ⚠️ LISTA FECHADA, E NÃO CAMPO LIVRE. O campo livre em horas é o desenho que já existiu no
+ * produto antigo, e ele erra dos dois lados: aceita `2` numa agenda de terapia, onde não dá
+ * tempo de remarcar, e aceita `100` sem que ninguém saiba quantos dias isso é. A lista tem o
+ * prazo escrito em português e resolve por reconhecimento. Ver `OPCOES_ANTECEDENCIA`.
+ *
+ * O valor fora da lista continua aparecendo — `rotuloDaAntecedencia` cai no genérico —
+ * porque o banco aceita qualquer inteiro de 1 a 168, e um `select` que não mostra o valor
+ * gravado mostraria outro, mentindo sobre o que está no ar.
+ */
+function Antecedencia() {
+  const st = useStore();
+  const atual = st.assistente.lembreteHoras;
+  const naLista = D.OPCOES_ANTECEDENCIA.some((o) => o.horas === atual);
+  return (
+    <div style={s("display:flex;align-items:center;gap:16px;padding:13px 0;border-bottom:1px solid var(--line)")}>
+      <span style={s("flex:1;min-width:0")}>
+        <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title)")}>Quando mandar</span>
+        <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px;line-height:1.45")}>
+          Sessão de terapia pede mais tempo que um corte — quem avisa em cima da hora não
+          consegue remarcar.
+        </span>
+      </span>
+      <select
+        value={atual}
+        onChange={(e) => st.setAssistente({ lembreteHoras: Number(e.target.value) })}
+        aria-label="Quantas horas antes o lembrete sai"
+        className="m-focus"
+        style={s("height:38px;padding:0 8px;border-radius:10px;border:1px solid var(--border-field);background:var(--surface);font-family:inherit;font-size:var(--t-sm);color:var(--ink);outline:none;cursor:pointer")}
+      >
+        {!naLista && <option value={atual}>{D.rotuloDaAntecedencia(atual)}</option>}
+        {D.OPCOES_ANTECEDENCIA.map((o) => (
+          <option key={o.horas} value={o.horas}>{o.rotulo}</option>
+        ))}
+      </select>
     </div>
   );
 }

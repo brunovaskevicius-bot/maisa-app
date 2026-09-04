@@ -49,8 +49,11 @@ E em `composicao.ts`, uma linha: `const negocio = repositorioSupabase`.
 
 ## Detalhes dos fixtures que não são acidente
 
-- **Um profissional só.** A agenda do Google do `pr1` é a fonte da verdade; três colegas
-  fictícios mostrariam atendimentos que não existem em lugar nenhum.
+- **Um profissional só.** Os atendimentos do `pr1` são a agenda de verdade deste fixture;
+  três colegas fictícios mostrariam horários que não existem em lugar nenhum.
+- **`atendimentos.ts` carrega a constraint de exclusão da migração 027** — sobreposição por
+  intervalo, em memória. Sem ela o `/laboratorio` aceitaria marcar em cima e o defeito só
+  apareceria contra o Postgres, que é o oposto do que este diretório existe para fazer.
 - **`cl-teste` com CPF real.** A NFS‑e só autoriza em produção, então validar a
   integração exige emitir uma nota de verdade — e ela se cancela sozinha em 25 s.
 - **Todos os e‑mails apontam para o dono do projeto.** Já apontaram para `@email.com`,

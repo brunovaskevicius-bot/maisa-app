@@ -754,10 +754,17 @@ function AvisoAgenda() {
     </div>
   );
 
+  /* ⚠️ AQUI DIZIA "Os atendimentos abaixo são de exemplo", e era mentira nas duas pontas:
+   * a grade já não tinha fixture nenhum (ela vem de `atendimentos`, que o store zerava) e
+   * a agenda nunca precisou do Google para existir. Quem lia isso concluía que o produto
+   * não estava funcionando — e agia como se não estivesse.
+   *
+   * O convite continua, porque conectar tem valor de verdade: é o que traz o compromisso
+   * que nasceu FORA da MAISA. Só que agora é oferta, não pré-requisito. */
   if (a.status === "nao_conectado") {
     return faixa(
       "muted",
-      "Esta agenda ainda não está ligada ao Google. Os atendimentos abaixo são de exemplo.",
+      "Conecte o Google Calendar para ver aqui também os compromissos que você marca por fora.",
       { label: "Conectar", onClick: () => { if (st.pidAgenda) st.conectarGoogle(st.pidAgenda); } },
     );
   }

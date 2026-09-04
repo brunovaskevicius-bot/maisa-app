@@ -22,6 +22,7 @@ import type {
   AjustesDaAssistente, AjustesParciais, RepositorioAssistente,
 } from "@/nucleo/portas/saida/repositorio-assistente";
 import { FalhaDoProvedor, NaoEncontrado } from "@/nucleo/dominio/erros";
+import { HORAS_ANTES } from "@/nucleo/dominio/lembretes";
 import { clienteDoContexto } from "./contexto-cliente";
 
 /** As colunas, na ordem da DDL. Explícitas para o `select` não trazer o que não se usa. */
@@ -36,7 +37,7 @@ import { clienteDoContexto } from "./contexto-cliente";
 const COLS_BASE =
   "nome, tom, saudacao, ativa, confirmar, lembrete, remarcar, encaixe, encaminhar, preco_catalogo, pix";
 
-const COLS = `${COLS_BASE}, avisar_recibo`;
+const COLS = `${COLS_BASE}, avisar_recibo, lembrete_horas`;
 
 /** `42703` coluna inexistente · `PGRST204` coluna fora do cache de schema do PostgREST. */
 const colunaNaoExiste = (e: { code?: string; message?: string } | null): boolean =>
@@ -56,6 +57,7 @@ type Linha = {
   preco_catalogo: boolean;
   pix: boolean;
   avisar_recibo: boolean;
+  lembrete_horas: number;
 };
 
 /**
@@ -84,6 +86,10 @@ function paraAjustes(l: Linha): AjustesDaAssistente {
      * toda a UI. */
     saudacao: l.saudacao ?? "",
     ativa: l.ativa,
+    /* `?? HORAS_ANTES` pela mesma razão do `avisarRecibo` abaixo: a 026 pode não ter rodado, e
+     * coluna ausente vira `undefined`. Cair no padrão mantém a tela mostrando o prazo que o
+     * banco de fato usa nesse estado — o `default` da coluna é o mesmo número. */
+    lembreteHoras: l.lembrete_horas ?? HORAS_ANTES,
   };
 
   const cfg: Record<ChaveCfg, boolean> = {
@@ -136,9 +142,10 @@ export const assistenteSupabase: RepositorioAssistente = {
     const patch: Record<string, unknown> = {};
 
     if (p.assistente) {
-      const { nome, tom, saudacao, ativa } = p.assistente;
+      const { nome, tom, saudacao, ativa, lembreteHoras } = p.assistente;
       if (nome !== undefined) patch.nome = nome;
       if (tom !== undefined) patch.tom = tom;
+      if (lembreteHoras !== undefined) patch.lembrete_horas = lembreteHoras;
       /* Saudação vazia grava `null`, não `""`: a coluna é nullable justamente para
        * significar "não tem", e duas representações do mesmo nada é o tipo de coisa que
        * depois vira `if (x === "" || x === null)` espalhado. */

@@ -70,3 +70,21 @@ export class FalhaDoProvedor extends ErroDeDominio {
     super(msg);
   }
 }
+
+/**
+ * O horário já tem dono. É o 409 do produto.
+ *
+ * Existe desde que a ocupação passou a ser respondida pelo banco (ADR-0009): antes, quem
+ * impedia vender o mesmo horário duas vezes era o provedor externo, e para quem não
+ * conectava provedor nenhum simplesmente não havia proteção. Agora quem impede é a
+ * constraint de exclusão da tabela, e `23P01` do Postgres vira ESTE erro.
+ *
+ * ⚠️ É a ÚNICA falha de gravação do registro que pode derrubar um agendamento. Todas as
+ * outras são log-e-segue, porque perder o espelho é menos grave que abortar depois do
+ * efeito — mas confirmar duas pessoas no mesmo horário é pior que qualquer erro na tela.
+ */
+export class HorarioOcupado extends ErroDeDominio {
+  constructor(msg = "Esse horário já está ocupado.") {
+    super(msg);
+  }
+}

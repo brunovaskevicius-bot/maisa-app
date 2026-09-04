@@ -42,7 +42,15 @@
  * torta, o atendimento não pode morrer por causa disso. A ÚNICA exceção é CONFLITO DE
  * HORÁRIO (`23P01`, a constraint de exclusão): aí derrubar é o comportamento certo, porque
  * a alternativa é vender o mesmo horário duas vezes. Quem implementa distingue os dois
- * casos explicitamente — um `if` nomeado, não um `catch` genérico.
+ * casos explicitamente — um `if` nomeado, não um `catch` genérico — e lança
+ * `HorarioOcupado`.
+ *
+ * ⚠️ A ORDEM DE ESCRITA INVERTEU (ADR-0009). Antes o provedor era chamado primeiro e este
+ * registro depois, e o comentário "quando este arquivo roda, o evento JÁ EXISTE" valia. Não
+ * vale mais: agora grava-se AQUI primeiro — é aqui que o conflito é detectado — e o
+ * provedor recebe o evento depois, dentro de um `try` que segue em frente. Um atendimento
+ * com `evento_id` nulo passou a ser estado NORMAL, não corrupção: é o inquilino que não
+ * conectou calendário nenhum, que é o caso da maioria.
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type { ContextoTenant } from "../../dominio/tenant";
@@ -89,6 +97,16 @@ export type LinhaDeAtendimento = {
   htmlLink: string | null;
 };
 
+/**
+ * Uma linha como ela VOLTA da leitura. É a de escrita mais o que só o banco sabe.
+ *
+ * `situacao` não entra em `LinhaDeAtendimento` de propósito: quem grava nunca escolhe se
+ * está criando um atendimento cancelado. Cancelar é outro método.
+ */
+export type AtendimentoRegistrado = LinhaDeAtendimento & {
+  situacao: "marcado" | "cancelado";
+};
+
 export interface RegistroDeAtendimentos {
   /**
    * O que já tem dono na agenda deste profissional, dentro da janela. É a **fonte
@@ -113,11 +131,51 @@ export interface RegistroDeAtendimentos {
   listarJanela(t: ContextoTenant, p: { agendaId: string; janela: Janela }): Promise<Ocupado[]>;
 
   /**
+   * Os atendimentos da janela, INTEIROS — é o que a grade do painel desenha.
+   *
+   * Existe separado de `listarJanela` porque as duas perguntas têm preço diferente e
+   * chamadores diferentes. `listarJanela` responde "está livre?" no caminho quente do
+   * agente e lê três colunas; esta responde "o que tem no dia?" para uma tela e lê a
+   * linha toda. Uma só, na forma gorda, faria o agente pagar por dado que ele descarta.
+   *
+   * Traz cancelado também (`situacao` vem junto): a grade precisa saber a diferença entre
+   * "não tem nada" e "tinha e desmarcaram". Quem só quer ocupação filtra.
+   *
+   * **Lança**, pelo mesmo motivo de `listarJanela`: tela de agenda vazia por falha de
+   * banco é indistinguível de dia sem atendimento, e o dono acredita.
+   */
+  listar(t: ContextoTenant, p: { agendaId: string; janela: Janela }): Promise<AtendimentoRegistrado[]>;
+
+  /**
+   * A linha desta chave de idempotência, se existir. É a metade do servidor da criação
+   * idempotente — a que NÃO depende de provedor nenhum.
+   *
+   * Substitui a varredura de agenda que `agendar-atendimento.ts` fazia antes de criar: a
+   * pergunta "já marquei isso?" é respondida por `unique (tenant_id, maisa_ag)` num
+   * índice, e não por uma leitura de calendário que custa uma ida à rede e não existe
+   * para quem não conectou calendário.
+   *
+   * ⚠️ Devolve a linha mesmo com `eventoId` nulo, e é ISSO que a torna útil: linha sem
+   * evento é a marca de uma tentativa que gravou no banco e morreu antes do provedor.
+   * Quem chama usa essa diferença para retomar de onde parou em vez de criar de novo.
+   *
+   * **Lança** se não conseguir ler: devolver `null` numa falha de banco significa "pode
+   * criar", e o resultado é o atendimento duplicado que este método existe para impedir.
+   */
+  buscarPorAg(t: ContextoTenant, p: { maisaAg: string }): Promise<AtendimentoRegistrado | null>;
+
+  /**
    * Grava (ou reconhece) a linha. **Idempotente por `maisaAg`**: chamar duas vezes com a
    * mesma chave não cria duas linhas — é a mesma proteção que o caso de uso já tem contra
    * o modelo que retenta.
    *
-   * Não lança, EXCETO em conflito de horário. Ver o ⚠️ do cabeçalho.
+   * É chamado DUAS vezes no caminho normal, e isso é desenho: a primeira grava o
+   * atendimento com `eventoId` nulo (é ela que colide, se for para colidir), a segunda
+   * anexa o id que o provedor devolveu. A alternativa era um método `anexarEvento` só
+   * para isso; um upsert idempotente já faz o trabalho sem crescer a porta.
+   *
+   * Não lança, EXCETO em conflito de horário — aí lança `HorarioOcupado`. Ver o ⚠️ do
+   * cabeçalho.
    */
   registrar(t: ContextoTenant, a: LinhaDeAtendimento): Promise<void>;
 
@@ -125,7 +183,12 @@ export interface RegistroDeAtendimentos {
    * Marca como cancelado. **Não apaga**: o histórico de quem desmarca é informação do
    * negócio, e é isso que a coluna `situacao` existe para guardar.
    *
+   * ⚠️ Aceita `maisaAg` OU `eventoId`, e o primeiro é o caminho normal desde o ADR-0009.
+   * `eventoId` nulo passou a ser estado legítimo (atendimento de quem não conectou
+   * calendário), então cancelar só por ele deixaria esses atendimentos impossíveis de
+   * desmarcar. `eventoId` continua aceito para o que foi gravado antes desta mudança.
+   *
    * Não lança, pela mesma razão do `registrar`.
    */
-  cancelar(t: ContextoTenant, p: { eventoId: string }): Promise<void>;
+  cancelar(t: ContextoTenant, p: { maisaAg?: string; eventoId?: string }): Promise<void>;
 }

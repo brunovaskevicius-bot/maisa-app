@@ -37,6 +37,9 @@ nesta ordem. Todos são reexecutáveis (`if not exists`, `create or replace`,
 | 023 | `023_recibo_numero_e_comprovante.sql` | **O protocolo vira inteiro, e o PDF ganha onde morar.** `recibos_emitidos.numero` (identity global — a Rebots recusa uuid no `receipt_id`) e `comprovante_caminho` + o bucket privado `comprovantes-recibo`: a URL do PDF deles vale 5 minutos, e sem a cópia o comprovante existe por um instante e nunca mais. Recria `abrir_recibo_unitario` devolvendo três colunas |
 | 024 | `024_avisar_recibo.sql` | **O interruptor da mensagem ao paciente.** `assistente.avisar_recibo`, padrão **false**: quando o callback confirma `emitido`, a MAISA avisa quem foi atendido — mensagem para terceiro, saindo do WhatsApp pessoal do dono, sem humano no disparo. O adaptador lê com queda (`42703` → relê sem a coluna) para a tela de ajustes não cair na janela entre o deploy e o `Run`. Aditivo e reexecutável |
 | 025 | `025_desfecho_do_aviso.sql` | **O desfecho do aviso vira dado.** `recibos_emitidos.aviso` — `enviado` · `sem_telefone` · `falhou` · `desligado`. O aviso ao paciente engole o erro de propósito (o recibo já saiu), e o que ele engolia não aparecia: 19 mensagens falharam em 26/08/2026 e o silêncio foi igual ao sucesso. ⚠️ `desligado` é um ESTADO, não a ausência dele. Aditivo e reexecutável |
+| 026 | `026_lembrete_horas.sql` | **O prazo do lembrete vira escolha do inquilino.** `assistente.lembrete_horas` (1..168, padrão 3) e `reservar_lembretes()` recriada com a janela POR LINHA (`make_interval`). Três horas é prazo de barbearia; sessão de terapia avisada 3h antes já está perdida. ⚠️ `p_ate` sobrevive com OUTRO significado — deixou de ser a janela e virou o teto da varredura, porque uma varredura cross-tenant não expressa N janelas num parâmetro só. Aditivo e reexecutável |
+| 027a | `027a_desfazer_sobreposicoes.sql` | **Limpa o que impede o 027 de entrar.** Roda ANTES dele, e só se ele reprovar com `23P01` — foi o que aconteceu em 04/09/2026. Cancela (não apaga) o menos importante de cada par sobreposto, um por volta para não derrubar cadeia inteira; a preferência é **atendimento de verdade > semente**, depois **já virou recibo**, depois começa mais cedo. ⚠️ **Aborta sem tocar em nada** se as duas pontas de um conflito forem atendimentos reais — escolher qual cliente perde o horário não é decisão de script |
+| 027 | `027_conflito_de_horario.sql` | **Dois atendimentos não ocupam o mesmo horário — o banco garante.** `btree_gist` + `exclude using gist (tenant_id =, profissional_id =, tstzrange(inicio, fim, '[)') &&) where (situacao = 'marcado')`. Até o ADR-0009 quem impedia era o Google, e para quem não conectava não havia proteção nenhuma. `[)` deixa 14–15h conviver com 15–16h; com `[]` a agenda de hora em hora aceitaria um horário por dia. ⚠️ **Pode falhar**: recusa se já houver sobreposição gravada (o `npm run semear` sorteia horários e não checa). A query de detecção está no cabeçalho do arquivo. Reexecutável |
 | 099 | `099_auditoria.sql` | **Falha se o isolamento estiver aberto.** Rode a cada mudança de schema |
 
 ⚠️ O 001–008 já rodou contra o Supabase do Bruno (o app lê `negocios` e `clientes` de lá).
@@ -53,7 +56,7 @@ tabelas com RLS ligada e política nenhuma, e o sintoma foi "o painel não lê, 
 negocios ──┬── membros ──────────── auth.users        ← quem pode operar o quê
            ├── profissionais ─┬─ integracoes_google   ← quem atende, e a agenda dele
            │                  └─ servicos_profissionais ─ servicos
-           ├── clientes ─────── atendimentos ← ESPELHO (a verdade é o Google)
+           ├── clientes ─────── atendimentos ← A AGENDA (o Google só soma por cima)
            ├── notas · config_fiscal · assinaturas    ← dinheiro e prefeitura
            └── conversas ─ mensagens · faqs · assistente · horarios_anunciados
 ```
@@ -65,30 +68,45 @@ negocios ──┬── membros ──────────── auth.users
 
 ## 3. As cinco decisões que valem discussão
 
-### 3.1 `atendimentos` é espelho, não verdade
+### 3.1 `atendimentos` é a verdade; o calendário externo é aditivo
 
-O domínio é explícito: a fonte da verdade dos horários é a agenda externa conectada, e
-o app **não mantém uma segunda lista** — quando mantinha, nenhuma tela conseguia dizer
-qual das duas era a real. Esta tabela não revoga aquilo. Ela existe porque três
-perguntas não têm resposta no Google:
+> ⚠️ **ESTA SEÇÃO DIZIA O CONTRÁRIO ATÉ 04/09/2026** — "é espelho, não verdade", e "não
+> desenhe tela de agenda a partir desta tabela". Inverteu no **ADR-0009**. O texto antigo
+> previa o momento certo: *"se um dia você precisar dela para render, o problema mudou de
+> tamanho e a decisão precisa ser retomada de propósito"*. Foi o que aconteceu.
 
-1. **Idempotência** sem ida ao provedor — `unique (tenant_id, maisa_ag)`. Hoje o
-   servidor procura a marca varrendo dias de agenda; o agente de WhatsApp vai retentar
-   muito mais e não pode pagar uma varredura por tentativa.
-2. **Faturamento** — `Cliente.atendimentos` e `Cliente.valor` são a base da nota do mês
-   e hoje são constante em fixture. Não há como somar a competência a partir do Google
-   sem reler a agenda inteira a cada abertura de tela.
-3. **Ator** — `dominio/tenant.ts` pede em voz alta que um atendimento criado pela IA
-   seja distinguível de um criado à mão. O Google guarda a descrição, não quem escreveu.
+**O que mudou o tamanho do problema:** com o Google como fonte única, **nenhuma linha
+entrava aqui sem Google conectado** — o caso de uso consultava o provedor antes de gravar
+e abortava. Junto caíam faturamento, nota, lembrete e a tela de Agenda inteira. Para o ICP
+que decidiu não entregar a agenda a um terceiro, o produto não existia.
 
-**A invariante:** a grade (`LerAgenda`) continua vindo do provedor. **Não desenhe tela
-de agenda a partir desta tabela** — um evento criado direto no Google não passa por
-aqui, e a grade ficaria mentindo. Se um dia você precisar dela para render, o problema
-mudou de tamanho e a decisão precisa ser retomada de propósito, não por conveniência.
+Agora esta tabela responde **"está livre?"** e **"o que tem no dia?"** para todo inquilino.
+O provedor externo é lido dentro de `try`: acrescenta o que nasceu fora da MAISA (o encaixe
+que o dono marcou no celular, o almoço) e, quando não existe ou falha, acrescenta zero.
 
-Sem constraint de sobreposição de horário, também de propósito: o dono **pode** querer
-encaixe, e um evento nascido fora da MAISA não estaria na tabela — a constraint daria
-confiança falsa e recusaria linha legítima.
+As quatro perguntas que só têm resposta aqui:
+
+1. **Idempotência** sem ida ao provedor — `unique (tenant_id, maisa_ag)`. É a proteção
+   primária desde o ADR-0009: o agente de WhatsApp retenta sozinho e não pode pagar uma
+   varredura de agenda por tentativa.
+2. **Faturamento** — `v_a_faturar` soma a competência daqui. Não há como somar a partir do
+   Google sem reler a agenda inteira a cada abertura de tela.
+3. **Ator** — `dominio/tenant.ts` pede que um atendimento criado pela IA seja
+   distinguível de um criado à mão. O Google guarda a descrição, não quem escreveu.
+4. **Disponibilidade sem provedor** — é o que faz a MAISA marcar para quem nunca vai
+   conectar calendário nenhum.
+
+**O preço, escrito para ninguém se surpreender:** um evento apagado **direto no Google**
+deixa de sumir do painel — a linha continua `marcado` até alguém cancelar pelo produto.
+Antes sumia de graça. E `evento_id` nulo virou estado **normal**, não corrupção.
+
+**Com constraint de sobreposição desde o 027** — e a razão de antes não haver caiu junto: o
+argumento era que "um evento nascido fora da MAISA não estaria na tabela, então a constraint
+daria confiança falsa". Continua verdade, e continua sendo por isso que quem cruza as duas
+fontes é `oferecerHorarios` em código. O que mudou é que sem constraint **não havia proteção
+nenhuma** para quem não conecta Google: contar antes de inserir deixa duas requisições
+simultâneas passarem as duas. Encaixe deliberado ainda é possível — cancele e remarque, ou
+use outra agenda.
 
 ### 3.2 A config fiscal sai do `.env` — é isto que destrava o segundo cliente
 

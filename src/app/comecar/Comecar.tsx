@@ -32,6 +32,15 @@
  * justamente a de ver marcando. Configuração pedida no instante em que o valor dela
  * aparece na tela não é burocracia; pedida antes, é.
  *
+ * ── ★ A TRILHA TEM DOIS TAMANHOS, DESDE 04/09/2026 ──
+ *
+ * A etapa 1 pergunta **como** a MAISA vai trabalhar (ver `MODOS`), e quem responde "minha
+ * agenda é fixa" não passa pela etapa 4. Não é atalho de conveniência: sem agente não há
+ * conversa a demonstrar, e a etapa 4 é a única que exige o Google. Mantê-la faria um
+ * consultório de agenda fixa parar num pedido de agenda para ver funcionando um agente que
+ * ele acabou de desligar — com "Abrir meu painel" como única saída, que é abandono com
+ * outro nome.
+ *
  * ⚠️ SÓ A ETAPA 1 É OBRIGATÓRIA, porque é a única que CRIA alguma coisa. Todas as outras
  * têm "Pular" — e pular não é abandono: o passo continua contado em `/api/ativacao`, que
  * lê o mundo em vez de uma flag.
@@ -81,6 +90,41 @@ const VERTICAIS: { id: Vertical; rotulo: string; desc: string; icone: string }[]
   { id: "generico", rotulo: "Outro tipo", desc: "Começa com um catálogo neutro", icone: "sparkle" },
 ];
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ★ COMO ELA VAI SER USADA — a pergunta que a vertical NÃO responde.
+ *
+ * A vertical diz que negócio é; esta diz o que a MAISA faz nele. São coisas
+ * diferentes, e tratá-las como uma só erra nos dois sentidos: existe barbearia com
+ * agenda fechada e existe consultório que quer a MAISA marcando. Por isso duas
+ * perguntas, e não um `if (vertical === "terapeutas")`.
+ *
+ * ⚠️ A ESCOLHA TEM CONSEQUÊNCIA IMEDIATA, e é ela que justifica perguntar aqui em vez de
+ * enterrar num ajuste do painel: quem escolhe `avisos` NÃO passa pela etapa "Ver
+ * funcionando", que é a única que exige a agenda do Google. Sem isto, um consultório de
+ * agenda fixa empaca numa etapa que existe para demonstrar um agente que ele desligou.
+ *
+ * O par de campos que cada modo grava está em `aplicarModo`.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+type Modo = "conversa" | "avisos";
+
+const MODOS: { id: Modo; rotulo: string; desc: string; icone: string }[] = [
+  {
+    id: "conversa",
+    rotulo: "Ela conversa e marca sozinha",
+    desc: "Responde seus clientes no WhatsApp, consulta a agenda e agenda o horário",
+    icone: "chat",
+  },
+  {
+    id: "avisos",
+    /* "Minha agenda é fixa" e não "não quero o agente": a pessoa se reconhece pela
+     * própria rotina, não por uma feature que ela ainda não viu funcionando. */
+    rotulo: "Minha agenda é fixa",
+    desc: "Ela não responde ninguém — só manda o lembrete e avisa quando o recibo sai",
+    icone: "bell",
+  },
+];
+
 /* De quanto em quanto se pergunta se o QR já foi lido, e por quanto tempo. Os mesmos
  * números do painel (`store.tsx`): 3s × 40 ≈ 2 min, mais que a validade de um QR. */
 const INTERVALO_PAREAMENTO = 3000;
@@ -94,11 +138,11 @@ const CAMPO =
 
 /* ───────────────────────────── peças ───────────────────────────── */
 
-function Trilha({ atual }: { atual: EtapaId }) {
-  const i = ETAPAS.findIndex((e) => e.id === atual);
+function Trilha({ atual, etapas }: { atual: EtapaId; etapas: typeof ETAPAS }) {
+  const i = etapas.findIndex((e) => e.id === atual);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      {ETAPAS.map((e, j) => (
+      {etapas.map((e, j) => (
         <React.Fragment key={e.id}>
           {/* Bolinha com NÚMERO e não só cor: a etapa cumprida vira ✓, a atual mostra o
               número, e a futura fica apagada. Cor sozinha é o sinal mais frágil que existe
@@ -115,7 +159,7 @@ function Trilha({ atual }: { atual: EtapaId }) {
           >
             {j < i ? <Icon name="check" size={14} sw={2.6} stroke="var(--surface)" /> : j + 1}
           </span>
-          {j < ETAPAS.length - 1 && (
+          {j < etapas.length - 1 && (
             <span style={s(`flex:1;height:2px;border-radius:2px;background:${j < i ? "var(--success)" : "var(--line)"}`)} />
           )}
         </React.Fragment>
@@ -212,14 +256,64 @@ function Botao({
 
 /* ───────────────────────────── etapa 1 · o negócio ───────────────────────────── */
 
-function EtapaNegocio({ aoCriar }: { aoCriar: () => void }) {
+/**
+ * O que o modo escolhido grava — e por que são DOIS campos, não um.
+ *
+ * `ativa: false` cala o agente: a mensagem do cliente entra no histórico e a MAISA não
+ * responde (`entrada/whatsapp/agente.ts`). É o que "ela não responde ninguém" significa.
+ *
+ * `avisarRecibo: true` é a outra metade da mesma frase. O padrão dele no banco é `false`
+ * de propósito — é o único toggle que dispara sem ninguém por perto, do número pessoal do
+ * dono (ver `ChaveCfg` em `dominio/assistente.ts`). Esse padrão protege quem NÃO pediu;
+ * quem escolhe este modo pediu, com todas as letras, no texto do cartão. Deixá-lo `false`
+ * aqui faria a tela prometer um aviso que nunca sai.
+ *
+ * ⚠️ `lembrete` não aparece porque já nasce `true` (`002_multitenant.sql`). Regravá-lo
+ * daria um segundo lugar decidindo o mesmo padrão, e o dia em que os dois discordassem
+ * ninguém saberia qual vale.
+ */
+const aplicarModo = async (modo: Modo): Promise<boolean> => {
+  if (modo === "conversa") return true;
+  const r = await fetch("/api/assistente", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assistente: { ativa: false }, cfg: { avisarRecibo: true } }),
+  }).then((x) => x.json()).catch(() => null);
+  /* Devolve se o agente FICOU ativo — o PATCH que não passa deixa de pé o padrão do banco,
+   * que é ligado. Quem chama usa isto para decidir a trilha, então errar para "ligado" é o
+   * lado seguro: mostra uma etapa a mais, em vez de esconder a demonstração de quem a quer. */
+  return !r?.ok;
+};
+
+/** Um cartão de escolha — o mesmo desenho para a vertical e para o modo. */
+function Escolha({
+  on, icone, rotulo, desc, onClick,
+}: { on: boolean; icone: string; rotulo: string; desc: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick} className="m-press m-focus"
+      style={s(`display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;cursor:pointer;text-align:left;font-family:inherit;border:1.5px solid ${on ? "var(--primary)" : "var(--border)"};background:${on ? "var(--primary-soft)" : "var(--surface)"}`)}
+    >
+      <Icon name={icone} size={22} sw={1.9} stroke={on ? "var(--primary-dark)" : "var(--muted)"} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>{rotulo}</span>
+        <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px;line-height:1.4")}>{desc}</span>
+      </span>
+      {on && <Icon name="check" size={18} sw={2.4} stroke="var(--primary-dark)" />}
+    </button>
+  );
+}
+
+function EtapaNegocio({ aoCriar }: { aoCriar: (agenteAtivo: boolean) => void }) {
   const [nome, setNome] = useState("");
   const [vertical, setVertical] = useState<Vertical | null>(null);
+  const [modo, setModo] = useState<Modo | null>(null);
   const [recado, setRecado] = useState<Recado>(null);
   const [ocupado, setOcupado] = useState(false);
 
   const criar = useCallback(async () => {
     if (!vertical) { setRecado(falhou("Escolha o tipo do seu negócio.")); return; }
+    if (!modo) { setRecado(falhou("Escolha como a MAISA vai trabalhar.")); return; }
     setRecado(null);
     setOcupado(true);
     try {
@@ -237,12 +331,22 @@ function EtapaNegocio({ aoCriar }: { aoCriar: () => void }) {
         setOcupado(false);
         return;
       }
-      aoCriar();
+
+      /* ⚠️ O AJUSTE FALHA PARA A FRENTE, e é decisão, não descuido: o negócio JÁ EXISTE
+       * quando esta linha roda. Barrar aqui deixaria a pessoa presa numa etapa que só sabe
+       * criar — e a segunda tentativa bateria em "você já tem um negócio". Então o wizard
+       * segue com o agente ligado (o padrão do banco) e diz o que não pegou; o mesmo par de
+       * toggles está na tela "A MAISA", que é onde ela conserta em dois cliques. */
+      const agenteAtivo = await aplicarModo(modo);
+      if (modo === "avisos" && agenteAtivo) {
+        toast("Criei seu negócio, mas não consegui desligar as respostas automáticas — ajuste em “A MAISA”.");
+      }
+      aoCriar(agenteAtivo);
     } catch {
       setRecado(falhou("Sem conexão com o servidor. Tente de novo."));
       setOcupado(false);
     }
-  }, [nome, vertical, aoCriar]);
+  }, [nome, vertical, modo, aoCriar]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -253,7 +357,7 @@ function EtapaNegocio({ aoCriar }: { aoCriar: () => void }) {
         <input
           autoFocus value={nome} onChange={(e) => setNome(e.target.value)}
           placeholder="Barbearia do Zé" className="m-focus" style={s(CAMPO)}
-          onKeyDown={(e) => { if (e.key === "Enter" && nome.trim() && vertical) void criar(); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && nome.trim() && vertical && modo) void criar(); }}
         />
         {/* Diz a CONSEQUÊNCIA, não a regra. Este campo entra no prompt do agente a cada
             mensagem e no texto de todo lembrete — foi assim que um negócio de teste passou
@@ -270,23 +374,30 @@ function EtapaNegocio({ aoCriar }: { aoCriar: () => void }) {
         <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.45;margin-bottom:2px")}>
           Serve para já deixar seus serviços e horários preenchidos — dá para mudar tudo depois.
         </span>
-        {VERTICAIS.map((v) => {
-          const on = vertical === v.id;
-          return (
-            <button
-              key={v.id} onClick={() => { setVertical(v.id); setRecado(null); }}
-              className="m-press m-focus"
-              style={s(`display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;cursor:pointer;text-align:left;font-family:inherit;border:1.5px solid ${on ? "var(--primary)" : "var(--border)"};background:${on ? "var(--primary-soft)" : "var(--surface)"}`)}
-            >
-              <Icon name={v.icone} size={22} sw={1.9} stroke={on ? "var(--primary-dark)" : "var(--muted)"} />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={s("display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>{v.rotulo}</span>
-                <span style={s("display:block;font-size:var(--t-label);color:var(--muted);margin-top:2px")}>{v.desc}</span>
-              </span>
-              {on && <Icon name="check" size={18} sw={2.4} stroke="var(--primary-dark)" />}
-            </button>
-          );
-        })}
+        {VERTICAIS.map((v) => (
+          <Escolha
+            key={v.id} on={vertical === v.id} icone={v.icone} rotulo={v.rotulo} desc={v.desc}
+            onClick={() => { setVertical(v.id); setRecado(null); }}
+          />
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <span style={s("font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink)")}>
+          Como a MAISA vai trabalhar?
+        </span>
+        {/* Diz que dá para mudar depois pela mesma razão do bloco de cima: a escolha tem
+            consequência grande (ela fala ou não fala com seus clientes) e ninguém decide bem
+            uma coisa dessas achando que é definitiva. */}
+        <span style={s("font-size:var(--t-label);color:var(--muted);line-height:1.45;margin-bottom:2px")}>
+          Dá para trocar quando quiser, na tela “A MAISA”.
+        </span>
+        {MODOS.map((m) => (
+          <Escolha
+            key={m.id} on={modo === m.id} icone={m.icone} rotulo={m.rotulo} desc={m.desc}
+            onClick={() => { setModo(m.id); setRecado(null); }}
+          />
+        ))}
       </div>
 
       <Aviso recado={recado} />
@@ -1452,6 +1563,18 @@ export default function Comecar() {
   const router = useRouter();
   const [etapa, setEtapa] = useState<EtapaId | null>(null);
   const [feitos, setFeitos] = useState<PassoDeAtivacao[]>([]);
+  /**
+   * O agente responde neste inquilino? É o que decide se a etapa "Ver funcionando" existe.
+   *
+   * ⚠️ LIDO DO SERVIDOR NA RETOMADA, e não guardado da escolha da etapa 1. Quem volta do
+   * consent do Google, dá F5 ou fecha o navegador e reabre passa por aqui sem ter respondido
+   * nada — e sem esta leitura o wizard mostraria de novo a etapa que a pessoa desligou.
+   * Mesmo princípio de `dominio/ativacao.ts`: perguntar ao mundo, não a uma flag local.
+   *
+   * `true` de partida porque é o padrão do banco. Errar para ligado mostra uma etapa a mais;
+   * errar para desligado esconde a demonstração de quem a quer.
+   */
+  const [agenteAtivo, setAgenteAtivo] = useState(true);
 
   /**
    * Onde retomar — perguntado ao MUNDO, não a uma flag.
@@ -1497,16 +1620,27 @@ export default function Comecar() {
       toast(`Não consegui ligar sua agenda${motivo ? ` — ${motivo.replace(/_/g, " ")}` : ""}.`);
     }
 
-    fetch("/api/ativacao")
-      .then(async (r) => ({ status: r.status, corpo: await r.json().catch(() => null) }))
-      .then(({ status, corpo }) => {
+    /* O modo vem junto da retomada: as duas respostas decidem a MESMA coisa (onde parar), e
+     * pedi-las em sequência daria uma pintura com a trilha de cinco passos antes de encolher
+     * para quatro. `catch` para ligado — ver o padrão do estado. */
+    Promise.all([
+      fetch("/api/ativacao").then(async (r) => ({ status: r.status, corpo: await r.json().catch(() => null) })),
+      fetch("/api/assistente").then((r) => r.json()).catch(() => null),
+    ])
+      .then(([{ status, corpo }, ajustes]) => {
         if (!vivo) return;
         if (status === 409) { setEtapa("negocio"); return; }
         if (status === 401) { router.push("/login?next=%2Fcomecar"); return; }
         const f: PassoDeAtivacao[] = corpo?.feitos ?? [];
         setFeitos(f);
-        if (google) { setEtapa("ver"); return; }
-        setEtapa(f.includes("whatsapp_conectado") ? "ver" : f.includes("catalogo_ajustado") ? "whatsapp" : "catalogo");
+        const ativa = ajustes?.ok ? ajustes.assistente?.ativa !== false : true;
+        setAgenteAtivo(ativa);
+        /* Sem agente não existe "Ver funcionando": a etapa demonstra uma conversa que não vai
+         * acontecer, e é a única que exige a agenda do Google. Quem a desligou cai no passo
+         * seguinte, que é o documento fiscal. */
+        const depoisDoWhatsApp: EtapaId = ativa ? "ver" : "fiscal";
+        if (google) { setEtapa(depoisDoWhatsApp); return; }
+        setEtapa(f.includes("whatsapp_conectado") ? depoisDoWhatsApp : f.includes("catalogo_ajustado") ? "whatsapp" : "catalogo");
       })
       .catch(() => vivo && setEtapa("negocio"));
     return () => { vivo = false; };
@@ -1532,6 +1666,11 @@ export default function Comecar() {
 
   const meta = ETAPAS.find((e) => e.id === etapa)!;
   const podePular = etapa === "catalogo" || etapa === "whatsapp";
+  /* A trilha mostra só o que vai acontecer. Deixar a bolinha de uma etapa que o wizard vai
+   * pular é prometer um passo a mais e depois sumir com ele — o contador andaria de 3 para 5. */
+  const etapas = agenteAtivo ? ETAPAS : ETAPAS.filter((e) => e.id !== "ver");
+  /** Depois do WhatsApp: demonstrar a conversa, ou o documento fiscal para quem não tem agente. */
+  const depoisDoWhatsApp: EtapaId = agenteAtivo ? "ver" : "fiscal";
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 20px 48px", overflow: "hidden" }}>
@@ -1543,7 +1682,7 @@ export default function Comecar() {
           <div style={s("display:inline-flex;align-items:center;justify-content:center;padding:10px 20px;background:var(--nav);border:1px solid var(--nav-line);border-radius:16px")}>
             <span style={{ ...s("font-size:var(--t-body);font-weight:var(--w-title);color:var(--warm);line-height:1"), textShadow: "0 1.5px 0 var(--warm-line)" }}>maisa</span>
           </div>
-          <div style={{ width: "100%", maxWidth: 320 }}><Trilha atual={etapa} /></div>
+          <div style={{ width: "100%", maxWidth: 320 }}><Trilha atual={etapa} etapas={etapas} /></div>
           <div style={{ textAlign: "center" }}>
             <h1 style={s("font-size:var(--t-title);font-weight:var(--w-title);color:var(--ink);margin:0")}>{meta.titulo}</h1>
             <p style={s("font-size:var(--t-sm);color:var(--muted);margin:4px 0 0")}>{meta.sub}</p>
@@ -1551,9 +1690,11 @@ export default function Comecar() {
         </div>
 
         <div style={s("background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-card);padding:24px 22px")}>
-          {etapa === "negocio" && <EtapaNegocio aoCriar={() => avancar("catalogo")} />}
+          {etapa === "negocio" && (
+            <EtapaNegocio aoCriar={(ativa) => { setAgenteAtivo(ativa); avancar("catalogo"); }} />
+          )}
           {etapa === "catalogo" && <EtapaCatalogo aoSeguir={() => avancar("whatsapp")} />}
-          {etapa === "whatsapp" && <EtapaWhatsApp aoSeguir={() => avancar("ver")} />}
+          {etapa === "whatsapp" && <EtapaWhatsApp aoSeguir={() => avancar(depoisDoWhatsApp)} />}
           {etapa === "ver" && <EtapaVerFuncionando feitos={feitos} aoVoltarParaWhatsApp={() => avancar("whatsapp")} aoSeguir={() => avancar("fiscal")} />}
           {etapa === "fiscal" && <EtapaNotaFiscal aoPainel={aoPainelDoWizard} />}
         </div>
@@ -1563,7 +1704,7 @@ export default function Comecar() {
             responde 409 em toda rota. */}
         {podePular && (
           <button
-            onClick={() => { toast("Você pode fazer isso depois, pelo painel"); avancar(etapa === "catalogo" ? "whatsapp" : "ver"); }}
+            onClick={() => { toast("Você pode fazer isso depois, pelo painel"); avancar(etapa === "catalogo" ? "whatsapp" : depoisDoWhatsApp); }}
             className="m-focus"
             style={s("align-self:center;background:none;border:none;font-family:inherit;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--muted);cursor:pointer;padding:8px 12px")}
           >

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { horaLocal, janelaDeLembrete, textoDoLembrete, type LembretePendente } from "./lembretes";
+import {
+  MAX_HORAS_ANTES, OPCOES_ANTECEDENCIA, horaLocal, janelaDeLembrete, textoDoLembrete,
+  type LembretePendente,
+} from "./lembretes";
 
 const base: LembretePendente = {
   id: "at-1",
@@ -32,9 +35,19 @@ describe("horaLocal", () => {
 });
 
 describe("janelaDeLembrete", () => {
-  it("são três horas à frente", () => {
+  /* ⚠️ NÃO É MAIS A JANELA — é o teto da varredura. A janela virou por inquilino
+   * (`assistente.lembrete_horas`, migração 026) e mora no SQL, porque a varredura é uma só
+   * para todos os inquilinos e um número aqui não expressa N réguas diferentes. */
+  it("é o teto de antecedência à frente, uma semana", () => {
     expect(janelaDeLembrete(new Date("2026-08-14T12:00:00Z")).toISOString())
-      .toBe("2026-08-14T15:00:00.000Z");
+      .toBe("2026-08-21T12:00:00.000Z");
+  });
+
+  /* ★ O teto do domínio e o `check` da coluna são o mesmo número. Este teste e o par dele em
+   * `aplicacao/assistente.test.ts` são o que impede um de andar sem o outro. */
+  it("o teto é o maior prazo que a tela oferece", () => {
+    expect(MAX_HORAS_ANTES).toBe(168);
+    expect(OPCOES_ANTECEDENCIA.at(-1)?.horas).toBe(MAX_HORAS_ANTES);
   });
 });
 

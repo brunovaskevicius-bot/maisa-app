@@ -20,9 +20,9 @@ de regra aparecer aqui, ele está no lugar errado — o lugar é
 
 | Rota | Método | Caso de uso | Respostas |
 |---|---|---|---|
-| `/api/google/agenda` | GET | `lerAgenda` | `ok` + `de`/`ate`/`eventos`; `reconectar` 409; `limite` 429 |
-| `/api/google/evento` | POST | `agendarAtendimento` | `criado` \| `ja_existia` + `eventoId`, `meetLink`, `inicioISO`, `semMeet` |
-| `/api/google/evento` | DELETE | `cancelarAtendimento` | `cancelado` |
+| `/api/agenda` | GET | `lerAgenda` | `ok` + `de`/`ate`/`eventos` — atendimentos do produto + o que vier do calendário externo |
+| `/api/atendimentos` | POST | `agendarAtendimento` | `criado` \| `ja_existia` + `eventoId`, `meetLink`, `inicioISO`, `semMeet`, `foraDoCalendario` |
+| `/api/atendimentos` | DELETE | `cancelarAtendimento` | `cancelado` |
 | `/api/google/conectar` | GET | — (protocolo OAuth) | **redirect** para o consent do Google |
 | `/api/google/conectar` | DELETE | `desconectarAgenda` | `{ ok, revogado }` |
 | `/api/google/callback` | GET | — (protocolo OAuth) | **redirect** com `?google=ok` ou `?google=erro&motivo=…` |

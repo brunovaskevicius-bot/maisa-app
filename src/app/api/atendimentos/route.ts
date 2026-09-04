@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 import { app } from "@/composicao";
-import { barrou, exigirSessaoComGoogle } from "@/adaptadores/entrada/http/contexto";
+import { barrou, exigirSessao } from "@/adaptadores/entrada/http/contexto";
 import { falha } from "@/adaptadores/entrada/http/respostas";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ATENDIMENTO NA AGENDA — sempre no servidor.
+// ATENDIMENTO — marcar e cancelar. Sempre no servidor.
 //
 // POST   → marca o atendimento (com videochamada, se pedido) e devolve o link
 // DELETE → cancela
+//
+// ⚠️ ESTA ROTA MORAVA EM `/api/google/evento`, E O NOME MENTIA (ADR-0009). O que ela cria
+// é um atendimento no produto; o evento no calendário externo é um efeito adicional, que
+// pode simplesmente não acontecer. O nome antigo vinha com `exigirSessaoComGoogle`, que
+// recusa com 400 `nao_configurado` quando o AMBIENTE não tem credencial do Google — ou
+// seja, num deploy sem Google ninguém marcava nada. Agora é `exigirSessao`.
 //
 // A rota é FINA de propósito: ela só traduz HTTP para o caso de uso. Toda a regra
 // (validação, allowlist, idempotência, título do evento) mora em
@@ -20,7 +26,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const porteiro = await exigirSessaoComGoogle();
+  const porteiro = await exigirSessao();
   if (barrou(porteiro)) return porteiro.barrado;
 
   const body = await request.json().catch(() => ({} as any));
@@ -51,14 +57,18 @@ export async function POST(request: Request) {
       htmlLink: r.htmlLink,
       inicioISO: r.inicioISO,
       semMeet: r.semMeet,
+      /* O atendimento existe, mas não entrou em calendário externo nenhum. Para quem
+       * nunca conectou isso é o normal e a tela ignora; para quem conectou, é o aviso de
+       * que a agenda dele NÃO recebeu o evento. Ver o caso de uso. */
+      foraDoCalendario: r.foraDoCalendario,
     });
   } catch (e) {
-    return falha("google/evento", e);
+    return falha("atendimentos", e);
   }
 }
 
 export async function DELETE(request: Request) {
-  const porteiro = await exigirSessaoComGoogle();
+  const porteiro = await exigirSessao();
   if (barrou(porteiro)) return porteiro.barrado;
 
   const { searchParams } = new URL(request.url);
@@ -70,6 +80,6 @@ export async function DELETE(request: Request) {
     });
     return NextResponse.json({ ok: true, status: "cancelado" });
   } catch (e) {
-    return falha("google/evento", e);
+    return falha("atendimentos", e);
   }
 }

@@ -62,7 +62,26 @@ export type TelaId =
 
 export type AbaConversa = "todas" | "espera" | "maisa" | "ok";
 
-export type Assistente = { nome: string; tom: D.Tom; saudacao: string; ativa: boolean };
+/**
+ * ⚠️ CÓPIA DO `Assistente` DO DOMÍNIO, e as duas têm que andar juntas.
+ *
+ * Campo novo lá que não venha para cá não dá erro de compilação em lugar nenhum — a tela
+ * simplesmente não enxerga o dado, e o `PATCH` que a store monta nunca o envia. Foi o que
+ * aconteceu com `lembreteHoras` em 04/09/2026: o domínio ganhou o campo, o adaptador
+ * gravava, e a tela não tinha como escolher.
+ *
+ * A cópia existe porque este tipo é contrato com as telas (a mesma razão do aviso sobre
+ * `status` no `CLAUDE.md`). Unificar com o domínio é limpeza legítima e não foi feita aqui
+ * para não misturar refactor com feature.
+ */
+export type Assistente = {
+  nome: string;
+  tom: D.Tom;
+  saudacao: string;
+  ativa: boolean;
+  /** Horas antes do atendimento. Ver `OPCOES_ANTECEDENCIA` e a migração 026. */
+  lembreteHoras: number;
+};
 
 /**
  * Um atendimento com tudo resolvido — o que as telas consomem.
@@ -501,6 +520,10 @@ const AJUSTES_PLACEHOLDER = {
     tom: "amigável" as D.Tom,
     saudacao: `Olá! Aqui é a MAISA, assistente do ${D.NEGOCIO.nome}. Como posso te ajudar hoje?`,
     ativa: true,
+    /* O `default` da coluna, não uma escolha de tela — mesmo papel do `tom` acima. Quem
+     * nasce consultório recebe 24h no provisionamento, e é a resposta do servidor que
+     * substitui isto. Ver `HORAS_ANTES` e a migração 026. */
+    lembreteHoras: D.HORAS_ANTES,
   },
   cfg: D.CFG_PADRAO,
 };
@@ -3341,7 +3364,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     marcarOcupado(id, true);
     try {
       const r = await fetch(
-        `/api/google/evento?eventoId=${encodeURIComponent(ag.eventId)}&pid=${encodeURIComponent(ag.profissionalId)}`,
+        `/api/atendimentos?eventoId=${encodeURIComponent(ag.eventId)}&pid=${encodeURIComponent(ag.profissionalId)}`,
         { method: "DELETE" },
       ).then((x) => x.json());
 
@@ -3395,7 +3418,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setAgendaGoogle((a) => ({ ...a, status: "carregando" }));
 
     try {
-      const r = await fetch(`/api/google/agenda?pid=${pidAgenda}&de=${de}&ate=${ate}`).then((x) => x.json());
+      const r = await fetch(`/api/agenda?pid=${pidAgenda}&de=${de}&ate=${ate}`).then((x) => x.json());
 
       if (r.ok) {
         /* A MESMA resposta traz as duas coisas, e a marca `maisa` é o que as separa: o
@@ -3480,17 +3503,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * dispara outra busca, que dispara outra. `lerAgenda` só existe nas deps porque é
    * estável (useCallback sobre coisas estáveis). */
   useEffect(() => {
-    if (google.status !== "ok") return;
-    if (!conectado) {
-      setAgendaGoogle({ status: "nao_conectado", jaLeu: false });
-      setBloqueios([]);
-      // Os atendimentos vão junto: eles SÃO os eventos daquela agenda. Deixá-los na tela
-      // depois de desconectar mostraria uma agenda que o app já não tem como ler nem mexer.
-      setAtendimentos([]);
-      return;
-    }
+    /* ⚠️ AQUI HAVIA DOIS PORTÕES DE GOOGLE, E ELES ERAM A METADE DE FRENTE DO DEFEITO
+     * (ADR-0009): um por `google.status` (o ambiente tem credencial?) e outro por
+     * `conectado` (este profissional ligou a agenda dele?). Bastava um ser falso e a tela
+     * ZERAVA `atendimentos` e `bloqueios` e nem chegava a pedir. O servidor não tinha o
+     * que gravar sem Google, e o painel não pedia o que existia — os dois lados
+     * combinando para a mesma tela vazia.
+     *
+     * Agora a leitura sempre acontece. Quem decide o que somar é o servidor: os
+     * atendimentos do produto sempre, o calendário externo quando houver. */
     void lerAgenda(janela.de, janela.ate);
-  }, [google.status, conectado, janela.de, janela.ate, lerAgenda]);
+  }, [janela.de, janela.ate, lerAgenda]);
 
   /* Voltar para a aba relê a janela.
    *
@@ -3498,7 +3521,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * espera ver o compromisso. Sem isto, só um F5 traria. Com carência de 30s porque
    * `focus` dispara a cada alt-tab, e trinta GETs por minuto é como se perde cota. */
   useEffect(() => {
-    if (!conectado) return;
+    /* Sem o `if (!conectado) return` que havia aqui: quem marca pelo WhatsApp também
+     * espera ver o atendimento ao voltar para a aba, e esse caminho nunca teve Google. */
     const talvezReler = () => {
       if (document.visibilityState !== "visible") return;
       if (Date.now() - lidoEm.current < 30_000) return;
@@ -3510,7 +3534,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", talvezReler);
       document.removeEventListener("visibilitychange", talvezReler);
     };
-  }, [conectado, janela.de, janela.ate, lerAgenda]);
+  }, [janela.de, janela.ate, lerAgenda]);
 
   const recarregarAgenda = useCallback(() => {
     leituraEmVoo.current = null;
@@ -3580,7 +3604,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     criacaoEmVoo.current = true;
     setRascunhoEstado({ enviando: true });
     try {
-      const resp = await fetch("/api/google/evento", {
+      const resp = await fetch("/api/atendimentos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

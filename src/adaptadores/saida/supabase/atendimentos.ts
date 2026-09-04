@@ -1,37 +1,91 @@
 /* ─────────────────────────────────────────────────────────────────────────────
  * ADAPTADOR DE SAÍDA — `RegistroDeAtendimentos` no Supabase. ⚠️ SÓ SERVIDOR.
  *
- * O espelho do que a MAISA marcou. Leia o cabeçalho da porta
- * (`nucleo/portas/saida/registro-atendimentos.ts`) antes de mexer aqui — em especial a
- * invariante: **a verdade dos horários é o Google, não esta tabela.**
+ * A agenda do produto. Leia o cabeçalho da porta
+ * (`nucleo/portas/saida/registro-atendimentos.ts`) antes de mexer aqui.
  *
- * ⚠️ NENHUM MÉTODO DESTE ARQUIVO LANÇA. É a regra mais importante daqui, e ela é o
- * oposto do que `saida/supabase/repositorio.ts` faz (lá, `exigirSemErro` transforma falha
- * de banco em `FalhaDoProvedor`, porque ler cadastro errado é pior que não ler).
+ * ⚠️ ESTE CABEÇALHO DIZIA O CONTRÁRIO DA PORTA, e ficou assim tempo demais: "a verdade dos
+ * horários é o Google, não esta tabela". Não é mais (ADR-0009). Esta tabela É a fonte da
+ * verdade; o Google entra como camada aditiva, dentro de `try`, somando zero quando não
+ * existe. A regra antiga sobreviveu num comentário depois de o código já ter mudado — é o
+ * modo de falha que o `SEMPRE` do CLAUDE.md sobre documentação existe para impedir.
  *
- * Aqui é o contrário, e o motivo é a ORDEM em que as coisas acontecem: quando este
- * arquivo roda, o evento JÁ EXISTE na agenda do dono. Lançar faria o caso de uso abortar
- * depois do efeito irreversível — o horário bloqueado no Google e o cliente ouvindo "não
- * deu certo" pelo WhatsApp. É o pior desfecho possível dos dois lados: o dono perde o
- * horário e o cliente vai procurar outro lugar.
+ * ⚠️ QUASE NENHUM MÉTODO DESTE ARQUIVO LANÇA — e o "quase" tem três nomes: `listarJanela`,
+ * `listar` e `buscarPorAg`. É o oposto do que `saida/supabase/repositorio.ts` faz (lá,
+ * `exigirSemErro` transforma toda falha em `FalhaDoProvedor`).
  *
- * Então falha aqui é `console.error` e vida que segue. O custo aceito, escrito para
- * ninguém se surpreender: o espelho pode ficar com BURACO. Isso significa que a soma do
- * faturamento pode ficar menor que a realidade e que aquele atendimento não terá auditoria
- * de ator. A idempotência não sofre — quem ainda garante que não se marca duas vezes é a
- * varredura de agenda em `agendar-atendimento.ts`, que continua sendo a proteção primária.
+ * A ESCRITA não lança porque abortar depois do efeito é pior que perder o registro dele.
+ * A LEITURA lança porque o silêncio dela mente: lista vazia por falha de banco significa
+ * "o dia inteiro está livre" para quem calcula vaga, e "não tem nada marcado" para quem
+ * desenha a grade. Nos dois casos alguém acredita e age.
+ *
+ * Então falha de escrita é `console.error` e vida que segue. O custo aceito, escrito para
+ * ninguém se surpreender: a soma do faturamento pode ficar menor que a realidade e aquele
+ * atendimento não terá auditoria de ator. A idempotência NÃO sofre — quem garante que não
+ * se marca duas vezes é o `unique (tenant_id, maisa_ag)` desta tabela, e não mais uma
+ * varredura de agenda no provedor.
+ *
+ * A única escrita que lança é o CONFLITO DE HORÁRIO (`23P01`) — ver `registrar`.
  *
  * ⚠️ Com service role (o caminho do agente de WhatsApp) a RLS não se aplica, então o
  * `tenant_id` explícito em TODO comando aqui é a única fronteira entre inquilinos. Ver o
  * cabeçalho de `admin.ts`.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { RegistroDeAtendimentos, LinhaDeAtendimento } from "@/nucleo/portas/saida/registro-atendimentos";
+import type {
+  RegistroDeAtendimentos, LinhaDeAtendimento, AtendimentoRegistrado,
+} from "@/nucleo/portas/saida/registro-atendimentos";
 import type { ContextoTenant, Ator } from "@/nucleo/dominio/tenant";
 import type { Janela } from "@/nucleo/dominio/tempo";
 import type { Ocupado } from "@/nucleo/dominio/vagas";
-import { FalhaDoProvedor } from "@/nucleo/dominio/erros";
+import { FalhaDoProvedor, HorarioOcupado } from "@/nucleo/dominio/erros";
 import { clienteDoContexto } from "./contexto-cliente";
+
+/**
+ * As colunas de uma linha inteira. Uma constante só, para `listar` e `buscarPorAg` não
+ * poderem divergir — quando cada leitura mantém a própria lista, uma esquece a coluna que
+ * a outra ganhou e o bug aparece só numa das telas.
+ */
+const COLUNAS =
+  "maisa_ag, profissional_id, cliente_id, cliente_nome, cliente_tel, servico_id, " +
+  "servico_nome, servico_valor, inicio, fim, duracao_min, data_local, hora_inicio, " +
+  "evento_id, meet_link, html_link, situacao";
+
+/**
+ * Uma linha crua do `select` acima.
+ *
+ * ⚠️ As duas leituras convertem com `as unknown as LinhaCrua`, e o motivo é chato mas
+ * real: o supabase-js infere o tipo do retorno LENDO a string do `select` em tempo de
+ * compilação, e só consegue quando ela é literal. `COLUNAS` é uma constante concatenada,
+ * então ele desiste e devolve `GenericStringError`. A alternativa era repetir as dezessete
+ * colunas em duas strings literais — e aí as duas divergem no primeiro campo novo, que é
+ * exatamente o que `COLUNAS` existe para impedir. Trocamos checagem que não funcionava por
+ * uma conversão explícita e `paraRegistrado`, que valida campo a campo.
+ */
+type LinhaCrua = Record<string, unknown>;
+
+/** Banco → domínio. O par de `registrar`, e o motivo de `COLUNAS` existir. */
+function paraRegistrado(l: LinhaCrua): AtendimentoRegistrado {
+  return {
+    maisaAg: String(l.maisa_ag),
+    agendaId: String(l.profissional_id),
+    clienteId: (l.cliente_id as string | null) ?? null,
+    clienteNome: String(l.cliente_nome ?? ""),
+    clienteTel: String(l.cliente_tel ?? ""),
+    servicoId: (l.servico_id as string | null) ?? null,
+    servicoNome: String(l.servico_nome ?? ""),
+    servicoValor: Number(l.servico_valor ?? 0),
+    inicioISO: String(l.inicio),
+    fimISO: String(l.fim),
+    duracaoMin: Number(l.duracao_min ?? 0),
+    dataLocal: String(l.data_local),
+    horaInicio: Number(l.hora_inicio ?? 0),
+    eventoId: (l.evento_id as string | null) ?? null,
+    meetLink: (l.meet_link as string | null) ?? null,
+    htmlLink: (l.html_link as string | null) ?? null,
+    situacao: l.situacao === "cancelado" ? "cancelado" : "marcado",
+  };
+}
 
 /**
  * `Ator` → as três colunas de auditoria.
@@ -77,13 +131,13 @@ const uuidOuNulo = (v: string | null): string | null => (v && PARECE_UUID.test(v
 
 export const registroSupabase: RegistroDeAtendimentos = {
   /**
-   * ⚠️ O ÚNICO MÉTODO DESTE ARQUIVO QUE LANÇA, e a exceção é deliberada.
+   * ⚠️ LANÇA — como as outras duas leituras deste arquivo, e ao contrário das escritas.
    *
-   * O resto daqui engole falha porque o evento já existe na agenda e perder o espelho é
-   * menos grave que abortar depois do efeito. Aqui é o contrário: esta leitura é a fonte
-   * primária de ocupação, e devolver `[]` numa falha de banco significa "o dia inteiro
-   * está livre". A MAISA ofereceria horários já vendidos, e o cliente descobriria na
-   * cadeira. Mesmo raciocínio do Passo B do Ludi, onde falha ao ler `appointments` é 500.
+   * As escritas engolem falha porque abortar depois do efeito é pior que perder o
+   * registro dele. Aqui é o contrário: esta leitura é a fonte primária de ocupação, e
+   * devolver `[]` numa falha de banco significa "o dia inteiro está livre". A MAISA
+   * ofereceria horários já vendidos, e o cliente descobriria na cadeira. Mesmo raciocínio
+   * do Passo B do Ludi, onde falha ao ler `appointments` é 500.
    *
    * ⚠️ Lê `data_local`/`hora_inicio`, a PROJEÇÃO CIVIL, e não `inicio`/`fim`. Os
    * timestamps são a verdade do instante, mas `vagasDoDia` pensa em dia civil e hora
@@ -120,6 +174,58 @@ export const registroSupabase: RegistroDeAtendimentos = {
         fim: inicio + Number(l.duracao_min) / 60,
       };
     });
+  },
+
+  /**
+   * A grade do painel. Traz cancelado junto — ver a porta.
+   *
+   * Ordena por `inicio` (o instante), e não por `data_local`/`hora_inicio`: a projeção
+   * civil é arredondada para meia hora (`meiaHora`), então dois atendimentos às 14:10 e
+   * 14:20 empatariam e a ordem viraria a do banco, que não tem ordem.
+   */
+  async listar(
+    t: ContextoTenant,
+    p: { agendaId: string; janela: Janela },
+  ): Promise<AtendimentoRegistrado[]> {
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("atendimentos")
+      .select(COLUNAS)
+      .eq("tenant_id", t.tenantId)
+      .eq("profissional_id", p.agendaId)
+      .gte("data_local", p.janela.de)
+      .lte("data_local", p.janela.ate)
+      .order("inicio", { ascending: true });
+
+    if (error) {
+      throw new FalhaDoProvedor(`Não foi possível ler a agenda: ${error.message}`);
+    }
+    return (data ?? []).map((l) => paraRegistrado(l as unknown as LinhaCrua));
+  },
+
+  /**
+   * ⚠️ NÃO filtra por `situacao`, e é de propósito. Quem chama quer saber se esta chave de
+   * idempotência já foi usada — e ela foi, mesmo que o atendimento tenha sido cancelado
+   * depois. Filtrar por `marcado` faria a retentativa de um agendamento cancelado criar uma
+   * linha nova com a mesma chave, que o `unique` recusaria: erro na cara do usuário para
+   * uma situação que o código já sabia resolver.
+   */
+  async buscarPorAg(
+    t: ContextoTenant,
+    p: { maisaAg: string },
+  ): Promise<AtendimentoRegistrado | null> {
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("atendimentos")
+      .select(COLUNAS)
+      .eq("tenant_id", t.tenantId)
+      .eq("maisa_ag", p.maisaAg)
+      .maybeSingle();
+
+    if (error) {
+      throw new FalhaDoProvedor(`Não foi possível verificar o atendimento: ${error.message}`);
+    }
+    return data ? paraRegistrado(data as unknown as LinhaCrua) : null;
   },
 
   async registrar(t: ContextoTenant, a: LinhaDeAtendimento): Promise<void> {
@@ -163,38 +269,61 @@ export const registroSupabase: RegistroDeAtendimentos = {
       );
 
       if (error) {
+        /* ⚠️ O ÚNICO ERRO DE ESCRITA QUE SOBE. `23P01` é a constraint de exclusão da
+         * migração 027: alguém já tem este horário com este profissional. Engolir aqui
+         * seria confirmar duas pessoas para as 14h e descobrir na cadeira.
+         *
+         * Um `if` pelo código, não um `catch` genérico nem um `includes("conflito")` na
+         * mensagem: o texto do Postgres muda com o locale, o código não. */
+        if (error.code === "23P01") throw new HorarioOcupado();
+
         console.error(
-          `[supabase/atendimentos] o evento ${a.eventoId ?? "?"} foi criado na agenda mas NÃO entrou no espelho ` +
+          `[supabase/atendimentos] o atendimento NÃO foi gravado ` +
             `(inquilino ${t.tenantId}, maisa_ag ${a.maisaAg}): ${error.message}`,
         );
       }
     } catch (e) {
+      /* O conflito atravessa: ele é o motivo de o caso de uso abortar, e engoli-lo aqui
+       * anularia o `throw` de três linhas acima. */
+      if (e instanceof HorarioOcupado) throw e;
       /* `clienteDoContexto` lança `NaoConfigurado` quando falta a service role key — e é
        * o caso REAL que este catch existe para cobrir, porque ele acontece exatamente no
        * caminho do agente. Sem o catch, a exceção subiria e derrubaria o agendamento. */
-      console.error(`[supabase/atendimentos] falha ao gravar o espelho do inquilino ${t.tenantId}`, e);
+      console.error(`[supabase/atendimentos] falha ao gravar o atendimento do inquilino ${t.tenantId}`, e);
     }
   },
 
-  async cancelar(t: ContextoTenant, p: { eventoId: string }): Promise<void> {
+  async cancelar(t: ContextoTenant, p: { maisaAg?: string; eventoId?: string }): Promise<void> {
     try {
+      /* Sem chave nenhuma o `update` abaixo pegaria TODOS os atendimentos do inquilino.
+       * O filtro por `tenant_id` sozinho não salva ninguém aqui. */
+      if (!p.maisaAg && !p.eventoId) {
+        console.error(`[supabase/atendimentos] cancelar sem chave (inquilino ${t.tenantId}) — ignorado`);
+        return;
+      }
+
       const supabase = clienteDoContexto(t);
       /* `update` e não `delete`: o histórico de quem desmarca é informação do negócio —
        * é a decisão escrita em `supabase/LEIA-ME.md` §3.1 e no check da coluna. */
-      const { error } = await supabase
+      let q = supabase
         .from("atendimentos")
         .update({ situacao: "cancelado", cancelado_em: new Date().toISOString() })
-        .eq("tenant_id", t.tenantId)
-        .eq("evento_id", p.eventoId);
+        .eq("tenant_id", t.tenantId);
+
+      /* `maisaAg` primeiro: é a chave que TODO atendimento tem. `evento_id` só existe
+       * quando houve provedor, e desde o ADR-0009 isso é a minoria. */
+      q = p.maisaAg ? q.eq("maisa_ag", p.maisaAg) : q.eq("evento_id", p.eventoId as string);
+
+      const { error } = await q;
 
       if (error) {
         console.error(
-          `[supabase/atendimentos] evento ${p.eventoId} cancelado na agenda mas o espelho do inquilino ` +
+          `[supabase/atendimentos] o atendimento ${p.maisaAg ?? p.eventoId} do inquilino ` +
             `${t.tenantId} continua 'marcado': ${error.message}`,
         );
       }
     } catch (e) {
-      console.error(`[supabase/atendimentos] falha ao cancelar no espelho do inquilino ${t.tenantId}`, e);
+      console.error(`[supabase/atendimentos] falha ao cancelar no inquilino ${t.tenantId}`, e);
     }
   },
 };

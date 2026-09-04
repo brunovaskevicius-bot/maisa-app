@@ -78,8 +78,15 @@ export type PedidoDeAgendamento = {
 };
 
 export type AtendimentoAgendado = {
-  /** `ja_existia` = a chave de idempotência encontrou o evento de uma tentativa anterior. */
+  /** `ja_existia` = a chave de idempotência encontrou o atendimento de uma tentativa anterior. */
   situacao: "criado" | "ja_existia";
+  /**
+   * A identidade do atendimento, para cancelar ou remover da tela depois.
+   *
+   * ⚠️ O nome envelheceu. Ele carrega o id do evento no calendário externo QUANDO existe
+   * um; sem calendário conectado — o caso comum desde o ADR-0009 — carrega o `maisaAg`.
+   * Quem cancela aceita os dois formatos, então quem chama não precisa saber a diferença.
+   */
   eventoId: string;
   meetLink: string | null;
   htmlLink: string | null;
@@ -87,6 +94,14 @@ export type AtendimentoAgendado = {
   inicioISO: string;
   /** Pediu videochamada e não veio link: a UI precisa saber para não prometer. */
   semMeet: boolean;
+  /**
+   * O atendimento existe no produto, mas NÃO entrou num calendário externo.
+   *
+   * Verdadeiro em dois casos bem diferentes, e a UI deve tratá-los diferente: o inquilino
+   * que nunca conectou calendário (normal, não é aviso de nada) e o que conectou e cuja
+   * criação falhou (aí vale dizer, senão ele confia numa agenda que não recebeu o evento).
+   */
+  foraDoCalendario: boolean;
 };
 
 export type AgendaLida = {

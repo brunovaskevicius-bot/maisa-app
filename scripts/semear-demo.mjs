@@ -196,25 +196,59 @@ async function main() {
    * semear no futuro daria uma lista vazia com o banco cheio. */
   const agora = Date.now();
   const linhas = [];
+
+  /* ⚠️ O QUE JÁ FOI OCUPADO NESTA RODADA — e por que isto existe.
+   *
+   * Até 04/09/2026 este laço sorteava hora em passos de 30 min e ignorava a DURAÇÃO: uma
+   * sessão de 40 min às 14h e outra às 14:30 saíam as duas, sobrepostas, e nada checava.
+   * Não incomodou ninguém enquanto a tabela era espelho do Google. Quando ela virou a
+   * agenda de verdade (ADR-0009) e ganhou constraint de exclusão (migração 027), o
+   * `alter table` REPROVOU contra o banco de produção por causa destas linhas.
+   *
+   * Um array e não um `Set` de chaves: colisão aqui é de INTERVALO, não de horário de
+   * início — que é exatamente o erro que se está consertando. */
+  const ocupados = [];
+  const colide = (ini, fim) =>
+    ocupados.some((o) => ini < o.fim && fim > o.ini);
+
   for (let k = 0; k < QUANTOS; k++) {
     const pessoa = escolher(PESSOAS);
     const servico = escolher(servicos);
-
-    /* Espalha nos últimos 30 dias, em dia de semana e hora comercial. Domingo com sessão às 3h da
-     * manhã não é dado de teste, é ruído que faz duvidar da tela. */
-    let dia = new Date(agora - Math.floor(1 + sorteio() * (DIAS - 1)) * 86400000);
-    const semana = dia.getDay();
-    if (semana === 0) dia = new Date(dia.getTime() - 2 * 86400000);
-    if (semana === 6) dia = new Date(dia.getTime() - 1 * 86400000);
-
-    const hora = 8 + Math.floor(sorteio() * 11);          // 8h–18h
-    const meia = sorteio() < 0.5 ? 0 : 30;
-    const local = diaLocal(dia);
-    /* -03:00 é o fuso de São Paulo. Escrever o instante com o offset explícito evita que o fuso
-     * da máquina de quem roda o script mude a data civil do atendimento. */
-    const inicio = new Date(`${local}T${String(hora).padStart(2, "0")}:${meia ? "30" : "00"}:00-03:00`);
     const dur = servico.duracao ?? 40;
-    const fim = new Date(inicio.getTime() + dur * 60000);
+
+    /* `horaInicio` sai daqui junto com o resto porque é a PROJEÇÃO CIVIL que a tela e o
+     * fechamento fiscal leem — recalculá-la depois, a partir do instante, seria refazer a
+     * conversão de fuso na leitura e abrir a chance de as duas discordarem. */
+    let local, inicio, fim, horaInicio;
+
+    /* Até 40 tentativas. Com 24 atendimentos em ~21 dias úteis × 22 faixas, achar buraco é
+     * trivial — o teto existe só para o laço não ser infinito se alguém subir `QUANTOS`
+     * além do que o calendário comporta. Estourar não é erro: planta menos e avisa. */
+    let tentativa = 0;
+    do {
+      /* Espalha nos últimos 30 dias, em dia de semana e hora comercial. Domingo com sessão às 3h da
+       * manhã não é dado de teste, é ruído que faz duvidar da tela. */
+      let dia = new Date(agora - Math.floor(1 + sorteio() * (DIAS - 1)) * 86400000);
+      const semana = dia.getDay();
+      if (semana === 0) dia = new Date(dia.getTime() - 2 * 86400000);
+      if (semana === 6) dia = new Date(dia.getTime() - 1 * 86400000);
+
+      const hora = 8 + Math.floor(sorteio() * 11);          // 8h–18h
+      const meia = sorteio() < 0.5 ? 0 : 30;
+      local = diaLocal(dia);
+      /* -03:00 é o fuso de São Paulo. Escrever o instante com o offset explícito evita que o fuso
+       * da máquina de quem roda o script mude a data civil do atendimento. */
+      inicio = new Date(`${local}T${String(hora).padStart(2, "0")}:${meia ? "30" : "00"}:00-03:00`);
+      fim = new Date(inicio.getTime() + dur * 60000);
+      horaInicio = hora + (meia ? 0.5 : 0);
+      tentativa++;
+    } while (colide(inicio.getTime(), fim.getTime()) && tentativa < 40);
+
+    if (colide(inicio.getTime(), fim.getTime())) {
+      console.log(`  (pulei um: não achei horário livre em ${tentativa} tentativas)`);
+      continue;
+    }
+    ocupados.push({ ini: inicio.getTime(), fim: fim.getTime() });
 
     linhas.push({
       tenant_id: TENANT,
@@ -230,7 +264,7 @@ async function main() {
       fim: iso(fim),
       duracao_min: dur,
       data_local: local,
-      hora_inicio: hora + (meia ? 0.5 : 0),
+      hora_inicio: horaInicio,
       etapa: "feito",
       confirmado: true,
       situacao: "marcado",

@@ -19,5 +19,6 @@ export * from "./recibo-unitario";
 export * from "./checklist-recibo";
 export * from "./conversas";
 export * from "./assistente";
+export * from "./lembretes";
 export * from "./horarios";
 export * from "./erros";

@@ -5,8 +5,7 @@ Os dois casos de uso mais chamados do produto. Valem igual para o painel e para 
 
 ## Parte 1 — "que horas você tem?"
 
-`nucleo/aplicacao/oferecer-horarios.ts`. É a ferramenta **mais chamada** pelo agente e a única
-que fala com o Google em caminho quente.
+`nucleo/aplicacao/oferecer-horarios.ts`. É a ferramenta **mais chamada** pelo agente.
 
 ```
 oferecerHorarios(tenant, {servicoId, de, dias, porDia})
@@ -15,10 +14,18 @@ oferecerHorarios(tenant, {servicoId, de, dias, porDia})
  ├─ 2. quais agendas posso consultar?          oferecer-horarios.ts:64
  │     interseção de DUAS listas (ver abaixo)
  ├─ 3. uma leitura por agenda, janela inteira  oferecer-horarios.ts:88
- │     agenda.listar() → adaptadores/saida/google
+ │     registro.listarJanela() → obrigatória, LANÇA se falhar
+ │     agenda.listar()         → aditiva, dentro de catch, soma zero se falhar
  └─ 4. calcular o vago, dia a dia              dominio/vagas.ts:58 (função pura)
        para quando já tem resposta suficiente  oferecer-horarios.ts:110
 ```
+
+⚠️ **A ocupação primária saiu do Google e virou a tabela `atendimentos`** (ADR-0009). Antes
+o Google era a única fonte, e por isso este caso de uso **estourava inteiro** para quem não
+conectou Google: `PrecisaReconectar` subia e o agente escalava para humano em toda tentativa
+de marcar. As duas leituras têm status diferente de propósito — a do banco lança porque
+lista vazia por erro significa "o dia inteiro está livre"; a do provedor não lança porque
+ausência dele é o estado normal da maioria dos inquilinos.
 
 **A interseção de duas listas** (`:64`) não é redundância — as duas existem por motivos
 diferentes. `agendasPermitidas` é **segurança**: o inquilino não lê agenda de outro.
@@ -49,24 +56,36 @@ uma coisa só.
 
 ```
 agendarAtendimento(tenant, {maisaAg, agendaId, data, inicio, servicoId, clienteId, ...})
- ├─ 1. o pedido faz sentido?                   :40   uuid, data civil, hora válida
- ├─ 2. de quem é essa agenda?                  :58   allowlist do inquilino
- ├─ 3. o que vai ser feito, e para quem        :67   serviço, duração, cliente
- ├─ 3b. quem marcou entra no cadastro          :85
- ├─ 4. IDEMPOTÊNCIA: pergunta antes de criar   :115  buscarPorAtendimento()
- │      achou? devolve o existente, não cria um segundo
- ├─    registra no histórico                   :142
- └─ 5. criar no provedor                       :175  agenda.criar()
+ ├─ 1. o pedido faz sentido?             uuid, data civil, hora válida
+ ├─ 2. de quem é essa agenda?            allowlist do inquilino
+ ├─ 3. o que vai ser feito, e para quem  serviço, duração, cliente
+ ├─ 3b. quem marcou entra no cadastro
+ ├─ 4. IDEMPOTÊNCIA: pergunta ao BANCO   registro.buscarPorAg()
+ │      já tem evento, ou foi cancelado? devolve o existente
+ ├─ 5. GRAVA AQUI PRIMEIRO               registro.registrar() — pode lançar HorarioOcupado
+ └─ 6. o calendário externo, SE HOUVER   dentro de try — falha ⇒ foraDoCalendario: true
+        criou? regrava anexando o evento_id (upsert pela mesma chave)
 ```
+
+⚠️ **A ORDEM INVERTEU (ADR-0009).** Antes o provedor vinha primeiro e o banco depois, como
+espelho do que já tinha acontecido. Agora o banco vem primeiro, porque é nele que mora a
+proteção contra vender o mesmo horário duas vezes — uma constraint de exclusão só protege se
+a escrita passar por ela. O passo 6 é aditivo: falha ou ausência não derrubam o atendimento.
 
 ### A idempotência, que é a parte que sempre quebra
 
 `maisaAg` é a chave. Ela nasce na **origem do pedido**, não na hora de enviar — no painel, do
 clique; no WhatsApp, derivada de (inquilino, telefone, serviço, dia, hora) por hash.
 
-O passo 4 (`:115`) cobre o caso ruim: o POST **chegou** ao Google, criou o evento, e perdeu a
-resposta na volta. "Tentar de novo" com a mesma chave **encontra** o evento em vez de criar um
-segundo. A busca varre alguns dias em torno do instante, não a agenda inteira.
+O passo 4 cobre o caso ruim: o pedido **chegou**, gravou, e perdeu a resposta na volta.
+"Tentar de novo" com a mesma chave **encontra** a linha em vez de criar uma segunda. Quem
+responde é o `unique (tenant_id, maisa_ag)`, um índice — antes era uma varredura de agenda no
+Google, que custava uma ida à rede em toda criação e **não existia** para quem não conectou
+calendário.
+
+**A varredura sobrevive, só que no lugar certo:** ela roda apenas quando já existe linha
+**sem** `evento_id` — a marca de uma tentativa que gravou e morreu antes do provedor. Nesse
+caso o evento pode existir lá fora sem estar anexado aqui, e criar de novo daria dois.
 
 O outro lado dessa costura está no adaptador do Google: a chave é gravada em
 `extendedProperties.private` do evento. É o que faz o evento voltar da leitura reconhecido como
@@ -81,6 +100,15 @@ De propósito (`dominio/agenda.ts:126-134`). Registrar às 15h o encaixe que ent
 normal de agenda. O que **não** é permitido é data a mais de um ano daqui (`:110`): isso não é
 regra de negócio, é sanidade — uma data corrompida não deve plantar evento em 2200, onde
 ninguém olha e o dono levaria meses para descobrir.
+
+## Não ter calendário nenhum
+
+É o caminho **mais comum**, e o produto funciona inteiro nele: marca, mostra na grade,
+oferece horário, lembra, fatura, emite recibo. A guarda que trava isso é
+`nucleo/aplicacao/agenda.test.ts`, onde o adaptador de agenda **lança em todos os métodos**.
+
+O que se perde sem calendário conectado: o compromisso que nasce fora da MAISA não bloqueia
+horário (o app não tem como saber dele), e não há link de Meet.
 
 ## Trocar o Google por outro calendário
 

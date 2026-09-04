@@ -13,6 +13,7 @@ import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import type {
   AjustesDaAssistente, AjustesParciais, RepositorioAssistente,
 } from "@/nucleo/portas/saida/repositorio-assistente";
+import { MAX_HORAS_ANTES, OPCOES_ANTECEDENCIA } from "@/nucleo/dominio/lembretes";
 import { criarAjustarAssistente, criarLerAssistente } from "./assistente";
 
 /* ⚠️ O teste do adaptador demo NÃO mora aqui, e a razão é a mesma regra que ele testaria:
@@ -23,7 +24,7 @@ import { criarAjustarAssistente, criarLerAssistente } from "./assistente";
 const t: ContextoTenant = { tenantId: "t1", usuarioId: "u1", ator: { tipo: "usuario", id: "u1" } };
 
 const INICIAL = (): AjustesDaAssistente => ({
-  assistente: { nome: "MAISA", tom: "amigável", saudacao: "Oi!", ativa: true },
+  assistente: { nome: "MAISA", tom: "amigável", saudacao: "Oi!", ativa: true, lembreteHoras: 3 },
   cfg: {
     confirmar: true, lembrete: true, remarcar: true, encaminhar: true,
     precoCatalogo: true, pix: false, encaixe: false, avisarRecibo: false,
@@ -109,6 +110,12 @@ describe("recusas", () => {
     ["tom fora da lista", { assistente: { tom: "sarcástico" } }, "tom"],
     ["saudação longa demais", { assistente: { saudacao: "x".repeat(281) } }, "saudacao"],
     ["ativa não-booleana", { assistente: { ativa: "sim" } }, "ativa"],
+    /* O prazo do lembrete: os três jeitos de errar. O quebrado é `2.5` — a coluna é
+     * `smallint`, e sem esta recusa o erro chega como `22P02` do Postgres, em inglês, numa
+     * tela de ajuste. O teto tem que bater com o `check` da 026. */
+    ["antecedência abaixo do piso", { assistente: { lembreteHoras: 0 } }, "lembreteHoras"],
+    ["antecedência acima do teto", { assistente: { lembreteHoras: 169 } }, "lembreteHoras"],
+    ["antecedência fracionada", { assistente: { lembreteHoras: 2.5 } }, "lembreteHoras"],
     ["chave de cfg desconhecida", { cfg: { pixx: true } }, "cfg"],
     ["valor de cfg não-booleano", { cfg: { pix: "sim" } }, "cfg"],
     /* Patch vazio é quase sempre bug de quem chama — e gravar "nada" custaria um round
@@ -117,6 +124,22 @@ describe("recusas", () => {
     ["patch com objetos vazios", { assistente: {}, cfg: {} }, "payload"],
   ])("%s → campo %s", async (_nome, patch, campo) => {
     expect(await campoRecusado(patch)).toBe(campo);
+  });
+});
+
+describe("antecedência do lembrete", () => {
+  it("aceita as opções que a tela oferece", async () => {
+    for (const { horas } of OPCOES_ANTECEDENCIA) {
+      const r = await ajustar(t, { assistente: { lembreteHoras: horas } });
+      expect(r.assistente.lembreteHoras).toBe(horas);
+    }
+  });
+
+  /* ★ O TETO DO DOMÍNIO E O `check` DA COLUNA SÃO O MESMO NÚMERO, e este teste é o único
+   * lugar que os amarra. Afrouxar um sem o outro dá o pior par possível: ou o domínio
+   * recusa o que o banco aceitaria, ou o banco devolve `23514` para um valor que passou. */
+  it("o teto do domínio é o maior que a tela oferece", () => {
+    expect(Math.max(...OPCOES_ANTECEDENCIA.map((o) => o.horas))).toBe(MAX_HORAS_ANTES);
   });
 });
 

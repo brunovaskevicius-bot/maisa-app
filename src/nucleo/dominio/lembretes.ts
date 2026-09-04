@@ -34,25 +34,67 @@ export type LembretePendente = {
 };
 
 /**
- * Quanto antes do atendimento o lembrete sai.
+ * Quanto antes do atendimento o lembrete sai — o PADRÃO, desde 04/09/2026.
  *
- * ⚠️ ESTE É O NÚMERO, E ELE É PROMETIDO EM TEXTO EM OUTROS LUGARES. Mudá-lo aqui sem
- * mudar a copy transforma a landing page numa promessa que o produto não cumpre — que é
- * o defeito mais caro que uma LP pode ter, porque ninguém o vê até um cliente reclamar.
+ * ⚠️ DEIXOU DE SER O NÚMERO. Quem manda agora é `assistente.lembrete_horas`, por
+ * inquilino (`026_lembrete_horas.sql`): três horas é prazo de barbearia, e uma sessão de
+ * terapia avisada três horas antes já está perdida. Esta constante sobrou como o valor de
+ * partida de quem nunca escolheu, e o `default` da coluna tem que bater com ela.
  *
- * Onde o prazo está escrito para o cliente, em 14/08/2026:
- *   • `src/adaptadores/saida/demo/assistente.ts` → o toggle "Lembrete 3h antes";
- *   • `lp/terapeutas/index.html` → "lembrete 3h antes" (dizia "no dia anterior" até hoje).
+ * O que continua valendo do aviso antigo: o prazo aparece em texto para o cliente, e texto
+ * que promete um número específico envelhece calado. Por isso os dois lugares que o citavam
+ * agora o LEEM em vez de escrevê-lo:
+ *   • `src/adaptadores/saida/demo/assistente.ts` → o rótulo do toggle;
+ *   • `lp/terapeutas/index.html` → passou a falar em lembrete automático, sem prazo fixo.
  *
  * A LP de barbeiros v3 NÃO cita prazo, de propósito — o cabeçalho de `v3/dados.ts`
- * explica por quê. Não acrescente: uma terceira cópia do mesmo número é a terceira chance
- * de ele ficar velho.
+ * explica por quê. Não acrescente.
  */
 export const HORAS_ANTES = 3;
 
-/** A janela da varredura: de agora até `HORAS_ANTES` à frente. */
+/**
+ * O teto do que se pode escolher: sete dias.
+ *
+ * ⚠️ TEM QUE BATER COM O `check` DA COLUNA (`026_lembrete_horas.sql`). Aqui ele serve para
+ * duas coisas: recusar no caso de uso antes de o banco recusar — erro de domínio em
+ * português vale mais que `23514` — e dizer até onde a varredura precisa olhar.
+ */
+export const MAX_HORAS_ANTES = 168;
+
+/**
+ * O que a tela oferece. Lista fechada, e não campo livre.
+ *
+ * ★ O CAMPO LIVRE É O DESENHO DO SMILLER, e ele erra por cima e por baixo: aceita "2" numa
+ * agenda de terapia (tarde demais) e aceita "100" sem que ninguém saiba o que isso quer
+ * dizer em dias. Uma lista curta com o prazo escrito em português de gente decide por
+ * reconhecimento, não por aritmética mental.
+ *
+ * ⚠️ O piso é 1h porque o `pg_cron` da 011 roda de 15 em 15 minutos. "30 minutos antes"
+ * seria prometer uma precisão que o disparador não tem.
+ */
+export const OPCOES_ANTECEDENCIA: { horas: number; rotulo: string }[] = [
+  { horas: 1, rotulo: "1 hora antes" },
+  { horas: 3, rotulo: "3 horas antes" },
+  { horas: 12, rotulo: "12 horas antes" },
+  { horas: 24, rotulo: "1 dia antes" },
+  { horas: 48, rotulo: "2 dias antes" },
+  { horas: 168, rotulo: "1 semana antes" },
+];
+
+/**
+ * O TETO da varredura — não a janela.
+ *
+ * ⚠️ A JANELA É POR INQUILINO e vive no SQL, porque a varredura é uma só para todos e um
+ * número aqui não consegue expressar N réguas diferentes (ver o cabeçalho da 026). O que
+ * esta função devolve é o "nem olhe depois disto" que mantém a consulta presa ao índice
+ * parcial em vez de varrer a agenda inteira do futuro.
+ */
 export const janelaDeLembrete = (agora: Date): Date =>
-  new Date(agora.getTime() + HORAS_ANTES * 60 * 60 * 1000);
+  new Date(agora.getTime() + MAX_HORAS_ANTES * 60 * 60 * 1000);
+
+/** `24` → `"1 dia antes"`. Cai no genérico quando o valor não está na lista. */
+export const rotuloDaAntecedencia = (horas: number): string =>
+  OPCOES_ANTECEDENCIA.find((o) => o.horas === horas)?.rotulo ?? `${horas} horas antes`;
 
 /**
  * `"2026-08-14T18:30:00+00:00"` → `"15:30"` no fuso do negócio.

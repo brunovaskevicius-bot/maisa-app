@@ -10,7 +10,21 @@
 export const TONS = ["amigável", "profissional", "descontraído"] as const;
 export type Tom = (typeof TONS)[number];
 
-export type Assistente = { nome: string; tom: Tom; saudacao: string; ativa: boolean };
+export type Assistente = {
+  nome: string;
+  tom: Tom;
+  saudacao: string;
+  ativa: boolean;
+  /**
+   * Quantas horas antes do atendimento o lembrete sai.
+   *
+   * Mora aqui e não em `ChaveCfg` porque não é interruptor: `lembrete` decide SE manda,
+   * este decide QUANDO. Enfiá-lo entre os toggles obrigaria um `Record<ChaveCfg, boolean>`
+   * a virar `boolean | number`, e o tipo que hoje recusa chave inventada passaria a aceitar
+   * qualquer coisa. Ver `OPCOES_ANTECEDENCIA` em `dominio/lembretes.ts`.
+   */
+  lembreteHoras: number;
+};
 
 /** Um dia da semana no horário de atendimento anunciado ao cliente. */
 export type Dia = { nome: string; aberto: boolean; de: string; ate: string };

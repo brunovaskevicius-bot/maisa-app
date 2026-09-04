@@ -32,7 +32,7 @@ Duas decisões que valem a leitura antes de mexer:
 
 ## `agendar-atendimento.ts` — o arquivo mais importante do repositório
 
-Toda esta lógica morava dentro de `app/api/google/evento/route.ts`. Enquanto morou lá,
+Toda esta lógica morava dentro de `app/api/atendimentos/route.ts` (na época, `/api/google/evento`). Enquanto morou lá,
 "marcar um atendimento" só existia para quem falasse HTTP com um corpo JSON específico.
 
 Ele faz, nesta ordem:

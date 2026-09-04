@@ -30,7 +30,7 @@ Duas razões concretas, nenhuma delas estética:
 
 **O agente de WhatsApp.** A MAISA vai marcar horário conversando com o cliente. Um
 agente de IA não tem navegador, não tem React e não faz `fetch` no próprio app. Antes,
-"marcar um atendimento" só existia como um `POST /api/google/evento` com validação
+"marcar um atendimento" só existia como um `POST /api/atendimentos` com validação
 escrita dentro do handler — ou seja, a regra de negócio só existia para quem falasse
 HTTP. Agora ela é `app.agendarAtendimento(tenant, pedido)`, e o agente vai chamar a
 **mesma função**, com a mesma proteção contra marcar duas vezes.
@@ -91,8 +91,8 @@ Marcar um atendimento pelo painel:
 ```
  clique na grade
    └─ ui/telas/Agenda.tsx ......... cria o rascunho (uuid de idempotência nasce aqui)
-      └─ ui/estado/store.tsx ...... POST /api/google/evento
-         └─ app/api/google/evento/route.ts        ← rota FINA: só traduz HTTP
+      └─ ui/estado/store.tsx ...... POST /api/atendimentos
+         └─ app/api/atendimentos/route.ts         ← rota FINA: só traduz HTTP
             ├─ adaptadores/entrada/http/contexto.ts ...... cookie → ContextoTenant
             └─ composicao.ts → app.agendarAtendimento
                └─ nucleo/aplicacao/agendar-atendimento.ts  ← TODA a regra

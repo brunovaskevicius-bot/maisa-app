@@ -1,25 +1,30 @@
 import { NextResponse } from "next/server";
 import { app } from "@/composicao";
-import { barrou, exigirSessaoComGoogle } from "@/adaptadores/entrada/http/contexto";
+import { barrou, exigirSessao } from "@/adaptadores/entrada/http/contexto";
 import { falha } from "@/adaptadores/entrada/http/respostas";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LER A AGENDA — o que faz a tela Agenda mostrar a agenda de verdade.
 //
-// GET /api/google/agenda?pid=pr1&de=2026-07-27&ate=2026-09-06
+// GET /api/agenda?pid=pr1&de=2026-07-27&ate=2026-09-06
 //
-// Rota SEPARADA de /api/google/evento de propósito, ainda que as duas falem com o
-// mesmo calendário. A diferença não é técnica, é de consequência: um POST que falha
-// é uma ação sua que não aconteceu e merece um toast; um GET que falha é a tela
-// inteira sem conteúdo e merece um aviso DENTRO do cartão, com o que fazer a seguir.
-// Misturar as duas na mesma rota misturaria as duas semânticas de erro.
+// ⚠️ ESTA ROTA MORAVA EM `/api/google/agenda`, E O NOME MENTIA (ADR-0009). A agenda é do
+// produto; o Google é uma camada aditiva que o caso de uso soma quando existe. O que o
+// nome antigo custava não era estética: o porteiro era `exigirSessaoComGoogle`, que
+// devolve 400 `nao_configurado` quando o AMBIENTE não tem credencial do Google — então
+// num deploy sem Google ninguém conseguia ler a própria agenda. Agora é `exigirSessao`.
+//
+// Rota SEPARADA de /api/atendimentos de propósito. A diferença não é técnica, é de
+// consequência: um POST que falha é uma ação sua que não aconteceu e merece um toast; um
+// GET que falha é a tela inteira sem conteúdo e merece um aviso DENTRO do cartão, com o
+// que fazer a seguir. Misturar as duas na mesma rota misturaria as semânticas de erro.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const porteiro = await exigirSessaoComGoogle();
+  const porteiro = await exigirSessao();
   if (barrou(porteiro)) return porteiro.barrado;
 
   const { searchParams } = new URL(request.url);
@@ -39,6 +44,6 @@ export async function GET(request: Request) {
       eventos: r.eventos,
     });
   } catch (e) {
-    return falha("google/agenda", e);
+    return falha("agenda", e);
   }
 }

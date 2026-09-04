@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import type { LembretePendente } from "@/nucleo/dominio/lembretes";
+import { MAX_HORAS_ANTES } from "@/nucleo/dominio/lembretes";
 import type { CanalDeMensagens } from "@/nucleo/portas/saida/canal-mensagens";
 import type { FilaDeLembretes } from "@/nucleo/portas/saida/fila-de-lembretes";
 import { criarEnviarLembretes } from "./lembretes";
@@ -84,9 +85,19 @@ beforeEach(() => {
 });
 
 describe("a janela", () => {
-  it("pede três horas à frente de agora", async () => {
+  /* ⚠️ ISTO DEIXOU DE SER A JANELA em 04/09/2026, e o teste mudou junto com o significado.
+   *
+   * A janela virou por inquilino (`assistente.lembrete_horas`, migração 026) e é avaliada
+   * dentro do SQL, porque a varredura é uma só para todos e um número aqui não expressa N
+   * réguas. O que a app manda agora é o TETO: "nem olhe atendimento depois disto".
+   *
+   * O teste continua valendo a pena porque prende a relação entre os dois — se o teto
+   * encolhesse para menos que o maior prazo configurável, o inquilino de 1 semana pararia
+   * de receber lembrete e nada apontaria para cá. */
+  it("pede o teto de antecedência à frente de agora", async () => {
     await enviar(AGORA);
-    expect(janelaPedida?.toISOString()).toBe("2026-08-14T15:00:00.000Z");
+    const esperado = new Date(AGORA.getTime() + MAX_HORAS_ANTES * 3600_000);
+    expect(janelaPedida?.toISOString()).toBe(esperado.toISOString());
   });
 
   it("fila vazia não manda nada e não é erro", async () => {

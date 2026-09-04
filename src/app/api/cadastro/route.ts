@@ -16,7 +16,7 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 // pintura. Quatro rotas seriam quatro idas de rede, quatro estados de carregando e quatro
 // chances de a tela abrir pela metade.
 //
-// É a mesma regra de `/api/google/agenda` ser separada de `/api/google/evento`: a fronteira
+// É a mesma regra de `/api/agenda` ser separada de `/api/atendimentos`: a fronteira
 // de uma rota é a UNIDADE DE CONSEQUÊNCIA, não a tabela. Lá, ler e criar falham com
 // significados diferentes e merecem rotas diferentes. Aqui as leituras falham juntas e se
 // consertam juntas — é um pedido só. A justificativa está no caso de uso `LerCadastro`.

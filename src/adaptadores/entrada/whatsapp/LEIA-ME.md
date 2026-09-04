@@ -244,7 +244,7 @@ ela é a porta pública, e afrouxar a autenticação dela "só no dev" é afroux
 
 ## O que NÃO fazer aqui
 
-- ❌ `fetch("/api/google/evento")`. O agente roda no mesmo processo: chama o caso de uso
+- ❌ `fetch("/api/atendimentos")`. O agente roda no mesmo processo: chama o caso de uso
   direto. HTTP no meio só adiciona latência, um round-trip de auth e um ponto de falha.
 - ❌ Reimplementar regra de agendamento "porque no WhatsApp é diferente". Se for
   diferente de verdade, é parâmetro do caso de uso — não uma segunda cópia dele.

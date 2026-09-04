@@ -302,14 +302,17 @@ function webhookDoAgente(): { url: string; segredo: string } {
   return { url: `${base}/api/whatsapp`, segredo: WHATSAPP_SEGREDO };
 }
 /**
- * O ESPELHO do que a MAISA marcou — a tabela `atendimentos`.
+ * A AGENDA DO PRODUTO — a tabela `atendimentos`.
  *
- * ⚠️ Não é a agenda. A verdade dos horários continua sendo o provedor conectado, e a
- * porta (`portas/saida/registro-atendimentos.ts`) escreve a invariante em voz alta: não
- * desenhe tela de agenda a partir daqui, porque evento criado direto no Google não passa
- * por esta linha. Ele serve a três coisas que o Google não responde — idempotência sem
- * varrer a agenda, soma do faturamento por competência, e auditoria de quem marcou
- * (painel ou IA).
+ * ⚠️ ISTO AQUI DIZIA "o espelho… não é a agenda… não desenhe tela de agenda a partir
+ * daqui". Inverteu no ADR-0009, e agora é o contrário: esta é a fonte da verdade dos
+ * horários, e o provedor conectado (`agenda`, acima) é a camada ADITIVA em cima dela —
+ * acrescenta o que nasceu fora e, quando não existe, acrescenta zero.
+ *
+ * O motivo foi medido: com o Google como fonte única, nenhuma linha entrava em
+ * `atendimentos` sem Google conectado, e junto caíam faturamento, nota, lembretes e a
+ * tela de Agenda inteira. Para o ICP que decidiu não conectar calendário, o produto não
+ * existia.
  *
  * Segue `isSupabaseConfigured` junto com o cadastro, e não uma env própria, porque as duas
  * metades precisam concordar: `atendimentos.cliente_id` é FK para `clientes`, então gravar
@@ -406,9 +409,12 @@ const contatosProvedor = isEvolutionConfigured
 export const app = {
   agendarAtendimento: criarAgendarAtendimento({ agenda, negocio, registro }),
   cancelarAtendimento: criarCancelarAtendimento({ agenda, negocio, registro }),
-  lerAgenda: criarLerAgenda({ agenda, negocio }),
+  /* `registro` entrou nos quatro (ADR-0009): a agenda do produto é a fonte, `agenda` é
+   * a camada aditiva por cima dela. Antes só os dois primeiros o recebiam, e era por isso
+   * que ler a grade e oferecer horário não funcionavam sem Google. */
+  lerAgenda: criarLerAgenda({ agenda, negocio, registro }),
   /** Nasceu para o agente: a tela calculava o vago desenhando a grade. */
-  oferecerHorarios: criarOferecerHorarios({ agenda, negocio }),
+  oferecerHorarios: criarOferecerHorarios({ agenda, negocio, registro }),
 
   /** Nasceu para a TELA: é por aqui que o painel para de importar fixture. */
   lerCadastro: criarLerCadastro({ negocio }),

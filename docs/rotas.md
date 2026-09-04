@@ -75,15 +75,21 @@ justamente o cliente novo, que não está em contato nenhum).
 lida no banco antes do primeiro token — quando morava no `localStorage`, o botão prometia
 silêncio e o webhook nunca ficava sabendo.
 
-## Agenda — Google Calendar
+## Agenda e atendimentos
 
 | Rota | Métodos | Porteiro | Caso de uso |
 |---|---|---|---|
 | `/api/google/conectar` | GET · DELETE | `exigirSessao` | inicia o OAuth (PKCE + `state` assinado) · `DesconectarAgenda` |
 | `/api/google/callback` | GET | `state` assinado + PKCE | fim do OAuth: troca o código e grava o token **cifrado** |
 | `/api/google/status` | GET | própria (ver abaixo) | `ListarConexoes` — quem já conectou. Nunca devolve token |
-| `/api/google/agenda` | GET | `exigirSessaoComGoogle` | `LerAgenda` — eventos de uma janela |
-| `/api/google/evento` | POST · DELETE | `exigirSessaoComGoogle` | `AgendarAtendimento` · `CancelarAtendimento` |
+| `/api/agenda` | GET | `exigirSessao` | `LerAgenda` — os atendimentos de uma janela |
+| `/api/atendimentos` | POST · DELETE | `exigirSessao` | `AgendarAtendimento` · `CancelarAtendimento` |
+
+⚠️ **`/api/agenda` saiu de baixo do prefixo do Google em 04/09/2026** (ADR-0009), e trocou
+de porteiro junto. A agenda é do produto; o Google é uma camada aditiva. Com
+`exigirSessaoComGoogle`, um deploy sem credencial do Google recebia 400 `nao_configurado` ao
+tentar ler a **própria** agenda. As rotas que continuam no prefixo antigo são as que de fato
+falam com o Google.
 
 `/api/google/status` é a **única** rota que não usa o porteiro, e é de propósito: ela existe
 para *relatar* o estado da sessão e da configuração. Responder 401 esconderia justamente a

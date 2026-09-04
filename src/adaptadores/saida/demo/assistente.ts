@@ -5,6 +5,7 @@
  * estruturado, e não uma frase pronta. */
 
 import type { Assistente, ChaveCfg, Dia, SecaoAjuste, Toggle } from "@/nucleo/dominio/assistente";
+import { HORAS_ANTES } from "@/nucleo/dominio/lembretes";
 import type { Msg } from "@/nucleo/dominio/conversas";
 
 /**
@@ -20,6 +21,9 @@ export const ASSISTENTE_PADRAO: Assistente = {
   tom: "amigável",
   saudacao: "Olá! Aqui é a MAISA. Como posso te ajudar?",
   ativa: true,
+  /* O mesmo `default` da coluna — ver `HORAS_ANTES`. Os dois têm que bater: a demonstração
+   * que começa num prazo diferente do banco faz a tela mentir antes de existir inquilino. */
+  lembreteHoras: HORAS_ANTES,
 };
 
 export const SECOES_AJUSTE: SecaoAjuste[] = [
@@ -54,7 +58,11 @@ export const CFG_PADRAO: Record<ChaveCfg, boolean> = {
 
 export const TOGGLES_AGENDAMENTO: Toggle[] = [
   { chave: "confirmar", titulo: "Confirmar no WhatsApp", desc: "Envia a confirmação assim que o cliente marca" },
-  { chave: "lembrete", titulo: "Lembrete 3h antes", desc: "Manda um lembrete automático antes do atendimento" },
+  /* ⚠️ O TÍTULO PERDEU O "3h" DE PROPÓSITO. O prazo agora é `assistente.lembreteHoras`,
+   * escolhido por inquilino — um número fixo aqui viraria rótulo mentindo para quem pôs
+   * 24h, e é a tela que ele abre para conferir. Quem mostra o prazo é o seletor ao lado,
+   * que o lê do dado. */
+  { chave: "lembrete", titulo: "Lembrete antes do atendimento", desc: "Manda um lembrete automático para o cliente" },
   { chave: "remarcar", titulo: "Permitir remarcação", desc: "Deixa o cliente remarcar sozinho pela conversa" },
   { chave: "encaixe", titulo: "Aceitar encaixes", desc: "Pode oferecer horários que abriram de última hora" },
 ];
@@ -89,7 +97,10 @@ export const PREVIEWS: Record<string, { titulo: string; msgs: Msg[] }> = {
       { de: "cliente", txt: "Consigo marcar pra amanhã?" },
       { de: "bot", txt: "Consigo! Tenho 14:00 e 16:00. Qual fica melhor?" },
       { de: "cliente", txt: "16h" },
-      { de: "bot", txt: "Fechado, 16:00 ✅ Te lembro 3h antes por aqui." },
+      /* Sem prazo na fala: o preview é o mesmo para todo inquilino, e o prazo agora varia
+       * por inquilino (`lembreteHoras`). Um "3h" aqui contradiria a tela ao lado de quem
+       * escolheu 1 dia — no mesmo acordeão, um do lado do outro. */
+      { de: "bot", txt: "Fechado, 16:00 ✅ Te lembro por aqui antes do horário." },
     ],
   },
   comportamento: {

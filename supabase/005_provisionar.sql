@@ -205,7 +205,15 @@ begin
          else public.hora_decimal_para_time(v_ate) end
   from generate_series(0, 6) as d(dow);
 
-  /* ── a assistente ── */
+  /* ── a assistente ──
+   *
+   * ⚠️ `lembrete_horas` NÃO entra aqui, e foi decisão, não esquecimento. A 026 chegou com um
+   * padrão por vertical (24h no consultório, 3h no resto) e ele foi RECUSADO em 04/09/2026:
+   * *"3 horas antes é suave para terapeutas também"*. Todo mundo nasce no `default 3` da
+   * coluna, e quem quiser outro prazo escolhe na tela.
+   *
+   * Fica registrado porque a ideia volta sozinha: parece óbvio que consultório precise de
+   * mais antecedência, e não precisa. */
   insert into public.assistente (tenant_id, nome, tom, saudacao)
   values (
     v_tenant, 'MAISA',
