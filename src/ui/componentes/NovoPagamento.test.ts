@@ -10,12 +10,17 @@
  * por causa de uma linha, e a mensagem dela fala do arquivo. Aceitar `000.000.000-00` aqui é
  * transformar um erro de digitação num fechamento de mês recusado.
  *
+ * ★ **CLIENTE DE TESTE NÃO ENTRA NO SELETOR.** `lancaveis` é uma linha e evita a pior falha deste
+ * formulário: a `v_a_recibar` lê `coalesce(c.teste,false)` e `lerRecibosPendentes` filtra `!teste`
+ * — escolher um cliente de teste gravava a linha no banco e ela nunca voltava na lista. O
+ * formulário dizia "lançado" e nada aparecia.
+ *
  * Este arquivo existe porque a função é a mesma nas DUAS telas que lançam pagamento (a de emitir e
  * a do arquivo do e-CAC). Era código duplicado até 26/08/2026; um teste só garante as duas.
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import { describe, expect, it } from "vitest";
-import { faltaDoLancamento, mascaraCpf, type Rascunho } from "./NovoPagamento";
+import { faltaDoLancamento, lancaveis, mascaraCpf, type Rascunho } from "./NovoPagamento";
 
 /** Um lançamento válido. Cada teste estraga um campo de propósito. */
 const bom = (over: Partial<Rascunho> = {}): Rascunho => ({
@@ -80,5 +85,33 @@ describe("mascaraCpf", () => {
 
   it("ignora o que não é dígito", () => {
     expect(mascaraCpf("abc545xyz739")).toBe("545.739");
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ★ O SELETOR DE CLIENTE — o que pode ser escolhido sem sumir depois.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+/** O mínimo que a função lê. O resto do cliente não interessa aqui — é por isso que ela é genérica. */
+type Ficha = { id: string; teste?: boolean };
+
+describe("lancaveis", () => {
+  it("cliente normal fica", () => {
+    const todos: Ficha[] = [{ id: "a" }, { id: "b" }];
+    expect(lancaveis(todos)).toHaveLength(2);
+  });
+
+  /* ⚠️ O caso que motivou a função: lançamento gravado no banco que nunca volta na lista. */
+  it("cliente de teste sai — a view filtra e o lançamento sumiria calado", () => {
+    const todos: Ficha[] = [{ id: "a" }, { id: "t", teste: true }];
+    const fica = lancaveis(todos);
+
+    expect(fica).toHaveLength(1);
+    expect(fica[0].id).toBe("a");
+  });
+
+  it("`teste: false` fica — só o `true` some", () => {
+    const todos: Ficha[] = [{ id: "a", teste: false }];
+    expect(lancaveis(todos)).toHaveLength(1);
   });
 });

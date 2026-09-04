@@ -6,6 +6,11 @@
  * depois da emissão — quando o pagamento já está trancado no livro-razão. `agrupar` é o único
  * lugar onde esse filtro mora, e é o tipo de regra que se perde numa refatoração de layout.
  *
+ * ★ **O LANÇAMENTO À MÃO APARECE, E APARECE UMA VEZ SÓ.** `mesclar` e `reconciliar` são as duas
+ * funções da lista otimista, e as duas erram em silêncio: linha duplicada conta dois recibos no
+ * CTA, linha perdida some da tela com o dinheiro dentro. Nenhuma das duas tem sintoma visível
+ * antes de alguém conferir o fechamento do mês contra o extrato.
+ *
  * O resto protege a contagem: um cliente com três sessões é UMA linha na lista e TRÊS recibos no
  * CTA. Confundir os dois faz o botão prometer um número e o modal emitir outro — foi essa classe
  * de erro (o botão dizer N e saírem M) que motivou o redesenho da tela.
@@ -21,7 +26,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import { describe, expect, it } from "vitest";
-import { agrupar, leituraDaTela } from "./EmitirRecibos";
+import { agrupar, leituraDaTela, mesclar, reconciliar } from "./EmitirRecibos";
 import type { PagamentoPendente } from "@/nucleo/portas/entrada/casos-de-uso";
 
 const pag = (over: Partial<PagamentoPendente> = {}): PagamentoPendente => ({
@@ -146,5 +151,92 @@ describe("★ leitura das duas rotas", () => {
 
   it("resposta nula não estoura", () => {
     expect("erro" in leituraDaTela(null, null)).toBe(true);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ★ A LISTA OTIMISTA — lançar à mão tem que aparecer no mesmo clique.
+ *
+ * Bruno, 27/08/2026: *"o banco de recibos a ser emitidos não muda automaticamente quando eu lanço
+ * um novo recibo à mão"*. Gravava sempre; a tela é que só mudava depois de duas leituras de rede
+ * sem sinal nenhum. Agora a linha entra na hora e a leitura confirma por baixo.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+describe("★ mesclar — o que a tela mostra enquanto o servidor não respondeu", () => {
+  it("põe o otimista na frente do que veio do servidor", () => {
+    const m = mesclar([pag({ id: "a" })], [pag({ id: "novo", nome: "Sofia Ribeiro" })]);
+
+    expect(m.map((x) => x.id)).toEqual(["novo", "a"]);
+  });
+
+  /* ⚠️ O TESTE QUE IMPORTA. Duplicar não é feio: é o CTA prometendo dois recibos e a Receita
+     recebendo dois documentos para a mesma sessão. */
+  it("quando a leitura traz a linha, a cópia otimista some — nunca duas", () => {
+    const doServidor = [pag({ id: "novo" }), pag({ id: "a" })];
+    const m = mesclar(doServidor, [pag({ id: "novo" })]);
+
+    expect(m).toHaveLength(2);
+    expect(m.filter((x) => x.id === "novo")).toHaveLength(1);
+  });
+
+  it("sem otimista, é exatamente o que o servidor mandou", () => {
+    const doServidor = [pag({ id: "a" }), pag({ id: "b" })];
+    expect(mesclar(doServidor, [])).toEqual(doServidor);
+  });
+
+  it("servidor vazio ainda mostra o que acabou de ser lançado", () => {
+    expect(mesclar([], [pag({ id: "novo" })])).toHaveLength(1);
+  });
+
+  /* O grupo do CTA tem que enxergar o otimista, senão a lista diz 2 e o botão diz 1. */
+  it("o lançamento entra no grupo do cliente e soma no valor", () => {
+    const g = agrupar(mesclar([pag({ id: "a", valor: 250 })], [pag({ id: "novo", valor: 150 })]));
+
+    expect(g).toHaveLength(1);
+    expect(g[0].itens).toHaveLength(2);
+    expect(g[0].valor).toBe(400);
+  });
+});
+
+describe("★ reconciliar — o que a leitura confirmou e o que ela engoliu", () => {
+  it("linha que voltou: conferida e sem aviso", () => {
+    const r = reconciliar([pag({ id: "novo" })], [pag({ id: "novo" }), pag({ id: "a" })]);
+
+    expect(r.conferidos).toEqual(["novo"]);
+    expect(r.sumiram).toEqual([]);
+  });
+
+  /* ⚠️ O CASO CONHECIDO: cliente marcado como `teste`. A view filtra, a linha existe no banco e
+     nunca aparece. Antes disso era silêncio; agora é frase com o nome. */
+  it("linha que NÃO voltou vira aviso com o nome — nunca silêncio", () => {
+    const r = reconciliar([pag({ id: "novo", nome: "Sofia Ribeiro" })], [pag({ id: "a" })]);
+
+    expect(r.sumiram).toEqual(["Sofia Ribeiro"]);
+    /* Conferida do mesmo jeito: insistir com a cópia otimista deixaria na tela uma linha que o
+       servidor não tem, e o CTA tentaria emitir um pagamento que não existe para ele. */
+    expect(r.conferidos).toEqual(["novo"]);
+  });
+
+  it("a foto vazia não inventa aviso", () => {
+    expect(reconciliar([], [pag({ id: "a" })])).toEqual({ conferidos: [], sumiram: [] });
+  });
+
+  /* ★ A REGRA DA FOTO. `antes` é lido ANTES do `await` justamente para isto: o lançamento feito
+     durante a leitura não está em `antes`, então esta resposta não o julga nem o apaga. */
+  it("só julga o que estava na foto — quem chegou durante a leitura fica de fora", () => {
+    const antes = [pag({ id: "primeiro", nome: "Patrícia" })];
+    const r = reconciliar(antes, [pag({ id: "primeiro" })]);
+
+    expect(r.conferidos).not.toContain("durante");
+    expect(r.sumiram).toEqual([]);
+  });
+
+  it("dois lançamentos perdidos viram dois nomes", () => {
+    const r = reconciliar(
+      [pag({ id: "x", nome: "Sofia" }), pag({ id: "y", nome: "Marina" })],
+      [],
+    );
+
+    expect(r.sumiram).toEqual(["Sofia", "Marina"]);
   });
 });

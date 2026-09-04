@@ -31,9 +31,35 @@
  * Em série de propósito, e não em paralelo: o canal cobra por processamento, a Receita não gosta
  * de rajada, e uma falha no meio de dez chamadas simultâneas deixaria o dono sem saber quais
  * saíram. Uma por vez, com o placar na tela.
+ *
+ * ── ★ LANÇAR À MÃO APARECE NA HORA (Bruno, 27/08/2026) ──
+ *
+ * *"o banco de recibos a ser emitidos não muda automaticamente quando eu lanço um novo recibo à
+ * mão… parece que o recibo não foi lançado"*.
+ *
+ * O lançamento SEMPRE gravou. O que faltava era a tela dizer isso. Três coisas se somavam:
+ *
+ *   1 · O formulário fechava e disparava `carregar()` — DUAS leituras de rede (`/api/fiscal` e
+ *       `/api/recibos`, até 15s cada) sem nenhum sinal na tela. Nesse intervalo a lista continuava
+ *       mostrando exatamente o estado anterior. Fechar o formulário era o único feedback, e é o
+ *       mesmo gesto de "cancelar".
+ *   2 · Quando a lista enfim voltava, a linha nova entrava **ordenada por valor** (ver `agrupar`),
+ *       num contêiner com rolagem própria. Um recibo de R$ 150 num mês de sessões de R$ 300 cai
+ *       no meio da lista, fora da vista. Nada piscava, nada rolava.
+ *   3 · Se o cliente escolhido no formulário estivesse marcado como `teste`, a linha NUNCA voltava
+ *       — a view lê `coalesce(c.teste,false)` e `lerRecibosPendentes` filtra. Sumia calada.
+ *
+ * A resposta é otimista e reconciliada: o `POST` já devolve a linha pronta, então ela entra na
+ * lista no mesmo instante, destacada e rolada até a vista, e a leitura de verdade corrige por
+ * baixo. Os de teste saíram do seletor (ver `NovoPagamento`), e o que não voltar do servidor vira
+ * frase na tela em vez de silêncio.
+ *
+ * ⚠️ OTIMISTA AQUI NÃO É ADIVINHAR. Não montamos a linha a partir do formulário: usamos o objeto
+ * que o servidor criou, com o `id` dele. É por isso que a reconciliação é exata — o mesmo `id`
+ * volta na leitura e a cópia otimista some sozinha, sem piscar e sem duplicar.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { s, Icon, fmt, Btn, Card, EmptyState, Badge, Toggle } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { useIsMobile } from "@/ui/useIsMobile";
@@ -108,6 +134,50 @@ export function agrupar(pagamentos: PagamentoPendente[]): Grupo[] {
   }
   /* Maior valor primeiro: num fechamento de mês, é por onde o olho começa. */
   return [...mapa.values()].sort((a, b) => b.valor - a.valor);
+}
+
+/* ── ★ A LISTA OTIMISTA, EM DUAS FUNÇÕES PURAS ────────────────────────────────
+ *
+ * Exportadas pelo mesmo motivo que `agrupar`: erram em silêncio. Uma linha duplicada e uma linha
+ * perdida têm exatamente a mesma aparência na tela — nenhuma — até alguém conferir o fechamento
+ * do mês contra o extrato.
+ * ─────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * O que a tela mostra: o que o servidor devolveu, mais o que ele já tem e ainda não devolveu.
+ *
+ * ⚠️ O DESEMPATE É POR `id`, e o `id` vem do servidor nos dois casos (a cópia otimista é a linha
+ * que o `POST` criou). Por isso a duplicata é impossível: no instante em que a leitura traz a
+ * linha, a cópia deixa de ser incluída — sem piscar, sem contar duas vezes no CTA.
+ */
+export function mesclar(
+  doServidor: PagamentoPendente[],
+  otimistas: PagamentoPendente[],
+): PagamentoPendente[] {
+  const vistos = new Set(doServidor.map((x) => x.id));
+  return [...otimistas.filter((o) => !vistos.has(o.id)), ...doServidor];
+}
+
+/**
+ * O que a leitura resolveu, e o que ela deixou sem resposta.
+ *
+ * `conferidos` = ids que não precisam mais de cópia otimista (a leitura passou por eles, tendo
+ * trazido ou não). `sumiram` = os que foram criados e não voltaram — cliente `teste`, RLS, ou
+ * qualquer coisa que a gente ainda não viu.
+ *
+ * ⚠️ `antes` É A FOTO DE ANTES DO `await`, nunca o estado atual. Um lançamento feito DURANTE a
+ * leitura não pode ser julgado por uma resposta que não podia conhecê-lo — seria apagá-lo da tela
+ * exatamente pelo defeito que este código existe para corrigir.
+ */
+export function reconciliar(
+  antes: PagamentoPendente[],
+  doServidor: PagamentoPendente[],
+): { conferidos: string[]; sumiram: string[] } {
+  const noBanco = new Set(doServidor.map((x) => x.id));
+  return {
+    conferidos: antes.map((o) => o.id),
+    sumiram: antes.filter((o) => !noBanco.has(o.id)).map((o) => o.nome),
+  };
 }
 
 /* ── peças da tela ────────────────────────────────────────────────────────── */
@@ -193,8 +263,33 @@ export function EmitirRecibos() {
   const [desmarcados, setDesmarcados] = useState<Set<string>>(new Set());
   const [previa, setPrevia] = useState(0);
 
+  /* ── ★ AS LINHAS QUE JÁ EXISTEM NO BANCO MAS AINDA NÃO VOLTARAM NA LEITURA ──
+   *
+   * Vêm do `POST /api/recibos`, que devolve a linha criada. Ficam aqui até a próxima leitura
+   * trazê-las — aí se apagam sozinhas, porque o `id` é o mesmo.
+   *
+   * ⚠️ O `ref` ANDA JUNTO COM O STATE de propósito: `carregar` é um `useCallback` estável (as
+   * telas dependem disso — ele é deps de dois efeitos), e ler o state de dentro dele congelaria
+   * o valor da primeira renderização. Toda escrita passa por `mudarOtimistas`, que mexe nos dois. */
+  const otimistasRef = useRef<PagamentoPendente[]>([]);
+  const [otimistas, setOtimistas] = useState<PagamentoPendente[]>([]);
+  const mudarOtimistas = useCallback((fn: (a: PagamentoPendente[]) => PagamentoPendente[]) => {
+    otimistasRef.current = fn(otimistasRef.current);
+    setOtimistas(otimistasRef.current);
+  }, []);
+
+  /** O que foi lançado e o servidor não devolveu. Frase na tela — nunca silêncio. */
+  const [sumiram, setSumiram] = useState<string[]>([]);
+  /** O último lançamento: destaca a linha, rola até ela e aponta a prévia. `null` = nada novo. */
+  const [novo, setNovo] = useState<{ id: string; chave: string } | null>(null);
+  const linhaNova = useRef<HTMLButtonElement | null>(null);
+
   const carregar = useCallback(async () => {
     setErro(null);
+    /* ⚠️ A FOTO É TIRADA ANTES DO `await`. Reconciliar contra `otimistasRef.current` depois da
+     * volta apagaria um lançamento feito DURANTE esta leitura — que esta resposta não podia
+     * conhecer, e que voltaria a sumir da tela. */
+    const antes = otimistasRef.current;
     try {
       /* `no-store` nas duas: `carregar()` roda DE NOVO depois de emitir, e o navegador servindo a
        * resposta antiga mostraria os mesmos recibos ainda por emitir.
@@ -213,20 +308,58 @@ export function EmitirRecibos() {
 
       setFiscal(lido.fiscal);
       setPend(lido.pend);
+
+      /* ── reconciliação ──
+       * O que esta leitura já contém não precisa mais de cópia otimista. O que ela NÃO contém,
+       * tendo sido criado antes dela, é uma linha que o banco engoliu — e vira frase. */
+      if (antes.length) {
+        const { conferidos, sumiram } = reconciliar(antes, lido.pend.pagamentos);
+        const resolvidos = new Set(conferidos);
+        mudarOtimistas((a) => a.filter((o) => !resolvidos.has(o.id)));
+        setSumiram(sumiram);
+      }
     } catch {
       setErro("Não deu para falar com o servidor. Tente de novo em um instante.");
     }
-  }, []);
+  }, [mudarOtimistas]);
 
   useEffect(() => { void carregar(); }, [carregar]);
 
-  const grupos = useMemo(() => agrupar(pend?.pagamentos ?? []), [pend]);
+  const pagamentos = useMemo(() => mesclar(pend?.pagamentos ?? [], otimistas), [pend, otimistas]);
+  const grupos = useMemo(() => agrupar(pagamentos), [pagamentos]);
   const escolhidos = useMemo(
     () => grupos.filter((g) => !desmarcados.has(`${g.nome}|${g.cpf}`)),
     [grupos, desmarcados],
   );
   const aEmitir = useMemo(() => escolhidos.flatMap((g) => g.itens), [escolhidos]);
   const valor = useMemo(() => aEmitir.reduce((a, p) => a + p.valor, 0), [aEmitir]);
+
+  /**
+   * ★ O LANÇAMENTO ENTRA NA LISTA NO MESMO CLIQUE.
+   *
+   * Não recarrega e espera: põe a linha que o servidor acabou de criar, marca para destacar, e
+   * deixa o `carregar()` de baixo confirmar. Ver o cabeçalho para o porquê.
+   */
+  const inserir = useCallback((p: PagamentoPendente) => {
+    mudarOtimistas((a) => [p, ...a.filter((x) => x.id !== p.id)]);
+    const chave = `${p.nome}|${p.cpf}`;
+    /* ⚠️ RECÉM-LANÇADO ENTRA MARCADO, mesmo que o cliente estivesse desmarcado. Desmarcar foi uma
+     * decisão sobre o que existia; lançar agora é dizer que ESTE vai. O contrário seria somar um
+     * recibo ao total e não somar ao "a emitir" — divergência silenciosa entre a lista e o CTA. */
+    setDesmarcados((a) => { const n = new Set(a); n.delete(chave); return n; });
+    setNovo({ id: p.id, chave });
+    setSumiram([]);
+    /* A linha mora na etapa 1. Lançar da etapa 2 e continuar na conferência mostraria um número
+     * mudando sem a linha que o explica. */
+    setEtapa(1);
+  }, [mudarOtimistas]);
+
+  /* O destaque é temporário: ele responde "caiu aqui", não marca um estado. */
+  useEffect(() => {
+    if (!novo) return;
+    const t = setTimeout(() => setNovo(null), 5000);
+    return () => clearTimeout(t);
+  }, [novo]);
 
   const alternar = (g: Grupo) => {
     const chave = `${g.nome}|${g.cpf}`;
@@ -259,6 +392,24 @@ export function EmitirRecibos() {
      * e o efeito de cima já leu. Guardar contra isso exigiria um ref para economizar uma leitura. */
     if (st.emissoesFeitas > 0) void carregar();
   }, [st.emissoesFeitas, carregar]);
+
+  /* ── ★ LEVAR O OLHO ATÉ A LINHA ──
+   *
+   * `agrupar` ordena por VALOR, e a lista tem rolagem própria. Uma sessão de R$ 150 lançada num mês
+   * de sessões de R$ 300 nasce no meio de tudo, fora da vista — e "não apareceu" e "apareceu onde
+   * eu não estou olhando" são a mesma coisa para quem clicou.
+   *
+   * A prévia do painel da direita também aponta para ela: é onde o valor, o nome e o CPF aparecem
+   * por extenso, e é a conferência do que acabou de ser digitado.
+   *
+   * ⚠️ `aEmitir` nas deps faz isto rodar de novo quando a leitura substitui a cópia otimista. É
+   * de propósito e é barato: o `id` não muda, então a rolagem já está no lugar e vira no-op. */
+  useEffect(() => {
+    if (!novo) return;
+    linhaNova.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const i = aEmitir.findIndex((x) => x.id === novo.id);
+    if (i >= 0) setPrevia(i);
+  }, [novo, aEmitir]);
 
   /* ── estados que não são a tela ──────────────────────────────────────────── */
 
@@ -474,14 +625,18 @@ export function EmitirRecibos() {
           </div>
         )}
         {grupos.map((g, i) => {
-          const on = !desmarcados.has(`${g.nome}|${g.cpf}`);
+          const chave = `${g.nome}|${g.cpf}`;
+          const on = !desmarcados.has(chave);
+          /* Recém-lançado. O destaque some sozinho em 5s — ver o `setTimeout` lá em cima. */
+          const agora = novo?.chave === chave;
           return (
             <button
-              key={`${g.nome}|${g.cpf}`}
+              key={chave}
+              ref={agora ? linhaNova : undefined}
               onClick={() => alternar(g)}
               className="m-focus m-hov-bg"
               aria-pressed={on}
-              style={s(`width:100%;display:flex;align-items:center;gap:14px;padding:13px 16px;border:none;${i < grupos.length - 1 ? "border-bottom:1px solid var(--line);" : ""}background:transparent;cursor:pointer;text-align:left;font-family:inherit;color:inherit`)}
+              style={s(`width:100%;display:flex;align-items:center;gap:14px;padding:13px 16px;border:none;${i < grupos.length - 1 ? "border-bottom:1px solid var(--line);" : ""}background:${agora ? "var(--primary-soft)" : "transparent"};transition:background var(--dur) var(--ease);cursor:pointer;text-align:left;font-family:inherit;color:inherit`)}
             >
               <span
                 aria-hidden
@@ -489,8 +644,17 @@ export function EmitirRecibos() {
               >
                 {on && <Icon name="check" size={13} />}
               </span>
-              <span style={s("flex:1;min-width:0;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
-                {g.nome}
+              <span style={s("flex:1;min-width:0;display:flex;align-items:center;gap:8px")}>
+                <span style={s("min-width:0;font-size:var(--t-sm);font-weight:var(--w-title);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
+                  {g.nome}
+                </span>
+                {/* A etiqueta é o que transforma "a lista mudou" em "o MEU lançamento entrou". Sem
+                    ela, um destaque de fundo numa lista longa é só uma linha de cor diferente. */}
+                {agora && (
+                  <span style={s("flex:none;font-size:var(--t-label);font-weight:var(--w-title);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--primary);border:1px solid var(--primary);border-radius:6px;padding:1px 6px")}>
+                    novo
+                  </span>
+                )}
               </span>
               <span className="n" style={s("font-size:var(--t-label);color:var(--muted);flex:none")}>
                 {g.itens.length}
@@ -604,7 +768,31 @@ export function EmitirRecibos() {
           {/* ★ O CAMINHO QUE FALTAVA. Sessão por fora, pacote adiantado, paciente que voltou: sem
               isto, mês fechado era uma tela sem nenhuma ação — e era exatamente o que o Bruno viu.
               ⚠️ Ele NÃO emite: lança na fila, e quem emite é o CTA ao lado. */}
-          <NovoPagamento onLancado={() => void carregar()} rotulo="Novo recibo — lançar à mão" />
+          {/* ⚠️ LANÇOU E NÃO VOLTOU = FRASE, NÃO SILÊNCIO. O caso conhecido era cliente marcado como
+              `teste` (a view filtra), e ele saiu do seletor. Sobra o desconhecido — e desconhecido
+              que some calado num formulário de documento fiscal é o pior desfecho possível. */}
+          {sumiram.length > 0 && (
+            <div style={s("display:flex;align-items:flex-start;gap:10px;padding:12px 15px;border-radius:12px;border:1px solid var(--warn-line);background:var(--warn-soft)")}>
+              <span aria-hidden style={s("flex:none;color:var(--warn);display:flex;padding-top:1px")}><Icon name="alert" size={16} /></span>
+              <span style={s("font-size:var(--t-label);color:var(--ink);line-height:var(--lh-prose)")}>
+                <strong style={s("font-weight:var(--w-title)")}>
+                  {sumiram.length === 1 ? `${sumiram[0]} foi lançado` : `${sumiram.length} lançamentos foram feitos`}
+                </strong>{" "}
+                — mas não {sumiram.length === 1 ? "voltou" : "voltaram"} na lista. Lance de novo e,
+                se sumir outra vez, me chame antes de fechar o mês.
+              </span>
+            </div>
+          )}
+
+          <NovoPagamento
+            onLancado={(p) => {
+              /* Entra na hora (com o objeto do servidor)… */
+              if (p) inserir(p);
+              /* …e a leitura de verdade confirma por baixo. As duas coisas, nesta ordem. */
+              void carregar();
+            }}
+            rotulo="Novo recibo — lançar à mão"
+          />
         </Card>
         {mobile ? <div style={s("width:100%")}>{painel}</div> : painel}
       </div>

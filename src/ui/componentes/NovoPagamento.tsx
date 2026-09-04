@@ -19,10 +19,11 @@
  * emissão, ou o arquivo do mês. Lançar e emitir no mesmo clique tiraria a conferência do meio.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { s, Btn, Icon } from "@/ui/primitivos";
 import { useStore } from "@/ui/estado/store";
 import { cpfValido } from "@/nucleo/dominio/clientes";
+import type { PagamentoPendente } from "@/nucleo/portas/entrada/casos-de-uso";
 import { mensagemDaFalha } from "@/ui/falhas";
 
 const CAMPO =
@@ -73,14 +74,52 @@ export function faltaDoLancamento(r: Rascunho): string {
   return "";
 }
 
-export function NovoPagamento({ onLancado, rotulo }: { onLancado: () => void; rotulo?: string }) {
+/**
+ * ⚠️ `onLancado` RECEBE O PAGAMENTO QUE O SERVIDOR CRIOU, e não um aviso vazio.
+ *
+ * A rota já devolve a linha pronta (`POST /api/recibos` → `{ pagamento }`, no formato exato que
+ * o `GET` usa). Quem chama pode colocá-la na lista **no mesmo instante** e reconciliar com o
+ * servidor depois — que é o que a tela de emissão faz. Antes só chegava "pronto", e a única
+ * saída era refazer duas leituras e esperar: o formulário fechava, a lista não mexia, e o
+ * lançamento parecia não ter acontecido.
+ *
+ * O parâmetro é opcional de propósito: resposta antiga (ou proxy que come o corpo) não pode
+ * derrubar o fluxo — sem ele, quem chama só recarrega, como fazia antes.
+ */
+/**
+ * ★ QUEM PODE SER ESCOLHIDO NO SELETOR — cliente de teste fica de fora.
+ *
+ * ⚠️ NÃO É COSMÉTICO, É PERDA SILENCIOSA. A `v_a_recibar` lê o `teste` do CLIENTE
+ * (`coalesce(c.teste,false)`) e `lerRecibosPendentes` filtra `!teste`. Escolher um deles gravava
+ * a linha no banco e ela NUNCA voltava na lista: o formulário dizia "lançado" e nada aparecia —
+ * o pior desfecho possível num formulário de documento fiscal.
+ *
+ * Quem realmente precisar lançar para esse nome digita à mão: sem `clienteId`, o `left join` da
+ * view não tem de onde tirar o `teste`, e a linha aparece.
+ *
+ * Exportada para ter teste — é a única regra aqui que erra sem sintoma.
+ */
+export function lancaveis<T extends { teste?: boolean }>(clientes: T[]): T[] {
+  return clientes.filter((c) => !c.teste);
+}
+
+export function NovoPagamento({ onLancado, rotulo }: { onLancado: (lancado?: PagamentoPendente) => void; rotulo?: string }) {
   const st = useStore();
-  const clientes = st.cadastro.clientes;
+  /* Ver `lancaveis`: cliente de teste no seletor é lançamento que some. */
+  const clientes = useMemo(() => lancaveis(st.cadastro.clientes), [st.cadastro.clientes]);
 
   const [abrindo, setAbrindo] = useState(false);
   const [r, setR] = useState<Rascunho>(VAZIO);
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  /** Nome de quem acabou de ser lançado. Fica alguns segundos e some — ver o bloco fechado. */
+  const [ultimo, setUltimo] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ultimo) return;
+    const t = setTimeout(() => setUltimo(null), 6000);
+    return () => clearTimeout(t);
+  }, [ultimo]);
 
   const põe = (campo: keyof Rascunho, v: string) => setR((a) => ({ ...a, [campo]: v }));
 
@@ -115,9 +154,13 @@ export function NovoPagamento({ onLancado, rotulo }: { onLancado: () => void; ro
         }),
       }).then((x) => x.json());
       if (!resp?.ok) throw new Error(mensagemDaFalha(resp, "Não consegui lançar."));
+      const nome = r.nome.trim();
       setR(VAZIO());
       setAbrindo(false);
-      onLancado();
+      setUltimo(nome);
+      /* A linha criada vai junto: quem chama põe na lista agora e confere com o servidor depois.
+       * Ver o comentário da assinatura. */
+      onLancado(resp.pagamento as PagamentoPendente | undefined);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não consegui lançar.");
     } finally {
@@ -127,9 +170,20 @@ export function NovoPagamento({ onLancado, rotulo }: { onLancado: () => void; ro
 
   if (!abrindo) {
     return (
-      <Btn variant="ghost" icon="plus" onClick={() => setAbrindo(true)}>
-        {rotulo ?? "Lançar um pagamento que não está na agenda"}
-      </Btn>
+      <div style={s("display:flex;align-items:center;gap:10px;flex-wrap:wrap")}>
+        <Btn variant="ghost" icon="plus" onClick={() => setAbrindo(true)}>
+          {rotulo ?? "Lançar um pagamento que não está na agenda"}
+        </Btn>
+        {/* ★ O RECIBO DO CLIQUE. O formulário fecha sozinho no sucesso, e fechar era o ÚNICO
+            sinal — indistinguível de ter fechado por engano. A frase diz o nome, porque é o nome
+            que a pessoa vai procurar na lista logo acima. */}
+        {ultimo && (
+          <span style={s("display:flex;align-items:center;gap:6px;font-size:var(--t-label);color:var(--success)")}>
+            <Icon name="check" size={14} sw={2.4} stroke="var(--success)" />
+            {ultimo} entrou na lista.
+          </span>
+        )}
+      </div>
     );
   }
 

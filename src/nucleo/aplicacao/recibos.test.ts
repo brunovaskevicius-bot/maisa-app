@@ -101,7 +101,11 @@ function recibosDe(pendentes: PagamentoAFaturar[]) {
 describe("gerar o lote", () => {
   it("monta o CSV com uma linha por sessão", async () => {
     const { repo } = recibosDe([sessao(), sessao({ id: "at2", data: "2026-08-21" })]);
-    const lote = await criarGerarLoteDeRecibos({ recibos: repo, fiscal: fiscalDe(carla) })(t, {});
+    /* ⚠️ `ate` EXPLÍCITO, e não `{}`. A competência sai de `ate`, que sem parâmetro vira
+     * `hojeISO()` — então este teste passou de julho a agosto e reprovou sozinho no dia 1º de
+     * setembro, sem ninguém tocar em código. Teste que depende do calendário da máquina não
+     * está prendendo a regra, está prendendo o mês em que foi escrito. */
+    const lote = await criarGerarLoteDeRecibos({ recibos: repo, fiscal: fiscalDe(carla) })(t, { ate: "2026-08-31" });
 
     expect(lote.linhas).toBe(2);
     expect(lote.csv.split("\r\n")).toHaveLength(2);
