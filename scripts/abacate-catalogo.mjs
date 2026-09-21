@@ -4,6 +4,7 @@
  *
  *   node scripts/abacate-catalogo.mjs            → mostra o que falta, NÃO escreve
  *   node scripts/abacate-catalogo.mjs --aplicar  → cria o que falta
+ *   node scripts/abacate-catalogo.mjs --sondar   → descobre o que a CONTA deixa cobrar
  *
  * ── POR QUE ISTO É UM SCRIPT E NÃO UM PASSO NO CÓDIGO DO APP ──
  *
@@ -34,6 +35,7 @@ import { dirname, join } from "node:path";
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BASE = "https://api.abacatepay.com/v2";
 const APLICAR = process.argv.includes("--aplicar");
+const SONDAR = process.argv.includes("--sondar");
 
 /* ── as env vars, lidas do `.env.local` como os outros scripts da pasta ────────── */
 
@@ -239,7 +241,62 @@ async function main() {
     }
   }
 
-  /* ── 3. o veredito ── */
+  /* ── 3. o que a CONTA deixa cobrar ──
+   *
+   * ⚠️ NÃO DÁ PARA PERGUNTAR ISSO: não existe endpoint que responda "esta loja tem Pix
+   * Automático?". A única forma de saber é TENTAR criar o checkout e ler a recusa — foi
+   * assim que se descobriu, em 21/09/2026, que a loja de sandbox não tinha nem Pix
+   * recorrente nem cartão.
+   *
+   * Fica atrás de `--sondar` porque a sonda ESCREVE: cada tentativa que passa cria um
+   * checkout de verdade (`bill_…`), que fica PENDING até expirar. Em dev isso é lixo
+   * inofensivo; em produção é lixo no painel de quem vende. Rodar por padrão faria uma
+   * conferência de catálogo sujar a conta toda vez.
+   *
+   * Existe para o dia em que a conta for verificada: uma linha de comando responde
+   * "abriu?" sem ninguém ter de montar curl à mão de novo. */
+  if (SONDAR) {
+    console.log("\nCAPACIDADES (o que a conta deixa cobrar)");
+
+    if (MUNDO === "producao") {
+      console.log("  ⚠️ conta de PRODUÇÃO: cada método que PASSAR deixa um checkout");
+      console.log("     pendente no painel. Apague-os depois.");
+    }
+
+    /* O produto do meio serve de cobaia: qualquer um com ciclo serve, e o Profissional é
+     * o que a LP destaca. */
+    const cobaia = porExterno.get("maisa-profissional-mensal");
+
+    if (!cobaia) {
+      console.log("  · pulado: o produto maisa-profissional-mensal ainda não existe.");
+      console.log("    Rode com --aplicar primeiro.");
+    } else {
+      for (const metodos of [["PIX"], ["CARD"]]) {
+        try {
+          const r = await api("/subscriptions/create", {
+            items: [{ id: cobaia.id, quantity: 1 }],
+            methods: metodos,
+            externalId: "sonda-de-capacidade",
+            completionUrl: `${(URL_PUBLICA || "https://example.com").replace(/\/$/, "")}/sonda`,
+            returnUrl: `${(URL_PUBLICA || "https://example.com").replace(/\/$/, "")}/sonda`,
+          });
+          console.log(`  ✓ ${metodos[0].padEnd(5)} recorrente LIBERADO  (checkout ${r.id})`);
+        } catch (e) {
+          /* A mensagem deles é específica e vale mostrar crua: "PIX Automático is not
+           * available for this store" diz exatamente o que pedir. */
+          const msg = String(e.message).split("—").pop().trim();
+          console.log(`  ✗ ${metodos[0].padEnd(5)} recorrente bloqueado  (${msg})`);
+        }
+      }
+
+      console.log("");
+      console.log("  ⚠️ `methods` é CONJUNÇÃO: se você quiser os dois na mesma tela, os DOIS");
+      console.log("     têm de estar liberados. Um bloqueado derruba o checkout inteiro.");
+      console.log("     Ajuste ABACATEPAY_METODOS para exatamente o que passou acima.");
+    }
+  }
+
+  /* ── 4. o veredito ── */
   console.log("");
   if (divergentes) {
     console.log(`⚠️  ${divergentes} divergência(s). Este script NÃO corrige preço de produto que`);
@@ -251,6 +308,9 @@ async function main() {
   }
   if (!criados && !divergentes) {
     console.log("✓ A conta está do jeito que o código espera.");
+    if (!SONDAR) {
+      console.log("  Para saber o que ela deixa COBRAR: `npm run abacate:catalogo -- --sondar`");
+    }
     if (!EH_PRODUCAO) {
       console.log("\n  Próximo passo: `abacatepay -l listen --forward-to");
       console.log('  "http://localhost:3100/api/abacatepay/webhook?webhookSecret=$ABACATEPAY_WEBHOOK_SECRET"`');

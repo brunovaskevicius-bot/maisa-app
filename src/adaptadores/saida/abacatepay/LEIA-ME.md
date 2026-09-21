@@ -145,8 +145,35 @@ que o cartão estiver habilitado, senão o checkout inteiro para.
 O erro tem classe própria (`NaoSuportado` → HTTP 501) com a mensagem dizendo o que fazer —
 um 502 genérico mandaria quem investiga procurar rede, chave e timeout por horas.
 
-→ **Item de operação:** pedir a habilitação de **Pix Automático** (e de cartão, se quiser
-os dois) em `ajuda@abacatepay.com`, e depois **medir** de novo.
+### Como isso se resolve, e como saber que resolveu
+
+A recorrência é capacidade de **conta**, e a conta de sandbox nasce sem ela. O caminho é
+completar a verificação no painel (dados da empresa, sócios, comprovante) — é o mesmo
+processo de "ir para produção", e vale para os dois mundos.
+
+⚠️ **Cartão pode não abrir nem com a conta verificada.** A página comercial deles diz que
+o cartão é "liberado mediante consulta, conforme disponibilidade da conta", e em 2026 o
+fundador anunciou publicamente que o cartão está **pausado para novos entrantes** (quem já
+tinha continua). Ou seja: Pix Automático é o caminho realista; cartão é bônus.
+
+**Não adivinhe — sonde:**
+
+```
+npm run abacate:catalogo -- --sondar
+```
+
+Ele tenta criar um checkout de assinatura com cada método e imprime o que passou. É a
+única forma de saber: **não existe endpoint que responda "esta loja tem Pix Automático?"**.
+Depois, ponha em `ABACATEPAY_METODOS` exatamente o que passou.
+
+### ⚠️ Não ponha a chave na Vercel antes de a sonda passar
+
+Em `composicao.ts`, a presença de `ABACATEPAY_API_KEY` é o que faz a AbacatePay ganhar da
+Stripe. Se a chave existir em produção enquanto a recorrência estiver bloqueada, **todo
+clique em "assinar" vira erro** — a Stripe, que funciona, deixa de ser usada.
+
+Enquanto a sonda não passar, a chave vive só no `.env.local`. É por isso que não há
+interruptor separado: a própria env var é o interruptor, e ela ainda não foi para lá.
 
 ## ⚠️ Outras coisas medidas no mesmo dia
 

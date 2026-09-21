@@ -15,7 +15,7 @@ propósito. Quando dois arquivos dizem a mesma coisa, um envelhece e ninguém sa
 | `npm run guardas` | só as guardas de arquitetura e documentação |
 | `npm run typecheck` | `tsc --noEmit`, sem cache incremental de propósito — com cache ele já reprovou código que compila |
 | `npm run semear` | enche os últimos 30 dias de atendimentos pagos, para ter o que emitir na tela Fiscal. `-- --limpar` desfaz. ⚠️ **escreve no Supabase de produção** — ver o cabeçalho de [`scripts/semear-demo.mjs`](scripts/semear-demo.mjs) |
-| `npm run abacate:catalogo` | confere se a conta da AbacatePay tem os 3 produtos e o webhook que o código espera. **Só leitura**; `-- --aplicar` cria o que falta. ⚠️ com chave `prod_` escreve na conta que cobra de verdade |
+| `npm run abacate:catalogo` | confere se a conta da AbacatePay tem os 3 produtos e o webhook que o código espera. **Só leitura**; `-- --aplicar` cria o que falta; `-- --sondar` descobre **o que a conta deixa cobrar** (não há endpoint que responda isso — a sonda tenta e lê a recusa). ⚠️ em conta de produção, `--aplicar` e `--sondar` escrevem de verdade |
 | `npm run callback -- <url>` | registra na Rebots para onde mandar o desfecho dos recibos. Sonda a url antes (401 sem segredo, 400 com) — url torta é `pendente` para sempre. ⚠️ **substitui a url anterior**: registrar o túnel local derruba a de produção |
 | `npm run lint` · `npm run build` | eslint · next build |
 
