@@ -907,6 +907,19 @@ export type AbrirPortalDeCobranca = (
   p: { voltarPara: string },
 ) => Promise<CheckoutAberto>;
 
+/**
+ * Cancelar a assinatura deste negócio.
+ *
+ * Existe porque provedor sem portal hospedado (AbacatePay) não tem onde a pessoa cancele
+ * sozinha — e a LP promete "cancele quando quiser" por escrito. A tela pergunta
+ * `capacidades()` e desenha um botão OU o outro; ver `portas/saida/cobranca.ts`.
+ *
+ * Sem parâmetro além do contexto de propósito: qual assinatura cancelar não é escolha de
+ * quem clica. Aceitar um `assinaturaId` do request deixaria uma sessão cancelar a
+ * assinatura de outro negócio — é a mesma razão pela qual `tenantId` nunca vem do pedido.
+ */
+export type CancelarAssinatura = (t: ContextoTenant) => Promise<void>;
+
 /** `null` quando o inquilino ainda não tem linha de assinatura — não é erro. */
 export type LerAssinatura = (t: ContextoTenant) => Promise<Assinatura | null>;
 

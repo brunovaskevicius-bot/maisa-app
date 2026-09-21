@@ -32,10 +32,14 @@ const trial = (over: Partial<Assinatura> = {}): Assinatura => ({
   preco: null,
   moeda: "BRL",
   status: "trial",
+  /* `null` nos três: em `trial` ninguém pagou, então não há provedor, nem método, nem
+   * ficha de cliente em gateway nenhum. */
+  provedor: null,
   clienteId: null,
   assinaturaId: null,
   periodoFim: null,
   trialFim: "2026-10-05",
+  metodo: null,
   cartaoMarca: null,
   cartaoFinal4: null,
   ...over,

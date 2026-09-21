@@ -35,13 +35,21 @@ let estado: Assinatura = {
   preco: 197,
   moeda: "BRL",
   status: "trial",
+  /* `null` porque em `trial` ninguém pagou nada ainda — é o estado em que todo negócio
+   * nasce, e o provedor só entra na linha no primeiro checkout. */
+  provedor: null,
   clienteId: "cus_demo",
   assinaturaId: null,
   periodoFim: daquiUmMes(),
   trialFim: daquiUmMes(),
+  metodo: null,
   cartaoMarca: null,
   cartaoFinal4: null,
 };
+
+/** Os eventos "já vistos" desta instância. Mesmo limite dos outros demos: vive na memória.
+ *  Existe para o `/laboratorio` poder exercitar a idempotência do webhook sem banco. */
+const eventosVistos = new Set<string>();
 
 export const assinaturasDemo: RepositorioAssinaturas = {
   async ler() {
@@ -53,6 +61,18 @@ export const assinaturasDemo: RepositorioAssinaturas = {
   async tenantDoCliente(clienteId) {
     return clienteId === estado.clienteId ? "demo" : null;
   },
+  async tenantDaAssinatura(assinaturaId) {
+    return assinaturaId === estado.assinaturaId ? "demo" : null;
+  },
+  async vincularCliente(_t, p) {
+    estado = { ...estado, provedor: p.provedor, clienteId: p.clienteId };
+  },
+  async eventoJaVisto(eventoId) {
+    return eventosVistos.has(eventoId);
+  },
+  async registrarEvento(e) {
+    eventosVistos.add(e.eventoId);
+  },
   faltando: () => [],
 };
 
@@ -62,16 +82,31 @@ export const cobrancaDemo: Cobranca = {
       ...estado,
       plano: p.plano.charAt(0).toUpperCase() + p.plano.slice(1),
       status: "ativa",
-      assinaturaId: "sub_demo",
+      /* O demo finge ser a AbacatePay e paga por Pix. É a escolha útil: é o caminho NOVO
+       * e o que a tela precisa saber desenhar — "Pix" em vez de "Cartão final ····". Um
+       * demo que só produz cartão deixaria o caminho de Pix sem nenhuma tela afinada. */
+      provedor: "abacatepay",
+      assinaturaId: "subs_demo",
       periodoFim: daquiUmMes(),
       trialFim: null,
-      cartaoMarca: "visa",
-      cartaoFinal4: "4242",
+      metodo: "pix",
+      cartaoMarca: null,
+      cartaoFinal4: null,
     };
-    return { url: p.voltarPara };
+    return { url: p.voltarPara, clienteId: estado.clienteId };
   },
   async abrirPortal(_t, p) {
     return { url: p.voltarPara };
+  },
+  async cancelar() {
+    /* Grava na hora, diferente do mundo real — onde quem grava é o webhook. É a mesma
+     * ilusão do `abrirCheckout` acima, e o ⚠️ do cabeçalho vale igual. */
+    estado = { ...estado, status: "cancelada" };
+  },
+  capacidades() {
+    /* Espelha a AbacatePay, pelo mesmo motivo do `metodo: "pix"` acima: é o conjunto de
+     * capacidades que a tela ainda não sabia desenhar. */
+    return { portal: false, cancelamento: true, pix: true };
   },
   faltando: () => [],
 };

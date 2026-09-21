@@ -40,9 +40,15 @@ import { assinaturasSupabase } from "@/adaptadores/saida/supabase/assinaturas";
 import { assinaturasDemo, cobrancaDemo } from "@/adaptadores/saida/demo/assinaturas";
 import { cobrancaStripe } from "@/adaptadores/saida/stripe/cobranca-stripe";
 import { estaConfigurado as isStripeConfigured } from "@/adaptadores/saida/stripe/config";
+import { cobrancaAbacatePay } from "@/adaptadores/saida/abacatepay/cobranca-abacatepay";
+import {
+  ehProducao as abacateEhProducao,
+  estaConfigurado as isAbacateConfigured,
+} from "@/adaptadores/saida/abacatepay/config";
 import {
   criarAbrirCheckout,
   criarAbrirPortalDeCobranca,
+  criarCancelarAssinatura,
   criarLerAssinatura,
   criarRegistrarAssinatura,
 } from "@/nucleo/aplicacao/assinatura";
@@ -240,7 +246,48 @@ const cadastroEmissor = isSupabaseConfigured ? cadastroFocus : cadastroDemo;
  * está ali do lado, com a assinatura de verdade dentro.
  */
 const assinaturas = isSupabaseConfigured ? assinaturasSupabase : assinaturasDemo;
-const cobranca = isStripeConfigured ? cobrancaStripe : cobrancaDemo;
+
+/* ── ★ QUAL GATEWAY COBRA, E POR QUE A ABACATEPAY GANHA DA STRIPE QUANDO AS DUAS ESTÃO
+ *      CONFIGURADAS (21/09/2026) ──
+ *
+ * Não é preferência de fornecedor. É que a Stripe **não faz Pix recorrente em conta
+ * brasileira** — medido e escrito em `saida/stripe/LEIA-ME.md`: assinatura em conta BR é
+ * cartão ou boleto. Num produto de R$ 127/mês isso custa duas vezes:
+ *
+ *   · na TAXA — cartão é percentual, Pix é centavos;
+ *   · na CONVERSÃO — Pix é como o país paga, e quem não oferece perde a venda antes.
+ *
+ * Então a ordem é: AbacatePay quando há chave dela, Stripe quando só há a da Stripe,
+ * demo quando não há nenhuma. A Stripe NÃO sai do código de propósito — ela é o caminho
+ * de cartão internacional e a saída de emergência se a AbacatePay recusar a conta. Trocar
+ * de volta é apagar `ABACATEPAY_API_KEY` do ambiente, sem deploy.
+ *
+ * ⚠️ AS DUAS AO MESMO TEMPO NÃO É SUPORTADO, e a coluna `assinaturas.provedor` é o que
+ * conta a história: cada inquilino tem UM provedor, gravado no primeiro checkout. Quem
+ * assinou pela Stripe continua sendo cobrado por ela (a assinatura vive lá), e o webhook
+ * dela continua no ar por isso — é o motivo de `/api/stripe/webhook` não ter sido
+ * apagado. O que muda é para onde vão os checkouts NOVOS.
+ */
+const cobranca = isAbacateConfigured
+  ? cobrancaAbacatePay
+  : isStripeConfigured
+    ? cobrancaStripe
+    : cobrancaDemo;
+
+/** Vai para a coluna `assinaturas.provedor` no primeiro checkout de cada inquilino. */
+const provedorDeCobranca = isAbacateConfigured ? "abacatepay" as const : "stripe" as const;
+
+/* ⚠️ AVISO NO BOOT, E ELE EXISTE POR CAUSA DE UM MODO DE FALHA SILENCIOSO REAL: a
+ * AbacatePay usa o MESMO endpoint para teste e produção, e quem separa é o prefixo da
+ * chave. Uma `dev_` em produção responde 200, desenha um QR Code de Pix bonito e **não
+ * cobra ninguém**. O produto parece vendido e não entrou dinheiro. Sem esta linha, a
+ * descoberta acontece no fechamento do mês. */
+if (isAbacateConfigured && !abacateEhProducao) {
+  console.warn(
+    "[composicao] ⚠️ AbacatePay em DEV MODE (chave dev_): os pagamentos são SIMULADOS. "
+      + "Nada é cobrado de verdade.",
+  );
+}
 
 const negocio = isSupabaseConfigured ? repositorioSupabase : repositorioDemo;
 const provisionador = isSupabaseConfigured ? provisionadorSupabase : provisionadorDemo;
@@ -671,10 +718,13 @@ export const app = {
    * `clienteId` que impede o segundo clique de criar uma segunda ficha lá dentro.
    * Ver o ⚠️ de `PedidoDeCheckout.clienteId`. */
   lerAssinatura: criarLerAssinatura({ assinaturas }),
-  abrirCheckout: criarAbrirCheckout({ cobranca, assinaturas }),
+  abrirCheckout: criarAbrirCheckout({ cobranca, assinaturas, provedor: provedorDeCobranca }),
   abrirPortalDeCobranca: criarAbrirPortalDeCobranca({ cobranca, assinaturas }),
-  /* ★ A ÚNICA ESCRITA EM `assinaturas` DO PRODUTO INTEIRO. Chamada só pelo webhook, e
-   * só depois de a assinatura HMAC conferir. Ver `adaptadores/entrada/stripe/`. */
+  /* Existe para o provedor SEM portal (AbacatePay). Na Stripe lança `NaoSuportado` e a
+   * tela mostra o botão do portal — ver `capacidades()` nos dois adaptadores. */
+  cancelarAssinatura: criarCancelarAssinatura({ cobranca, assinaturas }),
+  /* ★ A ÚNICA ESCRITA EM `assinaturas` DO PRODUTO INTEIRO. Chamada só pelos webhooks, e
+   * só depois de o segredo conferir. Ver `entrada/stripe/` e `entrada/abacatepay/`. */
   registrarAssinatura: criarRegistrarAssinatura({ assinaturas }),
 };
 
@@ -683,6 +733,16 @@ export const app = {
  *  inquilino conhecido. Exportar a porta é mais honesto que inventar um caso de uso sem
  *  `ContextoTenant` só para acomodá-la. */
 export const repositorioDeAssinaturas = assinaturas;
+
+/**
+ * O que o provedor de cobrança ligado hoje sabe fazer.
+ *
+ * Exportado cru, e não como caso de uso, pelo mesmo motivo de `repositorioDeAssinaturas`
+ * logo acima: não é uma operação, é uma propriedade estática do adaptador. A tela lê para
+ * decidir ENTRE dois botões — "gerenciar cobrança" (portal) ou "cancelar assinatura" —
+ * antes de desenhar qualquer um dos dois. Ver `portas/saida/cobranca.ts`.
+ */
+export const capacidadesDeCobranca = cobranca.capacidades();
 
 /** Exposto para as rotas relatarem configuração (o que falta, qual ambiente fiscal). */
 export const servicos = { emissor, negocio };

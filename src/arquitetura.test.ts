@@ -143,6 +143,13 @@ const PODEM_IMPORTAR_ADAPTADOR: Record<string, string> = {
    * que `entrada/whatsapp` já faz com `saida/evolution`. */
   "adaptadores/entrada/stripe/eventos.ts":
     "o webhook e o checkout são o mesmo provedor: um cliente HTTP e um segredo, não dois",
+  /* 21/09/2026 — a MESMA exceção da Stripe logo acima, pelo mesmo motivo e com um
+   * agravante: na AbacatePay o segredo do webhook é escolhido por NÓS e digitado no painel
+   * deles. Duas leituras desse valor (uma em cada lado) é uma divergência esperando
+   * acontecer, e o sintoma seria o webhook recusando 100% dos eventos com "não confere"
+   * enquanto o checkout cobra normalmente — pagamento entrando e nada aparecendo no app. */
+  "adaptadores/entrada/abacatepay/eventos.ts":
+    "o webhook e o checkout são o mesmo provedor: um segredo lido num lugar só",
   "adaptadores/saida/google/conexoes.ts":
     "usa clienteDoContexto para escolher sessão vs service role — a mesma decisão dos outros repositórios",
   "adaptadores/saida/demo/index.ts":

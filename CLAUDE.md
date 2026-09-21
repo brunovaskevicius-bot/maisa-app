@@ -15,6 +15,7 @@ propósito. Quando dois arquivos dizem a mesma coisa, um envelhece e ninguém sa
 | `npm run guardas` | só as guardas de arquitetura e documentação |
 | `npm run typecheck` | `tsc --noEmit`, sem cache incremental de propósito — com cache ele já reprovou código que compila |
 | `npm run semear` | enche os últimos 30 dias de atendimentos pagos, para ter o que emitir na tela Fiscal. `-- --limpar` desfaz. ⚠️ **escreve no Supabase de produção** — ver o cabeçalho de [`scripts/semear-demo.mjs`](scripts/semear-demo.mjs) |
+| `npm run abacate:catalogo` | confere se a conta da AbacatePay tem os 3 produtos e o webhook que o código espera. **Só leitura**; `-- --aplicar` cria o que falta. ⚠️ com chave `prod_` escreve na conta que cobra de verdade |
 | `npm run callback -- <url>` | registra na Rebots para onde mandar o desfecho dos recibos. Sonda a url antes (401 sem segredo, 400 com) — url torta é `pendente` para sempre. ⚠️ **substitui a url anterior**: registrar o túnel local derruba a de produção |
 | `npm run lint` · `npm run build` | eslint · next build |
 
@@ -31,13 +32,16 @@ tela perde todo o CSS — parece bug do código, e não é.
 
 - Importar SDK externo, `@/adaptadores`, `@/ui` ou `@/app` dentro de `src/nucleo/`. O núcleo só conhece `@/nucleo/**` e caminho relativo. Precisa do mundo? Declare uma porta em `nucleo/portas/saida/`.
 - Ler `tenantId` do corpo do request, da query string ou de argumento do agente de IA. Ele nasce da sessão autenticada, sempre — foi esse descuido que abriu o pior furo da integração de origem.
-- Importar um adaptador de dentro de outro adaptador. Eles se encontram em `src/composicao.ts`, e as quatro exceções vivas estão listadas em `src/arquitetura.test.ts`.
+- Importar um adaptador de dentro de outro adaptador. Eles se encontram em `src/composicao.ts`, e as cinco exceções vivas estão listadas em `src/arquitetura.test.ts`.
 - Decidir regra de negócio dentro de um `route.ts`. Rota é tradutora: autentica, converte JSON, chama caso de uso.
 - Devolver erro de domínio como status HTTP a partir do núcleo. O núcleo lança `DadoInvalido`; quem vira 400 é `entrada/http/respostas.ts`.
 - Renomear um campo `status` de resposta sem procurar o nome em `src/ui/estado/store.tsx`. Esses nomes são contrato com a tela.
 - Importar `saida/google`, `saida/focus` ou `composicao.ts` de um componente `"use client"`. Segredo de servidor não cruza para o bundle.
 - Pôr guardrail em prompt quando ele cabe em código. Prompt é a camada mais fraca e não vale como garantia.
 - Deixar o modelo escolher `tenantId`, `maisaAg`, `comMeet` ou `convidarCliente`. Ficaram fora do schema das ferramentas por decisão, não por esquecimento.
+- Tratar o HMAC da AbacatePay como credencial. **A chave dele é pública, publicada na documentação deles** — qualquer pessoa assina um payload válido. Quem autentica o webhook é o `?webhookSecret=` da query string, conferido primeiro. Há teste.
+- Mandar `methods: ["PIX"]` sozinho no checkout da AbacatePay. Pix em assinatura depende de a conta ter PIX Automático habilitado; sem o recurso, o `create` recusa e **ninguém compra**. Os dois métodos juntos degradam para cartão em vez de fechar a loja. Há teste.
+- Marcar um evento de webhook como processado ANTES de gravar a assinatura. Falhar no meio deixaria o evento como visto com o estado antigo, e a reentrega — que existe para salvar esse caso — passaria a ser descartada. O pagamento se perde para sempre.
 
 **PERGUNTE ANTES**
 
@@ -66,7 +70,9 @@ passar" é a hora de parar e perguntar por quê.
 | o agente de WhatsApp | [`.../entrada/whatsapp/LEIA-ME.md`](src/adaptadores/entrada/whatsapp/LEIA-ME.md) — guardrails, envelopes e dívida |
 | agenda, horários, nota fiscal | [`docs/fluxos/`](docs/fluxos/) |
 | adaptador de saída novo | [`src/nucleo/portas/LEIA-ME.md`](src/nucleo/portas/LEIA-ME.md) e o `saida/demo/` ao lado |
-| cobrança, planos, Stripe | [`.../saida/stripe/LEIA-ME.md`](src/adaptadores/saida/stripe/LEIA-ME.md) — inclui o que a Stripe **não** faz no Brasil |
+| cobrança, planos, **Pix** | [`.../saida/abacatepay/LEIA-ME.md`](src/adaptadores/saida/abacatepay/LEIA-ME.md) — o provedor preferido, e as 5 armadilhas da API |
+| cobrança por cartão / Stripe | [`.../saida/stripe/LEIA-ME.md`](src/adaptadores/saida/stripe/LEIA-ME.md) — inclui o que a Stripe **não** faz no Brasil |
+| webhook de pagamento | [`.../entrada/abacatepay/LEIA-ME.md`](src/adaptadores/entrada/abacatepay/LEIA-ME.md) — ⚠️ **o HMAC deles não autentica ninguém** |
 | entender o negócio, sem código | [`docs/dominio.md`](docs/dominio.md) |
 | onde mexo para fazer X | [`ARQUITETURA.md`](ARQUITETURA.md) §5 |
 

@@ -36,7 +36,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type Stripe from "stripe";
-import { statusDoProvedor } from "@/nucleo/dominio/assinatura";
+import { statusDaStripe } from "@/nucleo/dominio/assinatura";
 import type { Assinatura } from "@/nucleo/dominio/assinatura";
 import { NaoConfigurado } from "@/nucleo/dominio/erros";
 import { stripe } from "@/adaptadores/saida/stripe/cliente";
@@ -134,12 +134,19 @@ export async function lerAssinaturaNaStripe(
      * ponto flutuante é seguro nesta faixa (R$ 127,00 → 12700 → 127). */
     preco: typeof preco?.unit_amount === "number" ? preco.unit_amount / 100 : null,
     moeda: (preco?.currency ?? "brl").toUpperCase(),
-    status: statusDoProvedor(sub.status),
+    status: statusDaStripe(sub.status),
+    provedor: "stripe",
     clienteId: typeof sub.customer === "string" ? sub.customer : (sub.customer?.id ?? null),
     assinaturaId: sub.id,
     /* ⚠️ NO ITEM. Ver o cabeçalho deste arquivo. */
     periodoFim: data(item?.current_period_end),
     trialFim: data(sub.trial_end),
+    /* ⚠️ `cartao` NUNCA É `pix` AQUI, e não é simplificação: Pix Automático não existe em
+     * conta brasileira da Stripe (ver `saida/stripe/LEIA-ME.md`), então assinatura por ela
+     * é cartão ou boleto. Boleto cai em `cartao` por falta de valor melhor — o `check` da
+     * coluna tem dois valores e acrescentar `boleto` exigiria migração para um caminho que
+     * este produto não vende. Quem for vender boleto pela Stripe mexe aqui primeiro. */
+    metodo: "cartao",
     cartaoMarca: cartao?.brand ?? null,
     cartaoFinal4: cartao?.last4 ?? null,
   };

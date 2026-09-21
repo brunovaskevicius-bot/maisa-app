@@ -51,8 +51,60 @@ export type PedidoDeCheckout = {
   clienteId?: string | null;
 };
 
-/** Só uma URL. Se um dia precisar de mais, o provedor está vazando para dentro. */
-export type CheckoutAberto = { url: string };
+/**
+ * A URL, e o cliente que o provedor criou para chegar até ela.
+ *
+ * ── ⚠️ ERA SÓ `url`, E O COMENTÁRIO DIZIA "se um dia precisar de mais, o provedor está
+ * vazando para dentro". Mudou em 21/09/2026, e não por conveniência ──
+ *
+ * `clienteId` voltar é o que permite ao caso de uso GRAVAR o cliente ANTES do pagamento.
+ * Sem isso, a AbacatePay não tem como o webhook descobrir de quem é um pagamento:
+ *
+ *   · na Stripe, o carimbo `metadata.tenant_id` volta dentro de todo evento de assinatura,
+ *     então o inquilino viaja com o evento e nada precisa estar gravado antes;
+ *   · na AbacatePay, **nenhum payload de evento de assinatura traz `metadata`** — medido
+ *     na documentação em 21/09/2026 — e `checkout.externalId` vem `null` em todos os
+ *     exemplos publicados. O que os eventos SEMPRE trazem é `customer.id`.
+ *
+ * Logo: quem não gravou o `cust_…` no momento do checkout recebe o primeiro pagamento e
+ * não sabe a quem creditar. O sintoma é o pior possível — alguém pagou e o produto não
+ * liberou — e ele acontece justamente na primeira venda.
+ *
+ * `null` é resposta legítima: a Stripe cria o cliente só quando a pessoa conclui o
+ * checkout, então não há id para devolver na abertura. O caso de uso trata os dois.
+ */
+export type CheckoutAberto = { url: string; clienteId?: string | null };
+
+/**
+ * O que ESTE provedor sabe fazer. A tela desenha a partir disto.
+ *
+ * ── POR QUE CAPACIDADE É DADO, E NÃO UM `try/catch` NA TELA ──
+ *
+ * Porque a diferença entre os dois provedores é real e não some se a gente não olhar: a
+ * Stripe tem Billing Portal (a pessoa troca cartão, baixa fatura e cancela sozinha, numa
+ * página hospedada por eles) e **a AbacatePay não tem página nenhuma dessas.** O que ela
+ * tem é `POST /subscriptions/cancel`, que cancela na hora, pela API.
+ *
+ * A LP promete "cancele quando quiser" por escrito. Então a promessa tem de ser cumprida
+ * pelos dois, por caminhos diferentes: um botão que abre o portal, ou um botão que
+ * cancela aqui mesmo com confirmação. Descobrir isso por exceção significaria a tela
+ * desenhar o botão errado e falhar no clique — na tela de cancelamento, que é a última
+ * onde se quer um erro.
+ */
+export type CapacidadesDeCobranca = {
+  /** Existe página hospedada de autoatendimento? Stripe sim, AbacatePay não. */
+  portal: boolean;
+  /** `cancelar()` funciona? AbacatePay sim, Stripe não (quem cancela é o portal). */
+  cancelamento: boolean;
+  /**
+   * O checkout oferece Pix?
+   *
+   * ⚠️ `false` na Stripe **em conta brasileira**, e isso é medição, não preguiça: Pix
+   * Automático não existe para conta BR (ver `saida/stripe/LEIA-ME.md`). Assinatura lá é
+   * cartão ou boleto. É a razão de a AbacatePay existir neste código.
+   */
+  pix: boolean;
+};
 
 export interface Cobranca {
   /**
@@ -77,6 +129,24 @@ export interface Cobranca {
     /** `clienteId` é obrigatório aqui: não existe portal de quem nunca pagou. */
     p: { voltarPara: string; clienteId: string },
   ): Promise<CheckoutAberto>;
+
+  /**
+   * Cancela a assinatura deste inquilino, agora.
+   *
+   * Existe porque a AbacatePay não tem portal: sem este método, "cancele quando quiser" —
+   * que a LP promete por escrito — viraria um chamado no WhatsApp do dono. O provedor sem
+   * cancelamento direto lança `NaoSuportado`, e `capacidades().cancelamento` diz de
+   * antemão qual é o caso, para a tela não descobrir no clique.
+   *
+   * ⚠️ NÃO GRAVA NADA. Quem grava é o webhook, ao receber `subscription.cancelled` — a
+   * mesma regra do checkout, e pelo mesmo motivo: o dono da verdade é o provedor. Gravar
+   * aqui criaria um estado local que divergiria dele no primeiro cancelamento que a API
+   * aceitasse e o evento não chegasse (ou vice-versa).
+   */
+  cancelar(t: ContextoTenant, p: { assinaturaId: string }): Promise<void>;
+
+  /** O que este provedor sabe fazer. Ver `CapacidadesDeCobranca`. */
+  capacidades(): CapacidadesDeCobranca;
 
   /** O que falta no ambiente para esta porta funcionar. Vazio = pronta. */
   faltando(): string[];

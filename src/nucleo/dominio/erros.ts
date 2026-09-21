@@ -40,6 +40,24 @@ export class NaoConfigurado extends ErroDeDominio {
 }
 
 /**
+ * O provedor ligado hoje não faz isto — e nenhuma configuração muda isso.
+ *
+ * Diferente de `NaoConfigurado`, que é "falta uma chave e depois funciona". Aqui é
+ * ausência de recurso: a AbacatePay não tem Billing Portal, a Stripe não cancela sem o
+ * portal. Trocar de provedor resolve; mexer no `.env` não.
+ *
+ * Merece classe própria porque a UI faz coisa diferente com cada um: `NaoConfigurado`
+ * vira "peça para o suporte configurar", e este vira **outro botão** — quem não tem
+ * portal mostra "cancelar assinatura", e não um erro. A tela pergunta antes por
+ * `capacidades()`; este erro é a rede de segurança de quem esqueceu de perguntar.
+ */
+export class NaoSuportado extends ErroDeDominio {
+  constructor(readonly recurso: string, readonly provedor: string) {
+    super(`${recurso} não existe em ${provedor}.`);
+  }
+}
+
+/**
  * Só se resolve reconectando: refresh token revogado, senha trocada, 6 meses parado.
  * Merece status próprio porque a UI oferece um botão diferente ("reconectar", não
  * "tentar de novo") — e o agente de WhatsApp vai precisar avisar o dono, não o cliente.

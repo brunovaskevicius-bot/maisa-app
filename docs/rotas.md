@@ -172,21 +172,40 @@ não é falha de requisição, é o app dizendo ao dono o que falta. Ver
 | Rota | Métodos | Porteiro | Caso de uso |
 |---|---|---|---|
 | `/api/assinatura` | GET · POST | `sessaoOuDemo` | `LerAssinatura` — plano, status, próxima cobrança, cartão · `AbrirCheckout` (`{plano}`) — devolve `{url}`, **não cobra nada** |
-| `/api/assinatura/portal` | POST | `sessaoOuDemo` | `AbrirPortalDeCobranca` — trocar cartão, baixar fatura, cancelar. Separada da irmã porque é a operação destrutiva |
-| `/api/stripe/webhook` | POST | **assinatura HMAC** (`STRIPE_WEBHOOK_SECRET`) | `RegistrarAssinatura` — a única escrita em `assinaturas` do produto inteiro |
+| `/api/assinatura/portal` | POST | `sessaoOuDemo` | `AbrirPortalDeCobranca` — trocar cartão, baixar fatura, cancelar. Separada da irmã porque é a operação destrutiva. **Só provedor com portal** (Stripe); na AbacatePay devolve **501** |
+| `/api/assinatura/cancelar` | POST | `sessaoOuDemo` | `CancelarAssinatura` — o caminho de quem **não** tem portal (AbacatePay). ⚠️ **imediato e irreversível**; na Stripe devolve **501** |
+| `/api/stripe/webhook` | POST | **assinatura HMAC** (`STRIPE_WEBHOOK_SECRET`) | `RegistrarAssinatura` — escrita em `assinaturas`. Continua no ar por quem assinou pela Stripe |
+| `/api/abacatepay/webhook` | POST | **segredo na query** (`ABACATEPAY_WEBHOOK_SECRET`) + HMAC | `RegistrarAssinatura` — o caminho do **Pix**. Ver o ⚠️ do HMAC abaixo |
+
+⚠️ **`/portal` e `/cancelar` são exclusivas entre si** — cada provedor tem UMA das duas. O
+`GET /api/assinatura` devolve `capacidades` (`{ portal, cancelamento, pix }`) e é por ele
+que a tela decide qual botão desenhar. Desenhar os dois é como se acaba com um deles
+cancelando diferente do outro.
 
 ⚠️ **200 no `POST /api/assinatura` significa "a página de pagamento existe", e nada mais.**
 Quem pagou, se pagou e quando pagou é assunto do webhook. Boleto leva um dia; a volta do
 navegador não é confirmação, e a tela de retorno não pode dizer "assinatura ativa".
 
-⚠️ **O webhook devolve 500 quando a falha é nossa, e isso é de propósito.** Para a Stripe,
-resposta ≠ 2xx significa reentregar por até 3 dias — é a única chance de o pagamento não se
-perder quando o banco pisca. Assinatura HMAC inválida devolve **400** (repetir não conserta
-segredo errado); evento irrelevante ou de quem não é nosso devolve **200**. A tabela inteira
-está no cabeçalho de [`app/api/stripe/webhook/route.ts`](../src/app/api/stripe/webhook/route.ts).
+⚠️ **Os dois webhooks devolvem 500 quando a falha é nossa, e isso é de propósito.**
+Resposta ≠ 2xx significa reentregar — 3 dias na Stripe, ~18h em 7 tentativas na AbacatePay
+— e é a única chance de o pagamento não se perder quando o banco pisca. As duas tabelas de
+status estão nos cabeçalhos das rotas
+([Stripe](../src/app/api/stripe/webhook/route.ts) ·
+[AbacatePay](../src/app/api/abacatepay/webhook/route.ts)) e **não são iguais**.
+
+⚠️ **NUNCA responder 410 no webhook da AbacatePay** — ele desativa o endpoint no lado
+deles, e endpoint de pagamento desativado não dá erro: as vendas só param de aparecer.
+
+⚠️ **O HMAC da AbacatePay não autentica ninguém.** A chave dele é uma constante **pública**,
+publicada na documentação deles. Quem autentica é o `?webhookSecret=` da query string. O
+porquê inteiro está em
+[`entrada/abacatepay/LEIA-ME.md`](../src/adaptadores/entrada/abacatepay/LEIA-ME.md) —
+tratá-lo como o `whsec_` da Stripe deixa o webhook aberto para quem souber a URL.
 
 O que a Stripe **não** faz no Brasil — Tax, nota fiscal, Pix recorrente — está em
-[`saida/stripe/LEIA-ME.md`](../src/adaptadores/saida/stripe/LEIA-ME.md). Ler antes de prometer.
+[`saida/stripe/LEIA-ME.md`](../src/adaptadores/saida/stripe/LEIA-ME.md). Ler antes de
+prometer. O Pix recorrente é justamente o motivo de a AbacatePay existir aqui:
+[`saida/abacatepay/LEIA-ME.md`](../src/adaptadores/saida/abacatepay/LEIA-ME.md).
 
 ## WhatsApp — chamado por máquina
 

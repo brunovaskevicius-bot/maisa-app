@@ -12,7 +12,8 @@
 
 import { NextResponse } from "next/server";
 import {
-  DadoInvalido, LimiteDoProvedor, NaoConfigurado, NaoEncontrado, PrecisaReconectar,
+  DadoInvalido, LimiteDoProvedor, NaoConfigurado, NaoEncontrado, NaoSuportado,
+  PrecisaReconectar,
 } from "@/nucleo/dominio/erros";
 
 /** Campo do pedido → status que a tela conhece. O que não estiver aqui é payload_invalido. */
@@ -29,6 +30,17 @@ export function falha(escopo: string, e: unknown): NextResponse {
   if (e instanceof DadoInvalido) {
     const status = (e.campo && STATUS_POR_CAMPO[e.campo]) || "payload_invalido";
     return NextResponse.json({ ok: false, status, info: e.motivo }, { status: 400 });
+  }
+
+  /* 501 e não 400: o pedido estava correto e o SERVIDOR é que não oferece o recurso.
+   * 400 diria à tela "você mandou errado", e ela tentaria corrigir um pedido que não tem
+   * defeito. A tela deveria ter perguntado por `capacidades()` antes de desenhar o botão;
+   * este status é o que a faz descobrir que não perguntou. */
+  if (e instanceof NaoSuportado) {
+    return NextResponse.json(
+      { ok: false, status: "nao_suportado", info: e.message },
+      { status: 501 },
+    );
   }
 
   if (e instanceof NaoEncontrado) {

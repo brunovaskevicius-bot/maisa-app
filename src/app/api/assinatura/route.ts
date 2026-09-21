@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { app } from "@/composicao";
+import { app, capacidadesDeCobranca } from "@/composicao";
 import { barrou, sessaoOuDemo } from "@/adaptadores/entrada/http/contexto";
 import { falha } from "@/adaptadores/entrada/http/respostas";
 /* A tabela de preços da landing page. Importada AQUI, e não na tela, de propósito: esta
@@ -85,7 +85,19 @@ export async function GET() {
      * duas para desenhar uma única vez. Separadas, ela teria um estado em que sabe o plano
      * atual e ainda não sabe os preços — e nesse instante ou mostra botão sem valor, ou
      * pisca. */
-    return NextResponse.json({ ok: true, status: "ok", assinatura, ofertas: OFERTAS });
+    /* ★ `capacidades` VAI JUNTO, e não numa rota separada, pelo mesmo motivo das ofertas:
+     * a tela precisa das três coisas para desenhar UMA vez. Sem elas ela não sabe qual dos
+     * dois botões mostrar — "gerenciar cobrança" (provedor com portal, como a Stripe) ou
+     * "cancelar assinatura" (provedor sem portal, como a AbacatePay). Separadas, haveria
+     * um instante em que a tela conhece o plano e ainda não sabe o que ele permite: ou
+     * mostra os dois botões, ou pisca. Ver `portas/saida/cobranca.ts`. */
+    return NextResponse.json({
+      ok: true,
+      status: "ok",
+      assinatura,
+      ofertas: OFERTAS,
+      capacidades: capacidadesDeCobranca,
+    });
   } catch (e) {
     return falha("assinatura", e);
   }

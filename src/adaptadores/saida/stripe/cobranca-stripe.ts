@@ -4,9 +4,11 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import type Stripe from "stripe";
-import { NaoEncontrado } from "@/nucleo/dominio/erros";
+import { NaoEncontrado, NaoSuportado } from "@/nucleo/dominio/erros";
 import type { ChaveDePlano } from "@/nucleo/dominio/assinatura";
-import type { CheckoutAberto, Cobranca, PedidoDeCheckout } from "@/nucleo/portas/saida/cobranca";
+import type {
+  CapacidadesDeCobranca, CheckoutAberto, Cobranca, PedidoDeCheckout,
+} from "@/nucleo/portas/saida/cobranca";
 import type { ContextoTenant } from "@/nucleo/dominio/tenant";
 import { stripe } from "./cliente";
 import { LOOKUP, faltando } from "./config";
@@ -93,6 +95,43 @@ export const cobrancaStripe: Cobranca = {
       return_url: p.voltarPara,
     });
     return { url: portal.url };
+  },
+
+  /**
+   * ⚠️ NÃO CANCELA AQUI, DE PROPÓSITO — e isso não é uma limitação técnica.
+   *
+   * `s.subscriptions.cancel(id)` existe e funcionaria. Não é chamado porque a Stripe TEM
+   * portal, e o portal é melhor em dois pontos que importam:
+   *
+   *   · ele cancela **ao fim do período já pago**, que é o que a pessoa contratou. Um
+   *     cancelamento imediato por API tiraria o acesso de quem pagou o mês inteiro — e
+   *     geraria um pedido de reembolso legítimo;
+   *   · ele mostra o que vai acontecer ("seu acesso vai até 14/10") antes de confirmar. A
+   *     nossa tela não tem essa data com a mesma autoridade.
+   *
+   * Duas portas para a operação mais destrutiva do produto é como se acaba com uma delas
+   * cancelando diferente da outra. `capacidades().cancelamento` é `false`, a tela desenha
+   * o botão do portal, e este erro é a rede de quem não perguntou.
+   */
+  async cancelar(): Promise<void> {
+    throw new NaoSuportado(
+      "cancelamento direto por API (use o portal, que cancela ao fim do período pago)",
+      "Stripe",
+    );
+  },
+
+  capacidades(): CapacidadesDeCobranca {
+    return {
+      /* Billing Portal: troca de cartão, fatura e cancelamento, hospedado por eles. */
+      portal: true,
+      /* Ver o ⚠️ de `cancelar` acima: é decisão, não ausência. */
+      cancelamento: false,
+      /* ⚠️ `false` É MEDIÇÃO, e está detalhada em `LEIA-ME.md`. Pix Automático não existe
+       * em conta brasileira — a linha do BR na documentação da Stripe diz pagamento
+       * único, liquidação em BRL e por convite. Assinatura em conta BR é cartão ou boleto.
+       * É a razão pela qual a AbacatePay entrou neste repositório. */
+      pix: false,
+    };
   },
 
   faltando,
