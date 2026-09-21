@@ -167,6 +167,27 @@ da Focus e já entranhado na tela de Faturamento. E `config_incompleta` sai com 
 não é falha de requisição, é o app dizendo ao dono o que falta. Ver
 [`entrada/http/fiscal.ts`](../src/adaptadores/entrada/http/LEIA-ME.md).
 
+## Cobrança — Stripe
+
+| Rota | Métodos | Porteiro | Caso de uso |
+|---|---|---|---|
+| `/api/assinatura` | GET · POST | `sessaoOuDemo` | `LerAssinatura` — plano, status, próxima cobrança, cartão · `AbrirCheckout` (`{plano}`) — devolve `{url}`, **não cobra nada** |
+| `/api/assinatura/portal` | POST | `sessaoOuDemo` | `AbrirPortalDeCobranca` — trocar cartão, baixar fatura, cancelar. Separada da irmã porque é a operação destrutiva |
+| `/api/stripe/webhook` | POST | **assinatura HMAC** (`STRIPE_WEBHOOK_SECRET`) | `RegistrarAssinatura` — a única escrita em `assinaturas` do produto inteiro |
+
+⚠️ **200 no `POST /api/assinatura` significa "a página de pagamento existe", e nada mais.**
+Quem pagou, se pagou e quando pagou é assunto do webhook. Boleto leva um dia; a volta do
+navegador não é confirmação, e a tela de retorno não pode dizer "assinatura ativa".
+
+⚠️ **O webhook devolve 500 quando a falha é nossa, e isso é de propósito.** Para a Stripe,
+resposta ≠ 2xx significa reentregar por até 3 dias — é a única chance de o pagamento não se
+perder quando o banco pisca. Assinatura HMAC inválida devolve **400** (repetir não conserta
+segredo errado); evento irrelevante ou de quem não é nosso devolve **200**. A tabela inteira
+está no cabeçalho de [`app/api/stripe/webhook/route.ts`](../src/app/api/stripe/webhook/route.ts).
+
+O que a Stripe **não** faz no Brasil — Tax, nota fiscal, Pix recorrente — está em
+[`saida/stripe/LEIA-ME.md`](../src/adaptadores/saida/stripe/LEIA-ME.md). Ler antes de prometer.
+
 ## WhatsApp — chamado por máquina
 
 | Rota | Métodos | Porteiro | O que faz |

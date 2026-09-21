@@ -273,8 +273,10 @@ Honestidade sobre o estado real, para ninguém achar que está mais pronto do qu
 | `src/adaptadores/` | [src/adaptadores/LEIA-ME.md](src/adaptadores/LEIA-ME.md) |
 | `src/adaptadores/entrada/http/` | [.../entrada/http/LEIA-ME.md](src/adaptadores/entrada/http/LEIA-ME.md) |
 | `src/adaptadores/entrada/whatsapp/` | [.../entrada/whatsapp/LEIA-ME.md](src/adaptadores/entrada/whatsapp/LEIA-ME.md) |
+| `src/adaptadores/entrada/stripe/` | [.../entrada/stripe/LEIA-ME.md](src/adaptadores/entrada/stripe/LEIA-ME.md) |
 | `src/adaptadores/saida/google/` | [.../saida/google/LEIA-ME.md](src/adaptadores/saida/google/LEIA-ME.md) |
 | `src/adaptadores/saida/focus/` | [.../saida/focus/LEIA-ME.md](src/adaptadores/saida/focus/LEIA-ME.md) |
+| `src/adaptadores/saida/stripe/` | [.../saida/stripe/LEIA-ME.md](src/adaptadores/saida/stripe/LEIA-ME.md) |
 | `src/adaptadores/saida/evolution/` | [.../saida/evolution/LEIA-ME.md](src/adaptadores/saida/evolution/LEIA-ME.md) |
 | `src/adaptadores/saida/rebots/` | [.../saida/rebots/LEIA-ME.md](src/adaptadores/saida/rebots/LEIA-ME.md) |
 | `src/adaptadores/saida/gemini/` | [.../saida/gemini/LEIA-ME.md](src/adaptadores/saida/gemini/LEIA-ME.md) |

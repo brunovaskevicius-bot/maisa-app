@@ -66,6 +66,7 @@ passar" é a hora de parar e perguntar por quê.
 | o agente de WhatsApp | [`.../entrada/whatsapp/LEIA-ME.md`](src/adaptadores/entrada/whatsapp/LEIA-ME.md) — guardrails, envelopes e dívida |
 | agenda, horários, nota fiscal | [`docs/fluxos/`](docs/fluxos/) |
 | adaptador de saída novo | [`src/nucleo/portas/LEIA-ME.md`](src/nucleo/portas/LEIA-ME.md) e o `saida/demo/` ao lado |
+| cobrança, planos, Stripe | [`.../saida/stripe/LEIA-ME.md`](src/adaptadores/saida/stripe/LEIA-ME.md) — inclui o que a Stripe **não** faz no Brasil |
 | entender o negócio, sem código | [`docs/dominio.md`](docs/dominio.md) |
 | onde mexo para fazer X | [`ARQUITETURA.md`](ARQUITETURA.md) §5 |
 

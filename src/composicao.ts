@@ -36,6 +36,16 @@ import {
 } from "@/nucleo/aplicacao/cadastro";
 import { criarLerAtivacao } from "@/nucleo/aplicacao/ativacao";
 import { ativacaoSupabase } from "@/adaptadores/saida/supabase/ativacao";
+import { assinaturasSupabase } from "@/adaptadores/saida/supabase/assinaturas";
+import { assinaturasDemo, cobrancaDemo } from "@/adaptadores/saida/demo/assinaturas";
+import { cobrancaStripe } from "@/adaptadores/saida/stripe/cobranca-stripe";
+import { estaConfigurado as isStripeConfigured } from "@/adaptadores/saida/stripe/config";
+import {
+  criarAbrirCheckout,
+  criarAbrirPortalDeCobranca,
+  criarLerAssinatura,
+  criarRegistrarAssinatura,
+} from "@/nucleo/aplicacao/assinatura";
 import { ativacaoDemo } from "@/adaptadores/saida/demo/ativacao";
 import { criarProvisionarNegocio } from "@/nucleo/aplicacao/provisionar";
 import { criarAjustarAssistente, criarLerAssistente } from "@/nucleo/aplicacao/assistente";
@@ -216,6 +226,22 @@ const cadastroEmissor = isSupabaseConfigured ? cadastroFocus : cadastroDemo;
  * `"pr1"`, `"sv1"`, `"cl1"`. Nada no núcleo se importa — mas um dado copiado de um modo
  * para o outro não casa.
  */
+/* ─────────────────────────── A COBRANÇA ───────────────────────────
+ *
+ * ⚠️ AS DUAS METADES TROCAM POR INTERRUPTORES DIFERENTES, e isso é decisão, não
+ * descuido de simetria:
+ *
+ *   · o REPOSITÓRIO segue o Supabase — ler "qual o meu plano" é a tela de faturamento
+ *     abrindo, e ela abre todo dia mesmo sem provedor de pagamento nenhum configurado;
+ *   · a COBRANÇA segue a Stripe — só quem clica em "assinar" precisa dela.
+ *
+ * Amarrar os dois no mesmo `if` faria o ambiente sem `STRIPE_SECRET_KEY` (todo `npm run
+ * dev` de quem não pegou o segredo ainda) ler plano de fixture enquanto o banco real
+ * está ali do lado, com a assinatura de verdade dentro.
+ */
+const assinaturas = isSupabaseConfigured ? assinaturasSupabase : assinaturasDemo;
+const cobranca = isStripeConfigured ? cobrancaStripe : cobrancaDemo;
+
 const negocio = isSupabaseConfigured ? repositorioSupabase : repositorioDemo;
 const provisionador = isSupabaseConfigured ? provisionadorSupabase : provisionadorDemo;
 
@@ -639,7 +665,24 @@ export const app = {
      * inquilino (`avisarRecibo`, migração 024, padrão `false`). */
     aviso: { canal, negocio, assistente },
   }),
+
+  /* ── A COBRANÇA ──
+   * `abrirCheckout` lê a assinatura ANTES de chamar o provedor: é dali que sai o
+   * `clienteId` que impede o segundo clique de criar uma segunda ficha lá dentro.
+   * Ver o ⚠️ de `PedidoDeCheckout.clienteId`. */
+  lerAssinatura: criarLerAssinatura({ assinaturas }),
+  abrirCheckout: criarAbrirCheckout({ cobranca, assinaturas }),
+  abrirPortalDeCobranca: criarAbrirPortalDeCobranca({ cobranca, assinaturas }),
+  /* ★ A ÚNICA ESCRITA EM `assinaturas` DO PRODUTO INTEIRO. Chamada só pelo webhook, e
+   * só depois de a assinatura HMAC conferir. Ver `adaptadores/entrada/stripe/`. */
+  registrarAssinatura: criarRegistrarAssinatura({ assinaturas }),
 };
+
+/** O repositório de assinaturas, cru — o webhook precisa do reverso por cliente, que
+ *  não é caso de uso: é a pergunta "de quem é este pagamento?", feita antes de existir
+ *  inquilino conhecido. Exportar a porta é mais honesto que inventar um caso de uso sem
+ *  `ContextoTenant` só para acomodá-la. */
+export const repositorioDeAssinaturas = assinaturas;
 
 /** Exposto para as rotas relatarem configuração (o que falta, qual ambiente fiscal). */
 export const servicos = { emissor, negocio };

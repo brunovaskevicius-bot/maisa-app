@@ -87,6 +87,21 @@ GOOGLE_TOKEN_KEY=$(openssl rand -base64 32)   # cifra os tokens no banco
 
 Sem as três, o botão de conectar não aparece (e nada quebra) — mesma lógica da Focus NFe. `GOOGLE_TOKEN_KEY` é obrigatória de propósito: não existe modo "conectado mas sem criptografia".
 
+Para a cobrança (Stripe):
+
+```bash
+STRIPE_SECRET_KEY=rk_test_...      # chave RESTRITA, não `sk_`. Checkout + Billing Portal + Prices + Subscriptions
+STRIPE_WEBHOOK_SECRET=whsec_...    # OUTRO segredo: vem do cadastro do endpoint, não da chave de API
+```
+
+Sem `STRIPE_SECRET_KEY` o app monta o checkout de demonstração (paga na hora, em memória) e
+nada quebra. Sem `STRIPE_WEBHOOK_SECRET` o webhook recusa tudo — falha fechada de propósito,
+porque a escrita dele passa por cima da RLS.
+
+⚠️ **O `whsec_` do `stripe listen` não é o da Vercel**, e ele muda toda vez que você
+reinicia o comando. Os detalhes do provedor — inclusive o que a Stripe **não** faz no Brasil
+— estão em [`src/adaptadores/saida/stripe/LEIA-ME.md`](src/adaptadores/saida/stripe/LEIA-ME.md).
+
 ### Detalhes que valem saber
 
 - **As datas são reais.** A agenda do Google é a fonte da verdade dos atendimentos: o app não mantém uma segunda lista. A conversão entre a data civil da tela (`"2026-08-06"` + hora decimal `14.5`) e o instante com fuso que o Google entende mora em [`src/nucleo/dominio/tempo.ts`](src/nucleo/dominio/tempo.ts) — e é o único lugar do código que sabe que existe fuso horário.

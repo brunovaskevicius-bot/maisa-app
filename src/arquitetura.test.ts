@@ -129,12 +129,20 @@ describe("o núcleo não conhece o mundo", () => {
  * REGRA 2 — ADAPTADOR NÃO IMPORTA ADAPTADOR (com exceções escritas).
  * ────────────────────────────────────────────────────────────────────────────── */
 
-/** As quatro exceções vivas. Cada uma tem o limite escrito no cabeçalho do próprio arquivo. */
+/** As cinco exceções vivas. Cada uma tem o limite escrito no cabeçalho do próprio arquivo. */
 const PODEM_IMPORTAR_ADAPTADOR: Record<string, string> = {
   "adaptadores/entrada/http/contexto.ts":
     "resolver 'de quem é este pedido' é intrinsecamente acesso a dado — o mapa usuário → negócio mora numa tabela",
   "adaptadores/entrada/whatsapp/contexto.ts":
     "idem, pelo outro lado: o mapa instância → negócio também é tabela",
+  /* 21/09/2026 — os DOIS lados da Stripe falam com o MESMO provedor: o webhook confere a
+   * assinatura com o mesmo segredo e pelo mesmo cliente HTTP que o checkout usa para
+   * cobrar. Duplicar `cliente.ts` e `config.ts` aqui criaria duas configurações capazes
+   * de divergir, e o sintoma seria o webhook autenticando contra uma conta enquanto o
+   * checkout cobra de outra — em produção, sem erro em lugar nenhum. É a mesma exceção
+   * que `entrada/whatsapp` já faz com `saida/evolution`. */
+  "adaptadores/entrada/stripe/eventos.ts":
+    "o webhook e o checkout são o mesmo provedor: um cliente HTTP e um segredo, não dois",
   "adaptadores/saida/google/conexoes.ts":
     "usa clienteDoContexto para escolher sessão vs service role — a mesma decisão dos outros repositórios",
   "adaptadores/saida/demo/index.ts":

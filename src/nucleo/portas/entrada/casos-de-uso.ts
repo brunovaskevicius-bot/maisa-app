@@ -44,6 +44,8 @@ import type { Escolha, MemoriaCliente } from "../../dominio/memoria";
 import type { VagasDoDia } from "../../dominio/vagas";
 import type { Faq, FaqEncontrada } from "../../dominio/faq";
 import type { ProgressoDaAtivacao } from "../../dominio/ativacao";
+import type { Assinatura } from "../../dominio/assinatura";
+import type { CheckoutAberto, PedidoDeCheckout } from "../saida/cobranca";
 
 /* ───────────────────────────── agenda ───────────────────────────── */
 
@@ -881,3 +883,31 @@ export type ReconciliarRecibos = (
   t: ContextoTenant,
   agora?: Date,
 ) => Promise<ResultadoDaReconciliacao>;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * A COBRANÇA
+ *
+ * Quatro casos de uso e um detalhe que decide o desenho: `RegistrarAssinatura` roda
+ * SEM NINGUÉM LOGADO — quem o dispara é o provedor de pagamento, por webhook.
+ *
+ * Mesmo assim ele recebe `ContextoTenant` como os outros, e não um `tenantId` solto.
+ * O inquilino nasce do carimbo que NÓS pusemos na sessão de checkout e que voltou
+ * dentro de um corpo assinado criptograficamente (ver `adaptadores/entrada/stripe/`).
+ * É o mesmo arranjo do `FecharReciboDoCallback` logo acima: o dado do desfecho vem de
+ * fora, o inquilino não.
+ *
+ * Uma terceira exceção à regra do `ContextoTenant` primeiro seria fácil de justificar
+ * aqui ("webhook não tem sessão") e seria o começo do fim dela.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+export type AbrirCheckout = (t: ContextoTenant, p: PedidoDeCheckout) => Promise<CheckoutAberto>;
+
+export type AbrirPortalDeCobranca = (
+  t: ContextoTenant,
+  p: { voltarPara: string },
+) => Promise<CheckoutAberto>;
+
+/** `null` quando o inquilino ainda não tem linha de assinatura — não é erro. */
+export type LerAssinatura = (t: ContextoTenant) => Promise<Assinatura | null>;
+
+export type RegistrarAssinatura = (t: ContextoTenant, a: Assinatura) => Promise<void>;
