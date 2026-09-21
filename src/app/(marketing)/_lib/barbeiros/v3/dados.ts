@@ -11,20 +11,31 @@
  * cheia" e os seis clientes fabricados da v1.
  *
  * ⚠️ "NÃO IMPORTA NADA DE LÁ" VALE PARA AS OUTRAS LPs, NÃO PARA A INFRA COMPARTILHADA.
- * O `whatsappUrl` abaixo vem de `_lib/icp.ts`, que é a fonte única do número da MAISA
- * para as 6 landing pages e é módulo puro justamente para Server Components o
- * importarem. É a mesma distinção que já valia para o `<World>`, importado por todas.
- * Redigitar um telefone aqui seria repetir com o número o erro que a v1 cometeu com os
- * preços: quatro cópias que já divergiam entre si.
+ * O `_lib/planos.ts` abaixo é a tabela de preços única dos dois ICPs, e o número do
+ * WhatsApp que ela usa vem do `_lib/icp.ts`. Os dois são módulos puros justamente para
+ * Server Components os importarem — mesma distinção que já valia para o `<World>`,
+ * importado por todas. Redigitar preço ou telefone aqui seria repetir o erro que a v1
+ * cometeu: quatro cópias que já divergiam entre si. Foi o que aconteceu de novo entre
+ * 07/08 e 21/09/2026, com a LP de terapeutas do outro lado da divergência.
  * -------------------------------------------------------------------------- */
 
-import { whatsappUrl } from "../../icp";
+import {
+  COPIA,
+  PLANOS as CATALOGO,
+  linkPlano as linkDoCatalogo,
+  planoDestaque,
+  planoPiso,
+  specsDoPlano,
+  type Plano as PlanoCatalogo,
+  type Spec,
+} from "../../planos";
 
-/** A oferta. Fonte única — na v1 estes valores estavam digitados em 4 arquivos e
- *  já divergiam entre si. Existe plano de R$ 197 no catálogo (PlanosBarbeiros.tsx),
- *  então "a partir de" não é hedge de marketing, é o preço mais baixo real. */
+/** A oferta. O "a partir de" NÃO É HEDGE DE MARKETING: é o preço do plano mais barato
+ *  da tabela, lido de `_lib/planos.ts` em vez de digitado. Era "R$ 97" literal até
+ *  21/09/2026 — e continuou dizendo R$ 97 depois que a tabela mudou, que é precisamente
+ *  o motivo de ele agora ser uma leitura e não uma string. */
 export const OFERTA = {
-  precoDe: "R$ 97",
+  precoDe: planoPiso().preco,
   precoPor: "/mês",
   fidelidade: "sem fidelidade",
   garantia: "Se no primeiro mês ela não se pagar, a gente devolve.",
@@ -61,7 +72,7 @@ export const HREF_PLANOS = `#${ANCORA_PLANOS}`;
  *  prop digitada no JSX:
  *
  *    · <Telas> mostrou a conversa acontecendo no WhatsApp → o pedido é o WhatsApp dele;
- *    · <Duelo> acabou de comparar R$ 147 com o custo de contratar alguém → o pedido é
+ *    · <Duelo> acabou de comparar a assinatura com o custo de contratar alguém → o pedido é
  *      escolher, porque a essa altura a pessoa já sabe que vai custar menos.
  *
  *  O da dobra continua sendo o `CTA_ROTULO` lá em cima — são três frases distintas
@@ -417,22 +428,24 @@ export const ONDA_PERIODO = 400;
  * publicada em salario.com.br. Arredondado para R$ 1.858 na tela.
  *
  * A DIFERENÇA ANUAL É ARITMÉTICA DOS DOIS NÚMEROS QUE ESTÃO NA TELA, de propósito:
- * (1.858 − 147) × 12 = 20.532. Quem duvidar refaz a conta com o que está vendo, sem
+ * (1.858 − 197) × 12 = 19.932. Quem duvidar refaz a conta com o que está vendo, sem
  * precisar confiar em nós. É por isso que ela usa o valor arredondado e não o
  * centavo: uma "economia" que não fecha com os preços exibidos parece número
  * inventado mesmo sendo mais exato.
  *
- * ⚠️ ESTE LADO MOSTRA R$ 147 E NÃO R$ 97, E A TROCA FOI DELIBERADA (07/08/2026).
- * Enquanto a página não tinha seção de planos, o card mostrava os R$ 97 do Essencial
- * — o preço mais baixo real, e o gancho mais forte contra R$ 1.858. Com a <Planos>
- * no fim, o destaque de lá é o Profissional de R$ 147, e aí os R$ 97 aqui viravam
- * ISCA: o leitor compara com um preço e encontra outro dois blocos depois.
+ * ⚠️ ESTE LADO MOSTRA O PREÇO DO PLANO DESTACADO, NÃO O MAIS BARATO — e agora ele o LÊ
+ * em vez de redigitar. Enquanto a página não tinha seção de planos, o card mostrava o
+ * Essencial: o gancho mais forte contra R$ 1.858. Com a <Planos> no fim, o destaque de
+ * lá é o Profissional, e o preço mais barato aqui virava ISCA — o leitor compara com um
+ * preço e encontra outro dois blocos depois.
  *
- * A REGRA QUE ISSO CRIA, e ela vale para quem mexer: o preço deste card é o preço do
- * plano DESTACADO em `PLANOS`, não o mais barato do catálogo. São o mesmo número em
- * dois lugares porque são a mesma afirmação — se um mudar, o outro muda, e o
- * `DUELO_SALDO` abaixo muda junto. Trocar o destaque de plano sem refazer esta conta
- * deixa a página se contradizendo sozinha, em silêncio.
+ * A REGRA CONTINUA A MESMA, mas deixou de depender de disciplina: o card e o cartão
+ * destacado são a mesma afirmação, então são a mesma leitura de `_lib/planos.ts`. Era
+ * "R$ 147" literal aqui até 21/09/2026, e a tabela mudou sem ele — a página passou a se
+ * contradizer sozinha, em silêncio, exatamente como esta nota avisava.
+ *
+ * ⚠️ O `DUELO_SALDO` ABAIXO NÃO É CALCULADO, É ESCRITO — e é o que sobra de manual aqui.
+ * Ele fecha com a conta acima, e quem trocar o destaque de plano refaz os dois.
  *
  * E É POR ISSO QUE O TEXTO DIZ "só no salário". Encargos, 13º e férias EXISTEM e
  * estão escritos na nota do card — mas o multiplicador que os converteria em reais
@@ -479,9 +492,9 @@ export const DUELO_LADOS: readonly Lado[] = [
     chave: "maisa",
     rotulo: "ASSINATURA MENSAL",
     nome: "A {maisa}",
-    /* O preço do plano DESTACADO em `PLANOS` — ver a nota no cabeçalho da seção.
-       Não é o mais barato do catálogo, e isso é a decisão, não um descuido. */
-    preco: "R$ 147",
+    /* O preço do plano DESTACADO no catálogo — ver a nota no cabeçalho da seção.
+       Não é o mais barato, e isso é a decisão, não um descuido. */
+    preco: planoDestaque().preco,
     periodo: "/mês",
     nota: "sem fidelidade, cancela quando quiser",
     /* Paralelos um a um com a lista de cima, na mesma ordem. É o paralelismo que
@@ -497,9 +510,9 @@ export const DUELO_LADOS: readonly Lado[] = [
 ] as const;
 
 /** A tira no pé do card da maisa. Ver a nota sobre aritmética acima.
- *  (1.858 − 147) × 12 = 20.532. Era 21.132 enquanto o card mostrava R$ 97. */
+ *  (1.858 − 197) × 12 = 19.932. Era 20.532 enquanto o destaque custava R$ 147. */
 export const DUELO_SALDO = {
-  valor: "R$ 20.532",
+  valor: "R$ 19.932",
   texto: "de diferença por ano — só no salário.",
 } as const;
 
@@ -517,152 +530,87 @@ export const DUELO_FONTE = {
  * A QUARTA E ÚLTIMA SEÇÃO. Até 07/08/2026 a página terminava no <Duelo>, sem preço
  * de catálogo e sem botão — lacuna deixada por escrito na page.tsx, com a regra
  * "perguntar antes de encher espaço vazio". Perguntado e respondido: três planos,
- * Profissional em destaque, botão para o checkout.
+ * Profissional em destaque, botão para o WhatsApp.
  *
- * ⚠️ OS PREÇOS NÃO FORAM INVENTADOS AQUI. São os mesmos três de
- * `../PlanosBarbeiros.tsx`, que é o catálogo que já servia as outras LPs de barbeiros
- * (97 / 147 / 197, com o Profissional marcado `destaque: true`). Este arquivo os
- * REDIGITA em vez de importar de lá, e isso é uma dívida consciente, não descuido:
- * aquele módulo é `"use client"`, arrasta `@/ui/primitivos`, `../primitives` e `../icp`, e
- * importá-lo puxaria o bundle de um componente inteiro para ler três strings. A v3
- * não importa NADA das outras LPs, por decisão escrita no topo deste arquivo.
+ * ⚠️ OS PREÇOS NÃO MORAM MAIS AQUI, E ISSO É A CORREÇÃO DE 21/09/2026.
  *
- *   ⇒ SE OS PREÇOS MUDAREM, MUDAM NOS DOIS LUGARES. É o custo aceito. O outro
- *     consumidor a conferir é o `DUELO_LADOS`, que espelha o preço do plano
- *     destacado (ver a nota lá em cima).
+ * Até esta data este arquivo REDIGITAVA os três valores, com uma nota dizendo que era
+ * "dívida consciente" e que mudança de preço teria de acontecer em dois lugares. A
+ * dívida venceu: o produto tinha SEIS preços no ar, cinco valores distintos, porque a
+ * LP de terapeutas tinha a tabela dela e esta tinha a sua. É exatamente o defeito que
+ * o cabeçalho deste arquivo já denunciava na v1 — "quatro cópias que já divergiam
+ * entre si" — reencenado num arquivo a menos.
  *
- * ── AS GARANTIAS TAMBÉM VÊM DE LÁ ─────────────────────────────────────────
- * "No ar em cerca de 30 minutos", "se não se pagar no 1º mês a gente devolve" e
- * "sem fidelidade" são as três do `GARANTIAS` do catálogo, e a segunda é a mesma do
- * `OFERTA.garantia` no topo deste arquivo. Nenhuma é nova.
+ * Agora a tabela é `_lib/planos.ts`, fonte única dos dois mundos, e este arquivo só
+ * escolhe a COPY de barbearia (resumo, rótulo de botão, garantias, nota). Preço,
+ * limite de agendamento e excedente vêm de lá.
+ *
+ * ── E A REGRA DE "A v3 NÃO IMPORTA NADA DAS OUTRAS LPs"? ──────────────────
+ * Continua valendo, e não é contrariada aqui: ela vale para os COMPONENTES das outras
+ * LPs — `PlanosBarbeiros.tsx` era `"use client"` e arrastava `@/ui/primitivos` inteiro
+ * para dentro do bundle só para ler três strings. `_lib/planos.ts` é infra
+ * compartilhada, como o `_lib/icp.ts` que este arquivo já importa desde o primeiro dia
+ * pelo mesmo motivo escrito lá em cima: módulo puro, sem "use client", sem componente
+ * atrás. Um preço redigitado num sétimo arquivo é o defeito; importar a tabela é o
+ * conserto.
  */
 
-export const PLANOS_TITULO = "Escolha o tamanho da sua operação.";
+const COPIA_BARBEIROS = COPIA.barbeiros;
 
-export const PLANOS_LEAD =
-  "Todos atendem no WhatsApp que a barbearia já usa e começam a marcar horário no mesmo dia. A diferença é o que vem depois disso.";
+export const PLANOS_TITULO = COPIA_BARBEIROS.titulo;
 
-/* ⚠️ OS LINKS DE CHECKOUT — O ÚNICO LUGAR DO PROJETO EM QUE ELES DEVEM EXISTIR.
- *
- * ESTÃO VAZIOS DE PROPÓSITO, E NÃO É PENDÊNCIA ESQUECIDA: em 07/08/2026 não existe
- * produto de barbearia no Stripe. O que existe é UM link, e é de TERAPEUTAS — está
- * digitado cru em `lp/terapeutas/index.html`, no CTA do plano. Reaproveitá-lo aqui
- * cobraria o plano errado de quem clicasse.
- *
- * (Aquele link tinha um `client_reference_id` fixo, removido em 14/08/2026: valor fixo
- * faz todo comprador chegar com a mesma referência. Se um dia colar links aqui, cole a
- * URL limpa — o vínculo com a pessoa é o email da sessão do Stripe.)
- *
- * INVENTAR UMA URL DE PAGAMENTO É O PIOR BUG POSSÍVEL NUMA LP: ela não quebra o
- * build, não aparece em teste, e só falha no único momento que importa — com o
- * cartão na mão. Por isso não há placeholder plausível aqui, há string vazia.
- *
- * ENQUANTO VAZIO, O BOTÃO CAI NO WHATSAPP (ver `linkPlano()` abaixo), que é o
- * caminho que de fato funciona para barbeiros hoje e o que as outras LPs já fazem.
- * A página nunca fica com botão morto, e trocar é colar a URL numa linha.
- *
- * PARA PREENCHER: criar os três preços no Stripe, pegar os links de pagamento e
- * colar abaixo. Nada mais no código precisa mudar. */
-export const CHECKOUT: Record<string, string> = {
-  essencial: "",
-  profissional: "",
-  completo: "",
-};
-
-/** A mensagem por plano. Mesmo formato do `mensagemPlano()` do catálogo — a conversa
- *  já começa no contexto certo em vez de uma mensagem genérica igual nos três botões.
- *
- *  ⚠️ O NÚMERO VEM DO `whatsappUrl` DE `_lib/icp.ts`, NÃO DIGITADO AQUI. Aquele
- *  módulo se declara "fonte única do CTA de WhatsApp para as 6 landing pages" e é
- *  puro de propósito (sem "use client"), justamente para Server Components como este
- *  poderem importá-lo. A regra de a v3 não importar nada das outras LPs vale para os
- *  COMPONENTES delas; um número de telefone redigitado num sétimo arquivo é o defeito
- *  que a v1 tinha com os preços — quatro cópias que já divergiam entre si. */
-function whats(plano: string): string {
-  return whatsappUrl(`Oi! Tenho uma barbearia e quero ativar a MAISA no plano ${plano}. Como começo?`);
-}
+export const PLANOS_LEAD = COPIA_BARBEIROS.lead;
 
 export type Plano = {
-  chave: keyof typeof CHECKOUT & string;
+  chave: PlanoCatalogo["chave"];
   nome: string;
   preco: string;
   periodo: string;
   /** Uma linha dizendo para QUEM é o plano. É o que faz a pessoa se reconhecer. */
   resumo: string;
-  /** O que este plano tem A MAIS que o de baixo. O primeiro item dos dois últimos é
-   *  "Tudo do <anterior>" de propósito: sem isso a lista teria de repetir os quatro
-   *  itens do Essencial em todos, e o cartão viraria uma parede de texto igual. */
-  itens: readonly string[];
+  /** As linhas da tabela: rótulo à esquerda, valor à direita.
+   *
+   *  ⚠️ ERA UMA LISTA DE BULLETS ATÉ 21/09/2026, e a troca é o ponto da revisão. Os
+   *  bullets diziam "Tudo do Essencial" e depois o que havia A MAIS — o que funciona
+   *  para vender recurso e falha para vender CAPACIDADE: o leitor não conseguia ver
+   *  que os planos diferem em quantos profissionais e quantos agendamentos cabem,
+   *  porque esse número não estava escrito em lugar nenhum. Em colunas ele compara
+   *  três valores na mesma linha do olho, que é o trabalho desta seção. */
+  specs: readonly Spec[];
   destaque?: boolean;
   /** Rótulo do botão. Ação, como o da dobra — nunca "Saiba mais". */
   cta: string;
 };
 
-export const PLANOS: readonly Plano[] = [
-  {
-    chave: "essencial",
-    nome: "Essencial",
-    preco: "R$ 97",
-    periodo: "/mês",
-    resumo: "Pra encher a agenda e parar de perder horário.",
-    itens: [
-      "Agenda pelo WhatsApp",
-      "Confirmação automática",
-      "Lembrete antes do horário",
-      "Painel de horários",
-    ],
-    cta: "Começar no Essencial",
-  },
-  {
-    chave: "profissional",
-    nome: "Profissional",
-    preco: "R$ 147",
-    periodo: "/mês",
-    resumo: "Pra quem já tem cadeira cheia e quer manter cheia.",
-    itens: [
-      "Tudo do Essencial",
-      "Recuperação de cliente sumido",
-      "Mensagens em massa",
-      "Ficha do cliente",
-      "Relatórios da agenda",
-    ],
-    destaque: true,
-    cta: "Ativar minha agenda",
-  },
-  {
-    chave: "completo",
-    nome: "Completo",
-    preco: "R$ 197",
-    periodo: "/mês",
-    resumo: "Pra barbearia com equipe e nota fiscal.",
-    itens: [
-      "Tudo do Profissional",
-      "Nota fiscal para PJ",
-      "Agenda por profissional",
-      "Prioridade no suporte",
-    ],
-    cta: "Falar sobre o Completo",
-  },
-] as const;
+/** O catálogo vestido de barbearia. A ordem é a de `_lib/planos.ts` — ordenada por
+ *  preço, e é ela que o cartão do meio interrompe com o destaque. */
+export const PLANOS: readonly Plano[] = CATALOGO.map((p) => ({
+  chave: p.chave,
+  nome: p.nome,
+  preco: p.preco,
+  periodo: p.periodo,
+  resumo: COPIA_BARBEIROS.planos[p.chave].resumo,
+  specs: specsDoPlano(p, "barbeiros"),
+  destaque: p.destaque,
+  cta: COPIA_BARBEIROS.planos[p.chave].cta,
+}));
 
-/** Para onde o botão de um plano aponta. Stripe quando houver link; WhatsApp
- *  enquanto não houver. Ver a nota gigante do `CHECKOUT` para o porquê. */
+/** Para onde o botão de um plano aponta. Stripe quando houver link no catálogo,
+ *  WhatsApp enquanto não houver — e hoje não há, em nenhum dos dois mundos. A decisão
+ *  e o porquê estão na nota do `CHECKOUT`, em `_lib/planos.ts`. */
 export function linkPlano(p: Plano): { href: string; externo: boolean } {
-  const url = CHECKOUT[p.chave];
-  return url ? { href: url, externo: false } : { href: whats(p.nome), externo: true };
+  return linkDoCatalogo(
+    CATALOGO.find((c) => c.chave === p.chave) ?? CATALOGO[0],
+    "barbeiros",
+  );
 }
 
-/** As três garantias, na tira abaixo dos cartões. Todas já existiam no catálogo. */
-export const PLANOS_GARANTIAS: readonly string[] = [
-  "No ar em cerca de 30 minutos",
-  "Se não se pagar no primeiro mês, a gente devolve",
-  "Sem fidelidade — cancele quando quiser",
-];
+/** As três garantias, na tira abaixo dos cartões. */
+export const PLANOS_GARANTIAS: readonly string[] = COPIA_BARBEIROS.garantias;
 
-/** A letra miúda do pé. A primeira frase é a mesma do catálogo; a segunda existe
- *  porque a página inteira é sobre WhatsApp e alguém vai perguntar. */
-export const PLANOS_NOTA =
-  "Preços de lançamento. A maisa atende no número que a barbearia já tem — você não troca de WhatsApp nem avisa cliente nenhum.";
+/** A letra miúda do pé. Diz a única coisa que a tabela levanta e não responde: o que
+ *  acontece quando o mês estoura o limite de agendamentos. */
+export const PLANOS_NOTA = COPIA_BARBEIROS.nota;
 
 /* ─────────────────────────── util de wordmark ─────────────────────────── */
 

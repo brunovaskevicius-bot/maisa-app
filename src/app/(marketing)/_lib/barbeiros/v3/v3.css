@@ -2852,52 +2852,76 @@ body:has(.lp-v3.mundo-barbeiros) {
   letter-spacing: 0;
 }
 
-.lp-v3 .lp3-p-itens {
+/* ── A TABELA DO CARTÃO ──
+   SUBSTITUIU A LISTA DE BULLETS EM 21/09/2026. Os bullets diziam o que o plano tinha
+   A MAIS que o de baixo ("Tudo do Essencial", e mais três linhas); o que eles NÃO
+   diziam é quantos profissionais e quantos agendamentos cabem — que é a única coisa
+   que muda entre os três. Rótulo à esquerda e valor à direita resolve isso sem tabela
+   de verdade: as três colunas do cartão ficam com as MESMAS linhas na MESMA ordem, e
+   o olho desce uma coluna comparando valores em vez de ler três listas diferentes.
+
+   Sem os pontos vazados/cheios que a lista usava. Eles marcavam "isto existe"; aqui
+   toda linha existe nos três cartões e o que distingue é o VALOR, então o ponto viraria
+   ruído repetido cinco vezes por cartão. O destaque continua sendo dito pelo aro, pelo
+   brilho e pela coluna mais larga — onde ele já estava. */
+.lp-v3 .lp3-p-specs {
   /* A margem de BAIXO é o respiro mínimo até o botão. Ela mora aqui, e não no botão,
      porque lá ela colidiria com o `margin-top: auto` que o encosta no pé do cartão —
      ver a nota do `.lp3-p-cta`. */
   margin: clamp(20px, 2.8svh, 32px) 0 clamp(22px, 3svh, 34px);
-  padding: clamp(18px, 2.4svh, 26px) 0 0 28px;
-  list-style: none;
+  padding: clamp(18px, 2.4svh, 26px) 0 0;
   border-top: 1px solid var(--mk-line);
 }
-.lp-v3 .lp3-p-cartao[data-destaque] .lp3-p-itens {
+.lp-v3 .lp3-p-cartao[data-destaque] .lp3-p-specs {
   border-top-color: oklch(0.5461 0.2152 262.9 / 0.35);
 }
 
-.lp-v3 .lp3-p-item {
-  position: relative;
+.lp-v3 .lp3-p-linha {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   padding: clamp(7px, 1svh, 11px) 0;
 }
 
-/* O MESMO PONTO DAS OUTRAS SEÇÕES — vazado nos planos comuns, cheio no destacado.
-   Nenhum ícone e nenhum ✓: a página desenha estado com forma em CSS, e um ✓ aqui
-   seria o único glifo-como-ícone do projeto (o DS proíbe por escrito). */
-.lp-v3 .lp3-p-ponto {
-  position: absolute;
-  left: -28px;
-  top: 0.62em;
-  width: 11px;
-  height: 11px;
-  border-radius: 999px;
-  border: 2px solid var(--mk-ink);
-  background: transparent;
+/* O filete entre linhas é o que faz a leitura virar VARREDURA: sem ele as cinco linhas
+   viram um bloco cinza e o olho perde a horizontal ao pular de cartão. Só entre linhas
+   — a primeira já tem a borda do `.lp3-p-specs` em cima dela. */
+.lp-v3 .lp3-p-linha + .lp3-p-linha {
+  border-top: 1px solid color-mix(in oklab, var(--mk-line) 60%, transparent);
 }
 
-.lp-v3 .lp3-p-cartao[data-destaque] .lp3-p-ponto {
-  border-color: var(--mk-brand);
-  background: var(--mk-brand);
-}
-
-.lp-v3 .lp3-p-txt {
+.lp-v3 .lp3-p-rotulo {
+  margin: 0;
   font-family: var(--mk-font-body);
-  font-size: clamp(0.94rem, 1.05vw, 1.05rem);
-  font-weight: 600;
+  font-size: clamp(0.88rem, 1vw, 0.98rem);
+  font-weight: 500;
   line-height: 1.35;
   color: var(--mk-ink);
   text-wrap: pretty;
+}
+
+/* O VALOR É MONO E TABULAR, e isso é o que permite comparar sem tabela: "R$ 0,29",
+   "R$ 0,24" e "R$ 0,19" ficam com a MESMA largura nos três cartões, então os três
+   alinham no mesmo eixo vertical mesmo em cartões de larguras diferentes. Em fonte
+   proporcional eles dançariam, e a comparação exigiria ler número por número. */
+.lp-v3 .lp3-p-valor {
+  margin: 0;
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: clamp(0.82rem, 0.95vw, 0.92rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--mk-ink);
+}
+
+/* No cartão destacado o valor puxa a cor da marca — é o único lugar da tabela em que
+   o destaque fala, e ele fala na coluna que o leitor está comparando. */
+.lp-v3 .lp3-p-cartao[data-destaque] .lp3-p-valor {
+  color: var(--mk-brand);
 }
 
 /* ── O BOTÃO ──
@@ -2917,7 +2941,7 @@ body:has(.lp-v3.mundo-barbeiros) {
      Medido em 1440 (07/08/2026): 82px de diferença entre o botão do Completo e o do
      Profissional, com as bases dos cartões alinhadas — o defeito não era de layout,
      era uma propriedade escrita duas vezes com nomes diferentes.
-     O respiro mínimo até a lista mora no `margin-bottom` do `.lp3-p-itens`. */
+     O respiro mínimo até a tabela mora no `margin-bottom` do `.lp3-p-specs`. */
   margin-top: auto;
   display: flex;
   align-items: center;

@@ -72,23 +72,32 @@ import "../_lib/barbeiros/v3/v3.css";
  * Em 07/08/2026 entrou a <Planos>, e ela FECHA A LACUNA que este bloco reservava por
  * escrito desde 06/08 ("não tem CTA no fim (…) preencher esse bloco é decisão de quem
  * escreve a oferta, e a regra desta LP é perguntar antes de encher espaço vazio").
- * Perguntado e respondido: três planos do catálogo (97 / 147 / 197), o Profissional
- * em destaque, e um botão por cartão.
+ * Perguntado e respondido: três planos, o Profissional em destaque, e um botão por
+ * cartão.
  *
  * ⚠️ A ENTRADA DELA MUDOU UM NÚMERO NA SEÇÃO ANTERIOR, e isso não é efeito colateral,
- * é a página deixando de se contradizer. O card da maisa no <Duelo> mostrava R$ 97 —
- * o plano mais barato. Com os três planos na tela e o de R$ 147 em destaque, aquele
- * R$ 97 virava isca: o leitor comparava com um preço e encontrava outro dois blocos
- * abaixo. O card passou a mostrar R$ 147 e a diferença anual caiu de R$ 21.132 para
- * R$ 20.532. A regra que fica: o preço do <Duelo> é o do plano DESTACADO, e os dois
- * mudam juntos (está escrito nos dois lugares do dados.ts).
+ * é a página deixando de se contradizer. O card da maisa no <Duelo> mostrava o plano
+ * MAIS BARATO. Com os três na tela e o do meio em destaque, aquele preço virava isca: o
+ * leitor comparava com um número e encontrava outro dois blocos abaixo. O card passou a
+ * mostrar o do plano destacado, e a diferença anual acompanha.
  *
- * ⚠️ OS BOTÕES AINDA NÃO VÃO PARA O STRIPE, e isso é estado, não decisão pendente. Não
- * existe produto de barbearia no Stripe em 07/08/2026 — o único link que existe no
- * repositório é de TERAPEUTAS, cru no `lp/terapeutas/index.html:429`, com o
- * `client_reference_id` daquele funil. Enquanto `CHECKOUT` (dados.ts) estiver vazio,
- * `linkPlano()` manda os três botões para o WhatsApp, que é o caminho real do funil de
- * barbeiros hoje. Colar as três URLs lá liga o checkout sem tocar em mais nada.
+ * ⚠️ EM 21/09/2026 OS PREÇOS SAÍRAM DAQUI E DO `dados.ts`. O produto tinha seis preços
+ * no ar (97 / 147 / 197 deste lado, 79 / 197 / 349 na LP de terapeutas) porque cada
+ * mundo tinha a sua tabela digitada à mão. Agora a tabela é `_lib/planos.ts`, única para
+ * os dois, e a <Duelo> e a <Planos> a LEEM em vez de repetir — inclusive o card do
+ * salário. A LP estática de terapeutas não consegue importar módulo TS, então ela
+ * redigita os mesmos valores e o `planos.test.ts` reprova se divergirem.
+ *
+ * A seção também deixou de ser lista de bullets: cada cartão mostra as mesmas linhas
+ * (profissionais, agendamentos com IA, excedente, lembrete, suporte) com o valor à
+ * direita. O que separa os planos é CAPACIDADE, e capacidade não cabe em bullet.
+ *
+ * ⚠️ OS BOTÕES AINDA NÃO VÃO PARA O STRIPE, e isso é estado, não decisão pendente. Em
+ * 21/09/2026 não há preço novo no Stripe em mundo nenhum — o único link que existia era
+ * de TERAPEUTAS, cru no HTML, e foi removido porque cobraria o valor antigo. Enquanto
+ * `CHECKOUT` (`_lib/planos.ts`) estiver vazio, `linkPlano()` manda todo botão para o
+ * WhatsApp, que é o caminho real da venda hoje. Colar as URLs lá liga o checkout sem
+ * tocar em mais nada.
  *
  * ⚠️ A DUREZA DO PASSO DA <Telas> SUBIU EM 08/08/2026, e é o segundo pedido da mesma
  * conversa: "quando eu scrollo um pouquinho mais rápido acabo passando sem perceber a

@@ -33,11 +33,21 @@ import {
  * o sinal em vez de aprender um segundo vocabulário no fim da página.
  *
  * ── O DESTAQUE É O PROFISSIONAL, E ELE AMARRA COM A SEÇÃO ANTERIOR ────────
- * O card da maisa na <Duelo> mostra R$ 147 — o preço DESTE plano, não o mais barato
- * do catálogo. Era R$ 97 até 07/08/2026, e virou isca no instante em que esta seção
- * passou a mostrar os três: o leitor comparava com um preço e encontrava outro dois
- * blocos abaixo. Os dois números são a mesma afirmação e mudam juntos — está escrito
- * no dados.ts, nos dois lugares.
+ * O card da maisa na <Duelo> mostra o preço DESTE plano, não o mais barato do catálogo:
+ * o mais barato ali virava isca, porque o leitor comparava com um preço e encontrava
+ * outro dois blocos abaixo. Desde 21/09/2026 os dois LEEM o mesmo campo de
+ * `_lib/planos.ts` em vez de repetir o número — eram duas strings, e elas divergiram.
+ *
+ * ── A LISTA VIROU TABELA (21/09/2026) ────────────────────────────────────
+ * Eram bullets: "Tudo do Essencial", e depois o que o plano tinha A MAIS. Isso vende
+ * recurso e falha em vender CAPACIDADE — em nenhum lugar da página estava escrito
+ * quantos profissionais e quantos agendamentos cabem em cada plano, que é a única
+ * coisa que de fato muda entre eles. Agora cada cartão mostra as mesmas linhas, na
+ * mesma ordem, com o valor à direita: o olho varre as três colunas numa passada e a
+ * comparação acontece sem tabela de verdade nem scroll horizontal no celular.
+ *
+ * O EXCEDENTE É UMA DESSAS LINHAS, e não letra miúda no pé. Um limite de agendamentos
+ * sem o preço do que passa dele é a pegadinha que só aparece na fatura.
  *
  * ── SEM TARJA "RECOMENDADO", DE NOVO ─────────────────────────────────────
  * O catálogo antigo (`../PlanosBarbeiros.tsx`) usa uma pílula dourada com estrela. A
@@ -47,10 +57,11 @@ import {
  *
  * ── O BOTÃO PODE MUDAR DE DESTINO SEM MUDAR ESTE ARQUIVO ─────────────────
  * `linkPlano()` devolve o checkout do Stripe quando existe e o WhatsApp enquanto não
- * existe. Em 07/08/2026 não existe produto de barbearia no Stripe, então os três
- * botões vão para o WhatsApp — que é o caminho real do funil de barbeiros hoje. Ver
- * a nota do `CHECKOUT` no dados.ts: a razão de não haver URL de placeholder é que
- * link de pagamento errado não quebra build, não aparece em teste, e só falha com o
+ * existe. Em 21/09/2026 o mapa `CHECKOUT` está vazio nos dois mundos — decisão, não
+ * pendência: a tabela de preços foi refeita e não há preço no Stripe correspondente,
+ * então os três botões vão para o WhatsApp, que é o caminho real do funil hoje. Ver a
+ * nota do `CHECKOUT` em `_lib/planos.ts`: a razão de não haver URL de placeholder é que
+ * link de pagamento errado não quebra build, não aparece em tela, e só falha com o
  * cartão na mão.
  *
  * ZERO JAVASCRIPT, como as outras três. Sai inteira do servidor.
@@ -89,16 +100,19 @@ export function Planos() {
                 <span className="lp3-p-periodo">{plano.periodo}</span>
               </p>
 
-              <ul className="lp3-p-itens">
-                {plano.itens.map((item) => (
-                  <li className="lp3-p-item" key={item}>
-                    {/* O mesmo ponto das outras seções — cheio no plano em destaque,
-                        vazado nos outros. Nenhum ícone, como no resto da página. */}
-                    <span className="lp3-p-ponto" aria-hidden="true" />
-                    <span className="lp3-p-txt">{item}</span>
-                  </li>
+              {/* Rótulo à esquerda, valor à direita — a mesma forma da LP de terapeutas,
+                  de propósito: é o mesmo produto e a mesma tabela, e quem vir as duas
+                  páginas tem de reconhecer o mesmo objeto. O `<dl>` é o elemento certo
+                  para par rótulo/valor, e é ele que faz o leitor de tela anunciar "até
+                  10 profissionais" em vez de duas palavras soltas. */}
+              <dl className="lp3-p-specs">
+                {plano.specs.map((spec) => (
+                  <div className="lp3-p-linha" key={spec.rotulo}>
+                    <dt className="lp3-p-rotulo">{spec.rotulo}</dt>
+                    <dd className="lp3-p-valor">{spec.valor}</dd>
+                  </div>
                 ))}
-              </ul>
+              </dl>
 
               {/* `rel="noopener"` mesmo sem `target`: o WhatsApp abre em aba nova
                   (externo), o Stripe abre na mesma. O atributo só existe quando há
