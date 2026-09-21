@@ -23,6 +23,10 @@ import type { Canal } from "@/nucleo/dominio/canal";
 import type { CaminhoFiscal, ConfigFiscal } from "@/nucleo/dominio/fiscal";
 import type { Faq } from "@/nucleo/dominio/faq";
 import type { Faturamento } from "@/nucleo/portas/entrada/casos-de-uso";
+/* Direto do arquivo, e não do barril `@/nucleo/dominio`: o barril não reexporta
+ * `assinatura` (e o `PLANOS` dele colidiria de nome com o de `_lib/planos.ts`, que é
+ * outra coisa — lá são os planos exibidos na LP, aqui são as chaves). */
+import { ehChaveDePlano, type Assinatura, type ChaveDePlano, type StatusAssinatura } from "@/nucleo/dominio/assinatura";
 
 /**
  * Uma linha da tela de Faturamento.
@@ -48,7 +52,7 @@ export type LinhaDeFaturamento = {
   /** ⚠️ Sem CPF a prefeitura recusa — a linha aparece, mas fora do lote. */
   semCpf: boolean;
 };
-import { toast } from "@/ui/primitivos";
+import { fmt, toast } from "@/ui/primitivos";
 
 /* ───────────────────────────── tipos ───────────────────────────── */
 
@@ -738,6 +742,18 @@ export type StoreValue = {
   /** Relê `/api/fiscal`. É o "tentar de novo" da tela quando `status` é `erro`. */
   recarregarFiscal: () => Promise<void>;
 
+  /* o que este negócio PAGA pela MAISA */
+  /** Ver `EstadoAssinatura`. Quem mostra é a gaveta "plano". */
+  assinatura: EstadoAssinatura;
+  /** Relê `GET /api/assinatura`. É o "tentar de novo", e é o que a volta do checkout chama. */
+  recarregarAssinatura: () => Promise<void>;
+  /** Abre o checkout do provedor para ESTE plano. Sai da página. */
+  assinarPlano: (plano: ChaveDePlano) => void;
+  /** Abre o portal de cobrança (trocar cartão, baixar fatura, cancelar). Sai da página. */
+  abrirPortalDeCobranca: () => void;
+  /** Um POST de cobrança em voo. Desabilita os dois botões: cada clique cria uma sessão. */
+  cobrancaOcupada: boolean;
+
   /* emissão de recibos, em andamento e visível de qualquer tela */
   /** `null` = nenhuma emissão rodando nem esperando ser fechada. */
   emissao: EmissaoDeRecibos | null;
@@ -998,6 +1014,134 @@ export type EstadoGoogle = {
   /** Variáveis de ambiente que faltam, quando status = nao_configurado. */
   faltando: string[];
 };
+
+/**
+ * ★ A ASSINATURA DESTE NEGÓCIO — e por que ela virou estado do store em 21/09/2026.
+ *
+ * A gaveta "Meu plano" lia `st.cadastro.negocio.plano`, `precoPlano`, `proximaCobranca` e
+ * `cartao`: quatro campos de FIXTURE. Ela afirmava "Profissional · R$ 197/mês · Cartão
+ * final 4417" para todo mundo — inclusive para quem nunca pagou nada e para quem está
+ * inadimplente. `GET /api/assinatura` responde o que a tabela `assinaturas` diz, e é dela
+ * que a tela passa a falar.
+ *
+ * ⚠️ `assinatura: null` NÃO É ERRO E NÃO É "sem plano": é a rota dizendo que não achou
+ * linha para este inquilino. Todo negócio nasce com uma (`005_provisionar.sql`), então
+ * `null` significa que algo está torto — e a tela informa isso em vez de oferecer botão.
+ * Ver `resumoDaAssinatura`.
+ */
+export type EstadoAssinatura = {
+  status: "carregando" | "ok" | "erro";
+  /** O que a tabela diz. `null` quando não há linha — ver o ⚠️ acima. */
+  assinatura: Assinatura | null;
+};
+
+/** Situação em português. A tabela guarda o nosso vocabulário, não o da Stripe. */
+const SITUACAO: Record<StatusAssinatura, string> = {
+  trial: "Em teste",
+  ativa: "Ativa",
+  inadimplente: "Pagamento pendente",
+  cancelada: "Cancelada",
+};
+
+/**
+ * `"Profissional"` → `"profissional"`, para o corpo do POST.
+ *
+ * ⚠️ DEVOLVE `null` EM VEZ DE CHUTAR, e é a linha mais importante deste arquivo.
+ * `assinaturas.plano` é texto livre, e o `005_provisionar.sql` semeia `'Profissional'`
+ * com `preco = 149.90` — valor que não é de plano nenhum da tabela atual. Um
+ * `?? "profissional"` aqui transformaria dado torto em R$ 197 no cartão de alguém.
+ * Devolvendo `null`, o botão desaparece e a conversa acontece antes da cobrança.
+ */
+export function chaveDoPlano(nome: string | null | undefined): ChaveDePlano | null {
+  const limpo = (nome ?? "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .trim().toLowerCase();
+  return ehChaveDePlano(limpo) ? limpo : null;
+}
+
+/** O que a gaveta "Meu plano" desenha. Puro, e por isso testável sem React nem rede. */
+export type ResumoDaAssinatura = {
+  /** Subtítulo da gaveta. Nunca afirma situação que não veio do servidor. */
+  sub: string;
+  linhas: [string, string][];
+  aviso: { texto: string; tone: "warn" | "danger" } | null;
+  /** O plano que o botão "Assinar" mandaria. `null` = sem botão. */
+  assinar: ChaveDePlano | null;
+  /** Dá para abrir o portal de cobrança? */
+  gerenciar: boolean;
+};
+
+/**
+ * Traduz o estado da leitura para o que a tela mostra.
+ *
+ * ⚠️ NENHUM DOS DOIS BOTÕES APARECE ENQUANTO NÃO SE SABE. `carregando` e `erro` não
+ * oferecem ação: um "Assinar" que pisca meio segundo antes de o servidor responder é um
+ * botão que pode cobrar o plano errado, e um "Gerenciar cobrança" sobre estado
+ * desconhecido abre uma página em branco no provedor.
+ */
+export function resumoDaAssinatura(e: EstadoAssinatura): ResumoDaAssinatura {
+  const vazio = { linhas: [] as [string, string][], assinar: null, gerenciar: false };
+
+  if (e.status === "carregando") {
+    return { ...vazio, sub: "lendo sua assinatura…", aviso: null };
+  }
+  if (e.status === "erro") {
+    return {
+      ...vazio, sub: "não foi possível ler",
+      aviso: { texto: "Não conseguimos ler sua assinatura agora. Nada mudou — feche e abra de novo.", tone: "warn" },
+    };
+  }
+
+  const a = e.assinatura;
+  if (!a) {
+    return {
+      ...vazio, sub: "não encontrada",
+      aviso: { texto: "Não encontramos a assinatura deste negócio. Fale com a gente antes de pagar qualquer coisa.", tone: "warn" },
+    };
+  }
+
+  /* `YYYY-MM-DD` formatado sem passar por `Date`: `new Date("2026-10-21")` é meia-noite
+   * UTC, que em São Paulo ainda é o dia 20 — a tela mostraria a cobrança um dia antes. */
+  const data = (iso: string | null) => (iso && D.ehDataCivil(iso) ? D.rotuloDia(iso) : "—");
+  const chave = chaveDoPlano(a.plano);
+
+  /* `assinaturaId` e não `clienteId`: o portal de um cliente SEM assinatura no provedor
+   * abre vazio, e a LP promete "cancele quando quiser". Botão que abre página em branco é
+   * pior que botão ausente. Em trial ainda não existe assinatura lá. */
+  const gerenciar = !!a.assinaturaId;
+
+  const linhas: [string, string][] = [
+    ["Plano", a.plano],
+    ["Situação", SITUACAO[a.status]],
+    a.status === "trial" ? ["Teste até", data(a.trialFim)] : ["Próxima cobrança", data(a.periodoFim)],
+    /* O preço COBRADO, que o webhook gravou — não o da landing page. Enquanto ninguém
+     * pagou ele é `null`, e "—" é a resposta honesta. Ver `dominio/assinatura.ts`. */
+    ["Valor", a.preco === null ? "—" : fmt(a.preco)],
+    ["Forma de pagamento", a.cartaoMarca && a.cartaoFinal4 ? `${a.cartaoMarca} final ${a.cartaoFinal4}` : "nenhuma ainda"],
+  ];
+
+  switch (a.status) {
+    case "trial":
+      return { sub: `em teste até ${data(a.trialFim)}`, linhas, aviso: null, assinar: chave, gerenciar };
+    case "ativa":
+      /* Sem "Assinar": ela já paga. Trocar de plano é assunto do portal. */
+      return { sub: `ativa · ${a.plano}`, linhas, aviso: null, assinar: null, gerenciar };
+    case "inadimplente":
+      /* Quem tem assinatura no provedor conserta pelo portal (trocar cartão, pagar a
+       * fatura aberta). Assinar de novo criaria uma SEGUNDA assinatura e duas cobranças. */
+      return {
+        sub: "pagamento pendente", linhas,
+        aviso: { texto: "O último pagamento não foi confirmado. Se foi boleto, ele pode levar um dia útil para cair.", tone: "danger" },
+        assinar: gerenciar ? null : chave, gerenciar,
+      };
+    case "cancelada":
+      return {
+        sub: `cancelada · ${a.plano}`, linhas,
+        aviso: { texto: "Sua assinatura está cancelada. Você pode assinar de novo quando quiser.", tone: "warn" },
+        assinar: chave, gerenciar,
+      };
+  }
+}
 
 const Ctx = createContext<StoreValue | null>(null);
 
@@ -3312,6 +3456,95 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     window.history.replaceState({}, "", window.location.pathname + (busca ? `?${busca}` : ""));
   }, [irPara]);
 
+  /* ── a assinatura deste negócio ──
+   * Ver `EstadoAssinatura`. Uma leitura de `/api/assinatura`; quem mostra é a gaveta "plano". */
+
+  const [assinatura, setAssinatura] = useState<EstadoAssinatura>({ status: "carregando", assinatura: null });
+
+  const recarregarAssinatura = useCallback(async () => {
+    try {
+      /* Com prazo, como `/api/fiscal`: requisição pendurada deixaria `carregando` para
+       * sempre, e `carregando` é o estado em que a gaveta não oferece botão nenhum. */
+      const d = (await fetch("/api/assinatura", { cache: "no-store", signal: AbortSignal.timeout(15_000) })
+        .then((x) => x.json())) as { ok?: boolean; assinatura?: Assinatura | null } | null;
+      if (!d?.ok) { setAssinatura((v) => ({ ...v, status: "erro" })); return; }
+      /* `?? null` e não um objeto chutado: ver o ⚠️ de `EstadoAssinatura`. */
+      setAssinatura({ status: "ok", assinatura: d.assinatura ?? null });
+    } catch {
+      setAssinatura((v) => ({ ...v, status: "erro" }));
+    }
+  }, []);
+
+  useEffect(() => { void recarregarAssinatura(); }, [recarregarAssinatura]);
+
+  const [cobrancaOcupada, setCobrancaOcupada] = useState(false);
+  /** Trava SÍNCRONA, pelo mesmo motivo do `googleEmVoo`: entre o clique e o re-render que
+   *  desabilita o botão cabe um segundo clique, e cada POST cria uma sessão de checkout. */
+  const cobrancaEmVoo = useRef(false);
+
+  /**
+   * Abre uma página do provedor. Navegação de página inteira, como o consentimento do
+   * Google: o pagamento acontece no domínio deles, não num fetch nosso.
+   *
+   * ⚠️ NO CAMINHO FELIZ A TRAVA NÃO É LIBERADA. `href` já está saindo da página; liberar
+   * aqui reacenderia o botão por um instante, na tela que está indo embora.
+   */
+  const irParaCobranca = useCallback(async (rota: string, corpo: unknown) => {
+    if (cobrancaEmVoo.current) return;
+    cobrancaEmVoo.current = true;
+    setCobrancaOcupada(true);
+    try {
+      const r = (await fetch(rota, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(corpo),
+      }).then((x) => x.json())) as { ok?: boolean; url?: string; info?: string } | null;
+      if (!r?.ok || !r.url) throw new Error(r?.info ?? "sem url");
+      window.location.href = r.url;
+    } catch {
+      toast("Não foi possível abrir o pagamento. Tente de novo.");
+      cobrancaEmVoo.current = false;
+      setCobrancaOcupada(false);
+    }
+  }, []);
+
+  const assinarPlano = useCallback(
+    (plano: ChaveDePlano) => { void irParaCobranca("/api/assinatura", { plano }); },
+    [irParaCobranca],
+  );
+  const abrirPortalDeCobranca = useCallback(
+    () => { void irParaCobranca("/api/assinatura/portal", {}); },
+    [irParaCobranca],
+  );
+
+  /* ── a volta do checkout ──
+   *
+   * `?pagamento=recebido|cancelado`, posto por `POST /api/assinatura`. Mesmo mecanismo do
+   * `?google=ok`: avisa e limpa a query, senão o toast volta a cada F5.
+   *
+   * ⚠️ "RECEBEMOS", NUNCA "ASSINATURA ATIVA". A volta do navegador não é confirmação de
+   * pagamento — boleto leva um dia útil, e quem confirma é `/api/stripe/webhook`, depois,
+   * por outro caminho. O adaptador de demonstração marca `ativa` na hora, e é justamente
+   * por isso que ele engana quem desenha esta tela: o aviso está em `demo/assinaturas.ts`.
+   * Por isso a releitura também não é `assinatura.status === "ativa"` esperada; é só uma
+   * releitura, e ela pode voltar `trial` — o que estaria certo. */
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const r = q.get("pagamento");
+    if (!r) return;
+
+    if (r === "recebido") {
+      toast("Recebemos seu pedido — a confirmação chega em instantes");
+      void recarregarAssinatura();
+    } else {
+      toast("Pagamento cancelado. Nada foi cobrado.");
+    }
+
+    q.delete("pagamento");
+    const busca = q.toString();
+    window.history.replaceState({}, "", window.location.pathname + (busca ? `?${busca}` : ""));
+  }, [recarregarAssinatura]);
+
   const googleDe = useCallback(
     (pid: string) => google.conexoes.find((c) => c.profissionalId === pid),
     [google.conexoes],
@@ -3713,6 +3946,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, setFiltroSvc, filtroCli, setFiltroCli,
     fiscal, aplicarFiscal, recarregarFiscal,
+    assinatura, recarregarAssinatura, assinarPlano, abrirPortalDeCobranca, cobrancaOcupada,
     emissao, emitirRecibos, fecharEmissao, emissoesFeitas,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,
@@ -3744,6 +3978,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, filtroCli,
     fiscal, aplicarFiscal, recarregarFiscal,
+    assinatura, recarregarAssinatura, assinarPlano, abrirPortalDeCobranca, cobrancaOcupada,
     emissao, emitirRecibos, fecharEmissao, emissoesFeitas,
     notaDe, emitirNota, emitirPendentes, cancelarNota, fechamento, emitiveis,
     loteAberto, pedirLote, fecharLote, confirmarLote,

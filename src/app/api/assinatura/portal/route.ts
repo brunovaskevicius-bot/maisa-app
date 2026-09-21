@@ -35,7 +35,8 @@ export async function POST(req: Request) {
 
   try {
     const { url } = await app.abrirPortalDeCobranca(porteiro.tenant, {
-      voltarPara: `${origem}/faturamento`,
+      /* `/?tela=mais` porque `/faturamento` não é rota — ver o ⚠️ na irmã. */
+      voltarPara: `${origem}/?tela=mais`,
     });
     return NextResponse.json({ ok: true, status: "ok", url });
   } catch (e) {

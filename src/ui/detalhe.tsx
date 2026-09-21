@@ -16,7 +16,7 @@
 
 import * as D from "@/adaptadores/saida/demo";
 import { fmt } from "@/ui/primitivos";
-import { useStore } from "@/ui/estado/store";
+import { resumoDaAssinatura, useStore } from "@/ui/estado/store";
 import { rotuloDeISO, horaDeISO } from "@/nucleo/dominio/tempo";
 
 /* ───────────────────────────── tipos de bloco ───────────────────────────── */
@@ -911,22 +911,62 @@ export function useDetalhe(id: string | null): Detalhe | null {
     };
   }
 
+  /* ── Meu plano ──
+   *
+   * ★ TUDO AQUI VEM DE `GET /api/assinatura`, desde 21/09/2026. Antes vinha de
+   * `st.cadastro.negocio.*`: a gaveta escrevia "Profissional · R$ 197/mês · próxima
+   * cobrança · Cartão final 4417" para qualquer um que abrisse — dado de fixture na única
+   * tela do app que fala de dinheiro do dono.
+   *
+   * Duas ausências que são decisão:
+   *
+   * · **"Últimas faturas" saiu.** Era `D.FATURAS`, três linhas escritas à mão. A lista real
+   *   de faturas existe, com PDF e recibo, DENTRO do portal de cobrança — e o botão que
+   *   leva lá está logo abaixo. Reimplementá-la aqui seria copiar o que o provedor já
+   *   mantém, e enquanto não estivesse pronta seria um extrato inventado.
+   *
+   * · **"Conversas" saiu.** O limite do plano é copy de `_lib/planos.ts`, que vive em
+   *   `app/(marketing)` e não é o que o provedor cobra. Mostrar um limite ao lado de uma
+   *   cobrança real sugere que os dois foram conferidos um contra o outro, e não foram.
+   *
+   * A lógica toda — quais linhas, qual aviso, quais botões — está em `resumoDaAssinatura`,
+   * no store, porque é pura e precisa de teste: é ela que decide se um botão de COBRAR
+   * aparece. */
   if (id === "plano") {
+    const r = resumoDaAssinatura(st.assinatura);
+    const acoes: Acao[] = [];
+
+    /* Const local em vez de `r.assinar!` no callback: o `!` calaria o TypeScript no lugar
+     * exato em que um `null` viraria um POST sem plano. */
+    const aAssinar = r.assinar;
+    if (aAssinar) {
+      acoes.push({
+        label: st.cobrancaOcupada ? "Abrindo pagamento…" : "Assinar",
+        primaria: true,
+        desabilitada: st.cobrancaOcupada,
+        onClick: () => st.assinarPlano(aAssinar),
+      });
+    }
+    if (r.gerenciar) {
+      acoes.push({
+        label: "Gerenciar cobrança",
+        primaria: !aAssinar,
+        desabilitada: st.cobrancaOcupada,
+        onClick: () => st.abrirPortalDeCobranca(),
+      });
+    }
+    /* "Fechar" só é a ação primária quando não há nenhuma outra — dois botões dourados na
+     * mesma gaveta fazem o olho escolher o errado. */
+    acoes.push(acoes.length ? { label: "Fechar", onClick: st.fechar } : fecharAcao);
+
     return {
-      titulo: "Meu plano", sub: `${st.cadastro.negocio.plano} · ${fmt(st.cadastro.negocio.precoPlano)}/mês`,
+      titulo: "Meu plano",
+      sub: r.sub,
       blocos: [
-        {
-          tipo: "stats", key: "ass", label: "Assinatura",
-          linhas: [
-            ["Plano", st.cadastro.negocio.plano],
-            ["Próxima cobrança", st.cadastro.negocio.proximaCobranca],
-            ["Forma de pagamento", st.cadastro.negocio.cartao],
-            ["Conversas", st.cadastro.negocio.conversasPlano],
-          ],
-        },
-        { tipo: "stats", key: "fat", label: "Últimas faturas", linhas: D.FATURAS },
+        ...(r.aviso ? [{ tipo: "aviso" as const, key: "av", texto: r.aviso.texto, tone: r.aviso.tone }] : []),
+        ...(r.linhas.length ? [{ tipo: "stats" as const, key: "ass", label: "Assinatura", linhas: r.linhas }] : []),
       ],
-      acoes: [fecharAcao],
+      acoes,
     };
   }
 

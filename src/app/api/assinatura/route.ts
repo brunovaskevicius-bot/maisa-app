@@ -58,8 +58,13 @@ export async function POST(req: Request) {
   try {
     const { url } = await app.abrirCheckout(porteiro.tenant, {
       plano: corpo.plano as never,
-      voltarPara: `${origem}/faturamento?pagamento=recebido`,
-      cancelarPara: `${origem}/faturamento?pagamento=cancelado`,
+      /* ⚠️ `/?tela=mais`, NÃO `/faturamento`: AQUELA ROTA NÃO EXISTE. O app é uma página
+       * só (`app/page.tsx`) e a tela sai do store — quem chega de fora chega por `?tela=`,
+       * o mesmo mecanismo do link que a gente manda no WhatsApp. Enquanto isto apontou para
+       * `/faturamento`, a volta do checkout era um 404 servido a quem acabou de pagar
+       * R$ 127. Ver o efeito de `?pagamento=` em `ui/estado/store.tsx`. */
+      voltarPara: `${origem}/?tela=mais&pagamento=recebido`,
+      cancelarPara: `${origem}/?tela=mais&pagamento=cancelado`,
     });
     return NextResponse.json({ ok: true, status: "ok", url });
   } catch (e) {
