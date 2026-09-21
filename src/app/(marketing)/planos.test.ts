@@ -23,12 +23,17 @@
  * confere contra `_lib/planos.ts`, que é a tabela única. Se alguém mudar um preço de um
  * lado só, a suíte reprova e diz qual valor está faltando onde.
  *
- * ── O SEGUNDO TRABALHO: NENHUM LINK DE PAGAMENTO COM PREÇO VELHO ──
+ * ── O SEGUNDO TRABALHO: NENHUM LINK DE PAGAMENTO EM LP, NUNCA ──
  *
- * Havia UM link de Stripe no projeto, cru dentro do HTML, e ele ficou apontando para o
- * preço antigo depois da revisão da tabela. Link de pagamento errado é o pior defeito de
- * uma LP: não quebra build, não aparece em tela, e só falha com o cartão na mão. Enquanto
- * `CHECKOUT` estiver vazio, a regra é que NÃO EXISTE link de Stripe em LP nenhuma.
+ * Havia UM link de Stripe no projeto, cru dentro do HTML. Ele saiu em 21/09/2026 porque
+ * apontava para o preço antigo — e a regra virou incondicional quando a conta live foi
+ * medida no mesmo dia: 21 clientes, três com o MESMO e-mail criados em segundos, e 14
+ * assinaturas sem `metadata`, nenhuma atribuível a inquilino nenhum. Era aquele link
+ * sendo clicado de novo e criando ficha nova a cada clique.
+ *
+ * O problema nunca foi o valor (R$ 197 era até o preço certo): **link de pagamento cobra
+ * sem saber de quem é.** O caminho é `/assinar/<plano>`, onde a conta e o negócio nascem
+ * antes do checkout. Este arquivo é o que impede o link de voltar.
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import { describe, expect, it } from "vitest";
@@ -36,7 +41,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CHECKOUT, COPIA, PLANOS, specsDoPlano } from "./_lib/planos";
+import { AUTOATENDIDOS, COPIA, PLANOS, specsDoPlano } from "./_lib/planos";
 import { WHATSAPP_NUMERO } from "./_lib/icp";
 
 const MARKETING = fileURLToPath(new URL(".", import.meta.url));
@@ -111,19 +116,35 @@ describe("a tabela de preços é uma só nos dois mundos", () => {
   });
 });
 
-describe("todo CTA de plano leva ao WhatsApp da maisa", () => {
+describe("o CTA de cada plano vai para onde ele se vende", () => {
   const html = visivel(HTML_TERAPEUTAS);
 
-  /* ENQUANTO `CHECKOUT` ESTIVER VAZIO, link de pagamento em LP é bug — aponta para um
-     preço que a tabela não tem mais. Este teste é a única coisa que impede o link antigo
-     de voltar por cópia de um commit velho. Quando o Stripe religar, o mapa deixa de
-     estar vazio e este teste se desliga sozinho. */
-  const stripeLigado = Object.values(CHECKOUT).some((url) => url !== "");
+  /* ⚠️ LINK DE PAGAMENTO EM LP NÃO VOLTA — e isto deixou de ser condicional em
+     21/09/2026, quando a conta live foi medida. Não é que falte preço no Stripe: o
+     desenho está errado. Link de pagamento cobra sem saber de quem é, e a prova está na
+     conta: 21 clientes, três com o MESMO e-mail criados em segundos, 14 assinaturas sem
+     `metadata` — nenhuma atribuível. Era este link sendo clicado de novo.
 
-  it.runIf(!stripeLigado)("não há link de Stripe em LP enquanto CHECKOUT está vazio", () => {
+     O caminho é `/assinar/<plano>`, onde a conta e o negócio nascem antes do checkout.
+     Este teste é o que impede o link antigo de voltar por cópia de um commit velho. */
+  it("não há link de pagamento na LP — o caminho é o pré-cadastro", () => {
     expect(readFileSync(HTML_TERAPEUTAS, "utf8").replace(/<!--[\s\S]*?-->/g, "")).not.toContain(
       "buy.stripe.com",
     );
+  });
+
+  /* Os dois autoatendidos apontam para o pré-cadastro, com o `?icp=` que a página usa
+     para decidir a vertical do negócio. Sem ele, o negócio nasceria `generico` para quem
+     veio de uma LP de terapeutas. */
+  it.each(AUTOATENDIDOS)("o CTA do %s abre o pré-cadastro com o icp certo", (chave) => {
+    expect(html).toContain(`href="/assinar/${chave}?icp=terapeutas"`);
+  });
+
+  /* E o Escala continua no WhatsApp: a §19 do documento de precificação o põe sob
+     proposta, e `/assinar/escala` responde 404 de propósito. */
+  it("o CTA do Escala continua indo para o WhatsApp", () => {
+    expect(html).toContain("plano%20Escala");
+    expect(html).not.toContain('href="/assinar/escala');
   });
 
   it("todo wa.me da LP de terapeutas usa o número do icp.ts", () => {
@@ -132,14 +153,13 @@ describe("todo CTA de plano leva ao WhatsApp da maisa", () => {
     for (const n of numeros) expect(n).toBe(`wa.me/${WHATSAPP_NUMERO}`);
   });
 
-  /* Um botão por plano, cada um abrindo a conversa com o nome do plano dentro. Três
+  /* Onde ainda HÁ conversa, ela chega no contexto: a mensagem cita o plano. Vale para o
+     Escala (o CTA do cartão) e para os autoatendidos (o "prefere falar antes?"). Três
      botões com a mesma mensagem genérica obrigariam a perguntar "qual plano?" logo na
      primeira resposta — e a pessoa já tinha respondido, clicando. */
-  it("cada plano tem um CTA de WhatsApp que cita o próprio plano", () => {
-    for (const plano of PLANOS) {
-      const fragmento = `plano%20${encodeURIComponent(plano.nome)}`;
-      expect(html, `sem CTA de WhatsApp para o ${plano.nome}`).toContain(fragmento);
-    }
+  it("a conversa do Escala chega citando o plano", () => {
+    const escala = PLANOS.find((p) => p.chave === "escala")!;
+    expect(html).toContain(`plano%20${encodeURIComponent(escala.nome)}`);
   });
 
   /* O RÓTULO DO BOTÃO TAMBÉM É A OFERTA. Dois cartões da LP de terapeutas diziam

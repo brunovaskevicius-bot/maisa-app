@@ -92,12 +92,12 @@ import "../_lib/barbeiros/v3/v3.css";
  * (profissionais, agendamentos com IA, excedente, lembrete, suporte) com o valor à
  * direita. O que separa os planos é CAPACIDADE, e capacidade não cabe em bullet.
  *
- * ⚠️ OS BOTÕES AINDA NÃO VÃO PARA O STRIPE, e isso é estado, não decisão pendente. Em
- * 21/09/2026 não há preço novo no Stripe em mundo nenhum — o único link que existia era
- * de TERAPEUTAS, cru no HTML, e foi removido porque cobraria o valor antigo. Enquanto
- * `CHECKOUT` (`_lib/planos.ts`) estiver vazio, `linkPlano()` manda todo botão para o
- * WhatsApp, que é o caminho real da venda hoje. Colar as URLs lá liga o checkout sem
- * tocar em mais nada.
+ * ⚠️ OS BOTÕES NÃO VÃO PARA UM LINK DE PAGAMENTO, E ISSO É DECISÃO. Desde 21/09/2026,
+ * Essencial e Profissional abrem `/assinar/<plano>` — o pré-cadastro, onde a conta e o
+ * negócio nascem antes do checkout — e o Escala vai para o WhatsApp, por ser sob proposta.
+ * O motivo foi medido na conta live: 21 clientes (três com o mesmo e-mail, criados em
+ * segundos) e 14 assinaturas sem `metadata`, nenhuma atribuível a inquilino. Era o link
+ * antigo de terapeutas sendo clicado de novo. Link de pagamento cobra sem saber de quem é.
  *
  * ⚠️ A DUREZA DO PASSO DA <Telas> SUBIU EM 08/08/2026, e é o segundo pedido da mesma
  * conversa: "quando eu scrollo um pouquinho mais rápido acabo passando sem perceber a

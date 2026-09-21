@@ -595,9 +595,10 @@ export const PLANOS: readonly Plano[] = CATALOGO.map((p) => ({
   cta: COPIA_BARBEIROS.planos[p.chave].cta,
 }));
 
-/** Para onde o botão de um plano aponta. Stripe quando houver link no catálogo,
- *  WhatsApp enquanto não houver — e hoje não há, em nenhum dos dois mundos. A decisão
- *  e o porquê estão na nota do `CHECKOUT`, em `_lib/planos.ts`. */
+/** Para onde o botão de um plano aponta: o pré-cadastro (`/assinar/<plano>`) nos planos
+ *  autoatendidos, o WhatsApp no Escala. A decisão e o porquê — inclusive o que a conta
+ *  live mostrou sobre link de pagamento — estão na nota "para onde o botão vai", em
+ *  `_lib/planos.ts`. */
 export function linkPlano(p: Plano): { href: string; externo: boolean } {
   return linkDoCatalogo(
     CATALOGO.find((c) => c.chave === p.chave) ?? CATALOGO[0],

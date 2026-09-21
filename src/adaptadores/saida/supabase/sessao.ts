@@ -27,6 +27,11 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured } from "./config"
 // `/lp` acima, e a mesma consequência: zero venda.
 const PUBLIC_PREFIXES = [
   "/login", "/cadastro", "/auth", "/api", "/lp", "/barbeiro", "/barbeiros", "/terapeutas",
+  /* ⚠️ `/assinar` É A PÁGINA DE COMPRA — a que o anúncio aponta. Atrás do login, o
+   * middleware mandaria para o `/login` exatamente quem está indo pagar, e o sintoma
+   * seria **zero venda**: nenhum erro, nenhum log, só ninguém comprando. A checagem é por
+   * SEGMENTO, então `/assinar` não herda de `/cadastro` nem de `/lp`. */
+  "/assinar",
   /* ⚠️ JURÍDICAS SÃO PÚBLICAS POR EXIGÊNCIA EXTERNA, não por conveniência. O Google
    * confere as URLs de privacidade e termos ao verificar um app que pede escopo sensível —
    * e `calendar.events` é sensível. Atrás do login, o revisor abre a política e vê um

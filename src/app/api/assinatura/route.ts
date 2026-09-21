@@ -42,6 +42,30 @@ export const dynamic = "force-dynamic";
  * as specs lá muda esta linha aqui — é acoplamento por ordem, e está escrito para que
  * quem reordenar saiba.
  */
+/**
+ * Para onde o navegador volta do checkout. **Dois destinos, e não uma URL no corpo.**
+ *
+ * ⚠️ ACEITAR `voltarPara` DO REQUEST SERIA REDIRECIONAMENTO ABERTO. Um POST com
+ * `voltarPara: "https://sitedoatacante/"` faria a Stripe devolver a pessoa, logada e
+ * recém-cobrada, num domínio de terceiro — e o link sairia do domínio da Stripe, com
+ * cara de legítimo. Por isso o corpo escolhe entre dois nomes e o servidor resolve a URL.
+ *
+ * `onboarding` é o destino de quem veio do funil: pagou e nunca usou o produto, então o
+ * lugar certo é o wizard. `painel` é o de quem já estava dentro e assinou pela gaveta.
+ *
+ * ⚠️ `/?tela=mais`, NÃO `/faturamento`: aquela rota não existe. O app é uma página só
+ * (`app/page.tsx`) e a tela sai do store — quem chega de fora chega por `?tela=`. Enquanto
+ * isto apontou para `/faturamento`, a volta do checkout era um 404 servido a quem acabou
+ * de pagar R$ 127.
+ *
+ * Nenhum dos dois pode afirmar que a assinatura está ativa: a volta do navegador não é
+ * confirmação de pagamento. Quem confirma é `/api/stripe/webhook`.
+ */
+const VOLTA = {
+  onboarding: { ok: "/comecar?pagamento=recebido", cancelado: "/comecar?pagamento=cancelado" },
+  painel: { ok: "/?tela=mais&pagamento=recebido", cancelado: "/?tela=mais&pagamento=cancelado" },
+} as const;
+
 const OFERTAS = PLANOS.map((p) => ({
   plano: p.chave,
   nome: p.nome,
@@ -71,9 +95,9 @@ export async function POST(req: Request) {
   const porteiro = await sessaoOuDemo();
   if (barrou(porteiro)) return porteiro.barrado;
 
-  let corpo: { plano?: unknown };
+  let corpo: { plano?: unknown; destino?: unknown };
   try {
-    corpo = (await req.json()) as { plano?: unknown };
+    corpo = (await req.json()) as { plano?: unknown; destino?: unknown };
   } catch {
     return NextResponse.json(
       { ok: false, status: "payload_invalido", info: "Corpo não é JSON." },
@@ -86,17 +110,15 @@ export async function POST(req: Request) {
    * conhecido deste repositório), então usá-la aqui jogaria quem testa localmente para
    * dentro do app publicado, com a sessão errada e sem entender por quê. */
   const origem = new URL(req.url).origin;
+  /* Desconhecido cai em `painel`, que é o destino mais conservador: manda para dentro do
+   * app, nunca para fora dele. */
+  const volta = corpo.destino === "onboarding" ? VOLTA.onboarding : VOLTA.painel;
 
   try {
     const { url } = await app.abrirCheckout(porteiro.tenant, {
       plano: corpo.plano as never,
-      /* ⚠️ `/?tela=mais`, NÃO `/faturamento`: AQUELA ROTA NÃO EXISTE. O app é uma página
-       * só (`app/page.tsx`) e a tela sai do store — quem chega de fora chega por `?tela=`,
-       * o mesmo mecanismo do link que a gente manda no WhatsApp. Enquanto isto apontou para
-       * `/faturamento`, a volta do checkout era um 404 servido a quem acabou de pagar
-       * R$ 127. Ver o efeito de `?pagamento=` em `ui/estado/store.tsx`. */
-      voltarPara: `${origem}/?tela=mais&pagamento=recebido`,
-      cancelarPara: `${origem}/?tela=mais&pagamento=cancelado`,
+      voltarPara: `${origem}${volta.ok}`,
+      cancelarPara: `${origem}${volta.cancelado}`,
     });
     return NextResponse.json({ ok: true, status: "ok", url });
   } catch (e) {

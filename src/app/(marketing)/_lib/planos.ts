@@ -59,31 +59,30 @@
 
 import { whatsappUrl, type ICP } from "./icp";
 
-/* ─────────────────────────── os links de pagamento ───────────────────────────
+/* ─────────────────────────── para onde o botão vai ───────────────────────────
  *
- * ⚠️ VAZIOS DE PROPÓSITO, EM 21/09/2026 — E É DECISÃO, NÃO PENDÊNCIA ESQUECIDA.
+ * ★ PARA O PRÉ-CADASTRO, NUNCA PARA UM LINK DE PAGAMENTO. Decidido em 21/09/2026,
+ * depois de MEDIR a conta live.
  *
- * Até hoje existia UM link de Stripe no projeto, cru dentro de
- * `lp/terapeutas/index.html`, no cartão do meio. Ele saiu: enquanto a tabela nova não
- * tiver preço correspondente no Stripe, aquele link cobraria o valor ANTIGO de quem
- * clicasse — o pior defeito possível numa LP, porque não quebra build, não aparece em
- * tela e só falha com o cartão na mão.
+ * Existia aqui um mapa `CHECKOUT` com uma URL de `buy.stripe.com` por plano, vazio à
+ * espera dos preços novos. Ele saiu, e não por estar vazio: **o desenho estava errado.**
  *
- * Enquanto este mapa estiver vazio, TODO botão de plano cai no WhatsApp (ver
- * `linkPlano()`). É o caminho que de fato funciona hoje nos dois mundos, e a conversa já
- * chega com o nome do plano dentro.
+ * O que a conta live mostrou (`acct_1SgtGgKYvspChjeQ`): 21 clientes, três deles com o
+ * MESMO e-mail criados em segundos, e 14 assinaturas com `metadata` vazio — nenhuma
+ * atribuível a inquilino nenhum. Era o link antigo desta LP sendo clicado de novo e
+ * criando ficha nova a cada clique. Link de pagamento **cobra sem saber de quem é**, e a
+ * conta que ele deixa para trás não tem dono nem negócio.
  *
- * PARA LIGAR O STRIPE: criar os três preços, colar as URLs limpas aqui. Nada mais no
- * código muda — nem componente, nem CSS, nem o HTML estático (que tem o seu próprio
- * mapa, e o teste cobra os dois juntos).
+ * O caminho é `/assinar/<plano>`: três campos, a conta e o negócio nascem ANTES, e o
+ * checkout sai com o inquilino carimbado. Um clique a mais, e a venda fica reconciliada.
  *
- * Sem `client_reference_id`: valor fixo faz todo comprador chegar com a mesma
- * referência. O vínculo com a pessoa é o e-mail da sessão do Stripe. */
-export const CHECKOUT: Record<ChavePlano, string> = {
-  essencial: "",
-  profissional: "",
-  escala: "",
-};
+ * ⚠️ `escala` NÃO TEM PÁGINA e continua indo para o WhatsApp — a §19 do documento de
+ * precificação o põe "sob proposta". Ali a venda É conversa, e o `/assinar/escala`
+ * responde 404 de propósito.
+ * -------------------------------------------------------------------------- */
+
+/** Os planos que se vendem sozinhos. Espelha `AUTOATENDIDOS` de `app/assinar/[plano]`. */
+export const AUTOATENDIDOS = ["essencial", "profissional"] as const;
 
 export type ChavePlano = "essencial" | "profissional" | "escala";
 
@@ -272,9 +271,18 @@ export function mensagemPlano(plano: Plano, icp: ICP): string {
   );
 }
 
-/** Para onde o botão de um plano aponta: Stripe quando houver link, WhatsApp enquanto
- *  não houver. Ver a nota do `CHECKOUT`. A página nunca fica com botão morto. */
+/** Para onde o botão de um plano aponta: o pré-cadastro nos planos autoatendidos, o
+ *  WhatsApp no `escala`. Ver a nota "para onde o botão vai", acima.
+ *
+ *  O `?icp=` viaja porque a página de pré-cadastro precisa dele para duas coisas: a
+ *  vertical do negócio que vai ser criado e a copy do cartão. Sem ele, cai em `generico`.
+ *
+ *  ⚠️ `externo: false` nos autoatendidos é o que mantém o clique na mesma aba. Abrir o
+ *  formulário de compra num `_blank` perde o histórico de navegação — e com ele o
+ *  "voltar" que a pessoa usa quando quer reler a página de preço antes de decidir. */
 export function linkPlano(plano: Plano, icp: ICP): { href: string; externo: boolean } {
-  const url = CHECKOUT[plano.chave];
-  return url ? { href: url, externo: false } : { href: mensagemPlano(plano, icp), externo: true };
+  const autoatendido = (AUTOATENDIDOS as readonly string[]).includes(plano.chave);
+  return autoatendido
+    ? { href: `/assinar/${plano.chave}?icp=${icp}`, externo: false }
+    : { href: mensagemPlano(plano, icp), externo: true };
 }

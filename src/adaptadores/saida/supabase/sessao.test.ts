@@ -35,6 +35,10 @@ describe("o funil é público", () => {
      * precisou de entrada própria em `PUBLIC_PREFIXES`, e é por isso que está aqui. */
     "/barbeiros",
     "/barbeiro",
+    /* A página de compra do funil. Mesmo motivo do `/cadastro` abaixo, com a consequência
+     * mais direta que existe: barrá-la é barrar quem está com o cartão na mão. */
+    "/assinar",
+    "/assinar/profissional",
   ])("%s abre sem login", (rota) => {
     expect(isPublic(rota)).toBe(true);
   });

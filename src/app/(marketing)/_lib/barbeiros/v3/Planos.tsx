@@ -56,13 +56,14 @@ import {
  * borda azul e um respiro maior — o mesmo trio de lá.
  *
  * ── O BOTÃO PODE MUDAR DE DESTINO SEM MUDAR ESTE ARQUIVO ─────────────────
- * `linkPlano()` devolve o checkout do Stripe quando existe e o WhatsApp enquanto não
- * existe. Em 21/09/2026 o mapa `CHECKOUT` está vazio nos dois mundos — decisão, não
- * pendência: a tabela de preços foi refeita e não há preço no Stripe correspondente,
- * então os três botões vão para o WhatsApp, que é o caminho real do funil hoje. Ver a
- * nota do `CHECKOUT` em `_lib/planos.ts`: a razão de não haver URL de placeholder é que
- * link de pagamento errado não quebra build, não aparece em tela, e só falha com o
- * cartão na mão.
+ * `linkPlano()` decide: **Essencial e Profissional vão para `/assinar/<plano>`**, o
+ * pré-cadastro; o **Escala vai para o WhatsApp**, porque a §19 do documento de
+ * precificação o põe sob proposta e ali a venda É conversa.
+ *
+ * Nunca para um link de pagamento, e isso foi medido em 21/09/2026: a conta live tinha 21
+ * clientes (três com o mesmo e-mail, criados em segundos) e 14 assinaturas sem
+ * `metadata`, nenhuma atribuível a inquilino — era o link antigo sendo clicado de novo,
+ * criando ficha nova a cada clique. Link de pagamento cobra sem saber de quem é.
  *
  * ZERO JAVASCRIPT, como as outras três. Sai inteira do servidor.
  * -------------------------------------------------------------------------- */
