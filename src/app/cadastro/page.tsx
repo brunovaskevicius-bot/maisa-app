@@ -29,6 +29,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { LinhaLegal } from "@/app/(marketing)/_lib/LinhaLegal";
 import { useSearchParams } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
 import { CampoSenha } from "@/ui/componentes/CampoSenha";
@@ -454,6 +455,7 @@ function CadastroInner() {
             Entrar
           </Link>
         </p>
+        <LinhaLegal />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { LinhaLegal } from "@/app/(marketing)/_lib/LinhaLegal";
 import { useRouter, useSearchParams } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
 import { CampoSenha } from "@/ui/componentes/CampoSenha";
@@ -191,6 +192,7 @@ function LoginInner() {
           </Link>
           <br />14 dias para testar, sem cartão.
         </p>
+        <LinhaLegal />
       </div>
     </div>
   );

@@ -26,6 +26,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { LinhaLegal } from "@/app/(marketing)/_lib/LinhaLegal";
 import { s, Icon } from "@/ui/primitivos";
 import { createClient } from "@/adaptadores/saida/supabase/client";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
@@ -143,6 +144,7 @@ export default function Esqueci() {
             </form>
           )}
         </div>
+        <LinhaLegal />
       </div>
     </div>
   );

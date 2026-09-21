@@ -48,6 +48,7 @@ import { createClient } from "@/adaptadores/saida/supabase/client";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
 import { specsDoPlano, type Plano } from "@/app/(marketing)/_lib/planos";
 import { whatsappUrl } from "@/app/(marketing)/_lib/icp";
+import { LinhaLegal } from "@/app/(marketing)/_lib/LinhaLegal";
 import { ehVertical, NOME_NEGOCIO_MIN, type Vertical } from "@/nucleo/dominio/negocio";
 import { soDigitos, TELEFONE_MIN_DIGITOS } from "@/nucleo/dominio/clientes";
 
@@ -276,6 +277,12 @@ function AssinarInner({ plano }: { plano: Plano }) {
             </a>
           </form>
         )}
+
+        {/* ⚠️ NUMA PÁGINA DE COMPRA ISTO NÃO É ENFEITE. O Stripe pede termos e política
+            acessíveis no fluxo de checkout, e a pessoa está a um clique de entregar o
+            cartão — dizer o que fazemos com o dado dela é o mínimo, antes de ser
+            requisito de alguém. Ver `LinhaLegal`. */}
+        <LinhaLegal />
       </div>
     </div>
   );

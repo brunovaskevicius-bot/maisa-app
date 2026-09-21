@@ -24,8 +24,9 @@
 
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isPublic } from "@/adaptadores/saida/supabase/sessao";
 
 const MARKETING = fileURLToPath(new URL(".", import.meta.url));
 const RAIZ = join(MARKETING, "..", "..", "..");
@@ -164,5 +165,109 @@ describe("o caminho para a política existe em toda página pública", () => {
 
     expect(html).toContain('href="/privacidade"');
     expect(html).toContain('href="/termos"');
+  });
+});
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ★ A MESMA REGRA, MAS PARTINDO DE QUEM DECIDE O QUE É PÚBLICO (21/09/2026).
+ *
+ * Os testes acima varrem `(marketing)`. Isso deixou um buraco, e ele foi usado no mesmo
+ * dia: `/assinar/[plano]` — a PÁGINA DE COMPRA do funil — nasceu pública, fora de
+ * `(marketing)`, e sem um link para a política. Passou por todos os testes deste arquivo
+ * porque nenhum deles olhava para lá.
+ *
+ * O conserto não é acrescentar `/assinar` a uma lista: é parar de derivar "página
+ * pública" de uma PASTA e passar a derivar de `PUBLIC_PREFIXES`, que é quem realmente
+ * decide. Página pública nova, em qualquer lugar de `src/app`, cai aqui automaticamente.
+ *
+ * ⚠️ E numa página de compra o link não é só exigência do Google: é do Stripe, que pede
+ * termos e política acessíveis no fluxo de checkout, e é o mínimo para cobrar de alguém.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+const APP = join(RAIZ, "src", "app");
+
+/** Toda `page.tsx` de `src/app`, com a rota que o middleware veria. */
+function paginasPublicas(): { rota: string; arquivo: string; texto: string }[] {
+  const achadas: { rota: string; arquivo: string; texto: string }[] = [];
+
+  const varrer = (dir: string) => {
+    for (const nome of readdirSync(dir)) {
+      const caminho = join(dir, nome);
+      if (statSync(caminho).isDirectory()) varrer(caminho);
+      else if (nome === "page.tsx") {
+        /* A rota que o Next serve: grupo `(x)` não conta como segmento, e `[param]` vira
+         * um valor qualquer — `isPublic` casa por segmento, então o valor é irrelevante. */
+        const rota =
+          "/" +
+          relative(APP, dirname(caminho))
+            .split(sep)
+            .filter((s) => s && !s.startsWith("("))
+            .map((s) => (s.startsWith("[") ? "x" : s))
+            .join("/");
+        achadas.push({ rota, arquivo: relative(RAIZ, caminho), texto: ler(caminho) });
+      }
+    }
+  };
+
+  varrer(APP);
+  return achadas.filter((p) => isPublic(p.rota));
+}
+
+/** O texto da página mais o dos módulos que ela importa, **em profundidade**.
+ *
+ *  ⚠️ DUAS COISAS QUE A PRIMEIRA VERSÃO ERROU, E AS DUAS REPROVAM QUEM ESTÁ CERTO:
+ *
+ *  1. **Resolve `@/` também**, não só `./`. O alias é o estilo normal do repositório; um
+ *     resolvedor que só entende caminho relativo acha que a página não importa nada.
+ *  2. **Desce mais de um nível.** O `/assinar` chega na tira legal por
+ *     `page.tsx → Assinar.tsx → LinhaLegal.tsx`. Parar no primeiro nível dizia que a
+ *     página de compra não tinha link para a política — quando ela tem.
+ *
+ *  Com `vistos` para não entrar em ciclo de import, e teto de profundidade porque o
+ *  objetivo é achar uma tira legal, não indexar o repositório. */
+function comImportes(arquivo: string, texto: string, profundidade = 3): string {
+  const vistos = new Set<string>();
+
+  const juntar = (dirAtual: string, conteudo: string, resta: number): string => {
+    if (resta <= 0) return conteudo;
+    let junto = conteudo;
+
+    for (const [, esp] of conteudo.matchAll(/from\s+"((?:\.|@\/)[^"]+)"/g)) {
+      const base = esp.startsWith("@/") ? join(RAIZ, "src", esp.slice(2)) : join(dirAtual, esp);
+      for (const ext of [".tsx", ".ts", "/index.tsx"]) {
+        const alvo = base + ext;
+        if (vistos.has(alvo)) break;
+        try {
+          const lido = ler(alvo);
+          vistos.add(alvo);
+          junto += juntar(dirname(alvo), lido, resta - 1);
+          break;
+        } catch { /* tipo, pasta ou inexistente */ }
+      }
+    }
+
+    return junto;
+  };
+
+  return juntar(join(RAIZ, dirname(arquivo)), texto, profundidade);
+}
+
+describe("toda página pública tem caminho para a política — venha de onde vier", () => {
+  it("existe mais de uma, senão a varredura está quebrada", () => {
+    expect(paginasPublicas().length).toBeGreaterThan(3);
+  });
+
+  it("nenhuma página pública fica sem privacidade e termos", () => {
+    const semCaminho = paginasPublicas()
+      .filter((p) => {
+        const texto = comImportes(p.arquivo, p.texto);
+        /* `<World>` monta a tira legal; quem não o usa precisa dos dois links à mão. */
+        if (/<World[\s>]/.test(texto)) return false;
+        return !texto.includes('href="/privacidade"') || !texto.includes('href="/termos"');
+      })
+      .map((p) => `${p.rota} (${p.arquivo})`);
+
+    expect(semCaminho).toEqual([]);
   });
 });
