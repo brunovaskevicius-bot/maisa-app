@@ -58,7 +58,16 @@ if (!CHAVE) {
   process.exit(1);
 }
 
-const EH_PRODUCAO = CHAVE.startsWith("prod_");
+/* ⚠️ O PREFIXO REAL É `abc_dev_`, NÃO `dev_` — medido em 21/09/2026 contra a chave do
+ * painel. A documentação deles diz "começa com dev_/prod_" e está errada. Um
+ * `startsWith("prod_")` (que é o que estava aqui) nunca casaria com uma chave de produção,
+ * e este script imprimiria "dev mode — pagamentos simulados" antes de escrever na conta
+ * que cobra de verdade. Busca por SEGMENTO, com três estados: o desconhecido não vira
+ * nenhum dos dois. Mesma lógica de `saida/abacatepay/config.ts`. */
+const MUNDO = /(^|_)prod_/.test(CHAVE) ? "producao"
+  : /(^|_)dev_/.test(CHAVE) ? "teste"
+  : "desconhecido";
+const EH_PRODUCAO = MUNDO === "producao";
 
 /* ── o catálogo: a MESMA verdade que o código usa ──────────────────────────────
  *
@@ -130,9 +139,11 @@ async function api(caminho, corpo) {
 
 async function main() {
   console.log(`\nAbacatePay · conta da chave ${CHAVE.slice(0, 9)}…`);
-  console.log(EH_PRODUCAO
-    ? "⚠️  PRODUÇÃO — esta conta cobra dinheiro de verdade."
-    : "   dev mode — pagamentos simulados.");
+  console.log(
+    MUNDO === "producao" ? "⚠️  PRODUÇÃO — esta conta cobra dinheiro de verdade."
+    : MUNDO === "teste" ? "   dev mode — pagamentos simulados."
+    /* Não adivinha. Ver o ⚠️ do prefixo lá em cima — foi exatamente adivinhar que errou. */
+    : "⚠️  MUNDO DESCONHECIDO — o prefixo da chave não é de teste nem de produção.");
   console.log(APLICAR ? "   modo: APLICAR (escreve)\n" : "   modo: conferir (não escreve)\n");
 
   /* Confirma que a chave fala com a conta antes de qualquer coisa. Erro aqui é 401/403, e

@@ -59,13 +59,35 @@ export const BASE = "https://api.abacatepay.com/v2";
 export const estaConfigurado = Boolean(CHAVE);
 
 /**
- * Esta chave cobra dinheiro de verdade?
+ * Em que mundo esta chave cobra.
  *
  * Existe porque o mesmo endpoint atende teste e produção: sem olhar o prefixo, não há
  * como o log dizer em que mundo o pagamento aconteceu. É a diferença entre "o cliente
  * pagou" e "o cliente clicou num QR Code de mentira".
+ *
+ * ── ⚠️ O PREFIXO REAL É `abc_dev_`, NÃO `dev_` (medido em 21/09/2026) ──
+ *
+ * A documentação deles diz "começa com `dev_`" e "começa com `prod_`". A chave de verdade,
+ * copiada do painel, começa com **`abc_dev_`**. Este código já nasceu com
+ * `startsWith("prod_")` por acreditar na documentação, e o efeito seria exatamente o
+ * contrário do pretendido: uma chave `abc_prod_` nunca casaria, o aviso de "dev mode"
+ * apareceria em produção, e a frase "os pagamentos são SIMULADOS" estaria impressa no log
+ * de um dia de vendas reais.
+ *
+ * Daí a busca ser por segmento (`_dev_`/`_prod_`, com ou sem prefixo) e daí existir um
+ * terceiro estado. Formato que não casa com nenhum dos dois não vira "produção" nem
+ * "teste" por default — vira `"desconhecido"`, e `composicao.ts` grita. Adivinhar aqui é
+ * como esta linha errou da primeira vez.
  */
-export const ehProducao = CHAVE.startsWith("prod_");
+export type Mundo = "producao" | "teste" | "desconhecido";
+
+export const mundo: Mundo =
+  /(^|_)prod_/.test(CHAVE) ? "producao"
+  : /(^|_)dev_/.test(CHAVE) ? "teste"
+  : "desconhecido";
+
+/** Atalho para o caminho que importa: só `producao` cobra dinheiro de verdade. */
+export const ehProducao = mundo === "producao";
 
 export function faltando(): string[] {
   return CHAVE ? [] : ["ABACATEPAY_API_KEY"];
@@ -107,24 +129,46 @@ export const CATALOGO: Record<ChaveDePlano, string> = {
 /**
  * Os métodos que o checkout de assinatura oferece.
  *
- * ── ⚠️ PIX EM ASSINATURA DEPENDE DE A CONTA TER O RECURSO LIGADO ──
+ * ── ★ ISTO FOI MEDIDO CONTRA A CONTA REAL EM 21/09/2026, E A MEDIÇÃO DERRUBOU A
+ *      SUPOSIÇÃO QUE ESTAVA ESCRITA AQUI ──
  *
- * Medido na documentação em 21/09/2026, e ela se contradiz — o que é o motivo deste
- * comentário existir em vez de um `["PIX"]` solto:
+ * A versão anterior mandava `["PIX", "CARD"]` com a justificativa de que "se o Pix
+ * recorrente não estiver ligado, sobra o cartão e a venda acontece". **É falso.** A API
+ * não escolhe o que dá: ela recusa o pedido inteiro se QUALQUER método da lista não
+ * estiver habilitado na loja. Medido na loja `store_rcqED0KYAxkmcp4Aqn4cH6Wf`:
  *
- *   · o changelog de 15/05/2026 diz que lojas com **PIX Automático habilitado** podem
- *     criar assinaturas com `methods: ["PIX"]`, e que antes só havia cartão;
- *   · o OpenAPI de `/subscriptions/create`, na MESMA documentação, ainda descreve o campo
- *     como "Assinaturas suportam apenas CARD".
+ *   methods: ["PIX","CARD"] → 200 + error "PIX Automático is not available for this store"
+ *   methods: ["PIX"]        → 200 + error "PIX Automático is not available for this store"
+ *   methods: ["CARD"]       → 200 + error "CARD is not available for this store"
  *
- * Uma das duas frases está velha. Enquanto não houver medição contra a conta real, a
- * lista manda os DOIS: se o Pix recorrente estiver ligado, a pessoa escolhe no checkout;
- * se não estiver, sobra o cartão e a venda acontece. A ordem importa — Pix primeiro é o
- * que o cliente brasileiro procura, e é onde a taxa é centavos em vez de percentual.
+ * Ou seja: mandar os dois não é a opção segura, é a opção que falha por dois motivos em
+ * vez de um. Cada método pedido é uma exigência, não uma preferência.
  *
- * ⚠️ MANDAR SÓ `["PIX"]` numa conta sem o recurso é a falha que fecha a loja: o
- * `create` recusa, o botão "assinar" devolve erro, e ninguém compra. Os dois juntos
- * degradam para cartão em vez de quebrar. Pedir a habilitação ao suporte deles está no
- * `LEIA-ME.md`, e é um item de operação, não de código.
+ * (Para constar, no mesmo dia e na mesma loja, **Pix AVULSO funciona** — `transparents/
+ * create` devolveu `brCode`, e um checkout de produto sem `cycle` abriu normalmente. O que
+ * está bloqueado é a RECORRÊNCIA, nos dois trilhos.)
+ *
+ * ── POR QUE VIROU VARIÁVEL DE AMBIENTE ──
+ *
+ * Porque a resposta certa muda no dia em que o suporte deles ligar o recurso, e esse dia
+ * não deve exigir deploy. Ligou Pix Automático? `ABACATEPAY_METODOS=PIX`. Ligou cartão
+ * também e quer os dois na tela? `ABACATEPAY_METODOS=PIX,CARD` — mas só depois de os DOIS
+ * estarem habilitados, porque a lista é conjunção.
+ *
+ * O padrão é `PIX` sozinho: é o alvo do projeto (a razão de a AbacatePay existir aqui é a
+ * taxa de Pix), e é o que menos surpreende quando o recurso for ligado.
  */
-export const METODOS = ["PIX", "CARD"] as const;
+const METODOS_VALIDOS = new Set(["PIX", "CARD"]);
+
+export const METODOS: readonly string[] = (() => {
+  const bruto = limpa(process.env.ABACATEPAY_METODOS);
+  if (!bruto) return ["PIX"];
+
+  const pedidos = bruto.split(",").map((m) => m.trim().toUpperCase()).filter(Boolean);
+  /* Valor torto no ambiente não vira lista vazia nem atravessa: lista vazia a API recusa,
+   * e um "pix " com espaço viraria um método que não existe. Cair no padrão é o
+   * comportamento previsível — e `faltando()` não reclama disto de propósito, porque a
+   * variável é opcional por desenho. */
+  const bons = pedidos.filter((m) => METODOS_VALIDOS.has(m));
+  return bons.length > 0 ? bons : ["PIX"];
+})();

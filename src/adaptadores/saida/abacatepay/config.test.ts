@@ -4,10 +4,15 @@
  * Mora AQUI e não em `dominio/assinatura.test.ts` porque o núcleo não pode importar
  * adaptador — nem em teste. É a mesma razão escrita em `saida/stripe/config.test.ts`. */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PLANOS } from "@/nucleo/dominio/assinatura";
 import { PLANOS as DA_LP } from "@/app/(marketing)/_lib/planos";
 import { CATALOGO, METODOS } from "./config";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.resetModules();
+});
 
 describe("o catálogo", () => {
   /* Um plano sem `externalId` não é erro de compilação — o `Record` exige as três chaves,
@@ -30,25 +35,83 @@ describe("o catálogo", () => {
   });
 });
 
-describe("os métodos de pagamento do checkout", () => {
-  /* ★ O TESTE QUE PROTEGE A LOJA DE FECHAR.
+describe("em que mundo a chave cobra", () => {
+  /* ⚠️ ESTE BLOCO NASCEU DE UM ERRO MEDIDO EM 21/09/2026. A documentação deles diz que a
+   * chave "começa com `dev_`" ou "começa com `prod_`". A chave real, copiada do painel,
+   * começa com **`abc_dev_`** — e o código, que acreditava na documentação, usava
+   * `startsWith("prod_")`.
    *
-   * Pix em assinatura depende de a conta ter PIX Automático habilitado, e a documentação
-   * deles se contradiz sobre isso (changelog diz que dá, OpenAPI diz que só CARD). Mandar
-   * só `["PIX"]` numa conta sem o recurso faz `/subscriptions/create` recusar: o botão
-   * "assinar" devolve erro e NINGUÉM COMPRA.
-   *
-   * Os dois juntos degradam para cartão em vez de quebrar. O dia em que alguém "limpar"
-   * isto para só Pix, este teste reprova antes do deploy. */
-  it("oferece Pix E cartão — nunca só Pix", () => {
-    expect(METODOS).toContain("PIX");
-    expect(METODOS).toContain("CARD");
+   * O efeito seria o oposto do pretendido: chave de produção nunca casaria, e o log de um
+   * dia de vendas reais traria "os pagamentos são SIMULADOS". */
+  async function mundoDe(chave: string) {
+    vi.resetModules();
+    vi.stubEnv("ABACATEPAY_API_KEY", chave);
+    return (await import("./config")).mundo;
+  }
+
+  it("reconhece o formato REAL, com prefixo de loja", async () => {
+    expect(await mundoDe("abc_dev_JxxxxxxxxxxxxxxxxxxxxxxxA")).toBe("teste");
+    expect(await mundoDe("abc_prod_JxxxxxxxxxxxxxxxxxxxxxA")).toBe("producao");
   });
 
-  /* Pix primeiro é o que o cliente brasileiro procura, e é onde a taxa é centavos em vez
-   * de percentual. A ordem chega no checkout deles. */
-  it("Pix vem primeiro", () => {
-    expect(METODOS[0]).toBe("PIX");
+  /* O formato que a documentação descreve também vale: se eles voltarem atrás, nada
+   * quebra. Os dois convivem porque a busca é por segmento, não por início. */
+  it("reconhece também o formato que a documentação descreve", async () => {
+    expect(await mundoDe("dev_Jxxxxxxxxxxxxxxxxxx")).toBe("teste");
+    expect(await mundoDe("prod_Jxxxxxxxxxxxxxxxxx")).toBe("producao");
+  });
+
+  /* ★ O terceiro estado. Prefixo que não casa com nada significa que ou a chave está
+   * torta, ou eles mudaram o formato de novo — e nos dois casos NÃO SABEMOS se o que está
+   * no ar cobra de verdade. Cair em "produção" por default esconderia o aviso; cair em
+   * "teste" afirmaria que nada é cobrado. As duas mentiras custam caro, então não se
+   * escolhe nenhuma. */
+  it("formato que não conhecemos NÃO vira produção nem teste", async () => {
+    expect(await mundoDe("sk_live_algumacoisa")).toBe("desconhecido");
+    expect(await mundoDe("")).toBe("desconhecido");
+  });
+
+  /* `development`/`production` contêm as letras de `dev`/`prod` mas não o segmento — a
+   * busca é por `_dev_`/`_prod_` ou início, e não por substring solta. */
+  it("não confunde palavra parecida com o segmento", async () => {
+    expect(await mundoDe("abc_developer_xyz")).toBe("desconhecido");
+  });
+});
+
+describe("os métodos de pagamento do checkout", () => {
+  async function metodosCom(valor?: string) {
+    vi.resetModules();
+    vi.stubEnv("ABACATEPAY_METODOS", valor ?? "");
+    return (await import("./config")).METODOS;
+  }
+
+  /* ★ ESTE BLOCO SUBSTITUI UM TESTE QUE PROVAVA UMA SUPOSIÇÃO ERRADA.
+   *
+   * Ele dizia "oferece Pix E cartão — nunca só Pix", com a justificativa de que os dois
+   * juntos degradariam para cartão se o Pix recorrente não estivesse ligado. A medição
+   * contra a conta real em 21/09/2026 mostrou o contrário: `methods` é CONJUNÇÃO. Pedir
+   * um método não habilitado recusa o pedido inteiro —
+   *
+   *   ["PIX","CARD"] → "PIX Automático is not available for this store"
+   *   ["CARD"]       → "CARD is not available for this store"
+   *
+   * Então o padrão passou a ser Pix sozinho, que é o alvo do projeto, e a lista virou
+   * variável de ambiente para o dia em que o suporte ligar o recurso não exigir deploy. */
+  it("por padrão pede só Pix — a lista é exigência, não preferência", async () => {
+    expect(await metodosCom()).toEqual(["PIX"]);
+  });
+
+  it("o ambiente decide, para ligar cartão não exigir deploy", async () => {
+    expect(await metodosCom("PIX,CARD")).toEqual(["PIX", "CARD"]);
+    expect(await metodosCom("card")).toEqual(["CARD"]);
+    expect(await metodosCom(" pix , card ")).toEqual(["PIX", "CARD"]);
+  });
+
+  /* Valor torto não vira lista vazia (que a API recusa) nem método inventado: cai no
+   * padrão, que é o comportamento previsível. */
+  it("valor torto no ambiente cai no padrão, nunca em lista vazia", async () => {
+    expect(await metodosCom("BOLETO")).toEqual(["PIX"]);
+    expect(await metodosCom(",,,")).toEqual(["PIX"]);
   });
 });
 

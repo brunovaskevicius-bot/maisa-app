@@ -34,7 +34,7 @@
  * ────────────────────────────────────────────────────────────────────────────── */
 
 import {
-  FalhaDoProvedor, LimiteDoProvedor, NaoConfigurado, PrecisaReconectar,
+  FalhaDoProvedor, LimiteDoProvedor, NaoConfigurado, NaoSuportado, PrecisaReconectar,
 } from "@/nucleo/dominio/erros";
 import { BASE, CHAVE, faltando } from "./config";
 
@@ -141,7 +141,7 @@ export async function chamar<T>(
      * vale repetir: o pedido é que está errado, e a segunda tentativa recebe o mesmo
      * texto. */
     if (envelope.error) {
-      throw new FalhaDoProvedor(`AbacatePay ${caminho}: ${envelope.error}`);
+      throw erroDeNegocio(caminho, envelope.error);
     }
 
     /* `success: false` sem `error` preenchido não está documentado, mas o campo existe no
@@ -162,6 +162,40 @@ export async function chamar<T>(
     `AbacatePay ${caminho}: falhou em ${TENTATIVAS + 1} tentativas.`,
     ultimaFalha,
   );
+}
+
+/**
+ * A mensagem de erro que veio DENTRO do 200 → erro de domínio.
+ *
+ * ── ★ POR QUE A CAPACIDADE DA LOJA MERECE ERRO PRÓPRIO ──
+ *
+ * Porque é o erro que a gente REALMENTE encontrou, e porque ele não tem conserto em
+ * código nenhum. Medido em 21/09/2026 contra a loja de sandbox:
+ *
+ *   "PIX Automático is not available for this store"
+ *   "CARD is not available for this store"
+ *
+ * Um `FalhaDoProvedor` genérico viraria 502 na tela — "falha ao falar com o serviço",
+ * que é exatamente a mensagem errada: o serviço respondeu na hora e disse o que faltava.
+ * Quem visse isso iria procurar rede, chave, produto e timeout, nessa ordem, e não acharia
+ * nada — porque o que falta é um recurso da CONTA, que só o suporte deles liga.
+ *
+ * `NaoSuportado` é a classe certa: "o provedor ligado hoje não faz isto, e nenhuma
+ * configuração muda isso". Vira 501, e a mensagem diz o que fazer.
+ */
+function erroDeNegocio(caminho: string, mensagem: string): Error {
+  if (/is not available for this store/i.test(mensagem)) {
+    const metodo = /^(\S+(?:\s+\S+)?)\s+is not available/i.exec(mensagem)?.[1] ?? "o método";
+    return new NaoSuportado(
+      `${metodo} — a loja da AbacatePay não tem esse meio de pagamento habilitado. `
+        + "Peça a habilitação em ajuda@abacatepay.com e ajuste ABACATEPAY_METODOS. "
+        + "⚠️ a lista de `methods` é CONJUNÇÃO: pedir um método não habilitado recusa o "
+        + "pedido inteiro, mesmo que os outros estejam ligados",
+      "AbacatePay",
+    );
+  }
+
+  return new FalhaDoProvedor(`AbacatePay ${caminho}: ${mensagem}`);
 }
 
 /**

@@ -31,7 +31,7 @@ E custa na conversão, que é o lado que não aparece em planilha: Pix é como o
 
 | Arquivo | O que faz |
 |---|---|
-| `config.ts` | As duas env vars, o `CATALOGO` (plano → `externalId`) e `METODOS`. ⚠️ **Id de produto não é env var** — leia o cabeçalho antes de "simplificar" |
+| `config.ts` | As env vars, o `CATALOGO` (plano → `externalId`), `METODOS` e `mundo`. ⚠️ **Id de produto não é env var** — leia o cabeçalho antes de "simplificar" |
 | `cliente.ts` | `fetch` à mão, com retry, teto de 8s e o desembrulho do envelope. ⚠️ **erro vem com HTTP 200** |
 | `cobranca-abacatepay.ts` | `abrirCheckout`, `cancelar`, `capacidades`. Resolve `externalId → prod_…` com cache de processo |
 
@@ -45,10 +45,11 @@ Nenhuma é hipótese — todas saem da documentação lida em 21/09/2026.
    `about:blank#undefined`, e quem ia pagar R$ 197 vê uma página branca. Sem log.
    → resolvido em `chamar()`, que lança em vez de devolver algo ignorável.
 
-2. **⚠️ `dev_` e `prod_` atendem no MESMO endpoint.** Não há URL de sandbox. Uma chave
-   `dev_` em produção **funciona**: responde 200, desenha um QR Code bonito e não cobra
-   ninguém. O produto parece vendido e não entrou dinheiro.
-   → `ehProducao` existe por isso, e `composicao.ts` grita no boot.
+2. **⚠️ Teste e produção atendem no MESMO endpoint.** Não há URL de sandbox; quem separa
+   é o prefixo da chave. Uma chave de teste em produção **funciona**: responde 200, desenha
+   um QR Code bonito e não cobra ninguém. O produto parece vendido e não entrou dinheiro.
+   → `mundo` existe por isso, e `composicao.ts` grita no boot. ⚠️ O prefixo real é
+   `abc_dev_` / `abc_prod_`, **não** o `dev_`/`prod_` que a documentação descreve.
 
 3. **Valores em centavos.** `10000` = R$ 100,00. Mandar reais cobra 100× menos.
 
@@ -68,11 +69,15 @@ O código procura o produto por `externalId`, pelo mesmo desenho da `lookup_key`
 Estes três têm que existir na conta da chave que está sendo usada, **`ACTIVE`**, com
 `cycle: "MONTHLY"` e `currency: "BRL"`:
 
-| Plano | `externalId` | Preço (centavos) |
-|---|---|---|
-| Essencial | `maisa-essencial-mensal` | `12700` |
-| Profissional | `maisa-profissional-mensal` | `19700` |
-| Escala | `maisa-escala-mensal` | `39700` |
+| Plano | `externalId` | Preço (centavos) | `prod_…` no sandbox |
+|---|---|---|---|
+| Essencial | `maisa-essencial-mensal` | `12700` | `prod_qFUThL3xAF6nFuxYSC0mbCs0` |
+| Profissional | `maisa-profissional-mensal` | `19700` | `prod_uKa33aw6FSeJLxBqJ6bwqCQa` |
+| Escala | `maisa-escala-mensal` | `39700` | `prod_Z6433z52fHE6Wq2rY41CUPHn` |
+
+Os três foram criados em 21/09/2026 e conferidos com `cycle: MONTHLY` e `status: ACTIVE`.
+Os ids acima são **do sandbox** e não valem em produção — o código nunca os digita, procura
+por `externalId`.
 
 Quem cria é `npm run abacate:catalogo` — idempotente, roda quantas vezes quiser.
 
@@ -111,20 +116,49 @@ rotacionando a chave à toa. `erroDeHttp` separa os dois na mensagem.
 - **Não informa fim de período.** Nenhum campo de próxima cobrança no objeto de
   assinatura. Calculamos de `frequency` + data do último pagamento.
 
-## ⚠️ Pix em assinatura depende de a conta ter o recurso ligado
+## ★ O que foi MEDIDO na conta (21/09/2026)
 
-A documentação se contradiz, e é por isso que `METODOS` manda **os dois**:
+Loja de sandbox `store_rcqED0KYAxkmcp4Aqn4cH6Wf` ("Maisa"), chave `abc_dev_…`:
 
-- o changelog de 15/05/2026 diz que lojas com **PIX Automático habilitado** podem criar
-  assinaturas com `methods: ["PIX"]`;
-- o OpenAPI de `/subscriptions/create`, na mesma documentação, ainda diz "Assinaturas
-  suportam apenas CARD".
+| Chamada | Resultado |
+|---|---|
+| `subscriptions/create` `methods:["PIX","CARD"]` | ❌ `PIX Automático is not available for this store` |
+| `subscriptions/create` `methods:["PIX"]` | ❌ mesma recusa |
+| `subscriptions/create` `methods:["CARD"]` | ❌ `CARD is not available for this store` |
+| `transparents/create` PIX (QR direto) | ✅ devolveu `brCode`, `devMode: true` |
+| `checkouts/create` PIX em produto **sem** `cycle` | ✅ abriu a página de pagamento |
 
-Mandar só `["PIX"]` numa conta sem o recurso **fecha a loja**: o `create` recusa e ninguém
-compra. Os dois juntos degradam para cartão em vez de quebrar.
+**Leitura:** Pix **avulso** funciona. **Recorrência está bloqueada nos dois trilhos** — nem
+Pix Automático nem cartão. É capacidade de CONTA, não defeito de código, e só o suporte
+deles liga.
 
-→ **Item de operação, não de código:** pedir a habilitação de Pix Automático ao suporte
-(`ajuda@abacatepay.com`) e depois **medir** que o checkout mostra Pix.
+### ⚠️ `methods` é CONJUNÇÃO, não preferência
+
+Foi a suposição errada que este documento carregava até ser medido. A versão anterior
+dizia "mandar os dois degrada para cartão se o Pix não estiver ligado". **É falso:** a API
+recusa o pedido inteiro se QUALQUER método da lista faltar na loja. Mandar os dois não é a
+opção segura — é falhar por dois motivos em vez de um.
+
+Por isso `METODOS` virou `ABACATEPAY_METODOS`, padrão `PIX`. Só acrescente `CARD` depois
+que o cartão estiver habilitado, senão o checkout inteiro para.
+
+O erro tem classe própria (`NaoSuportado` → HTTP 501) com a mensagem dizendo o que fazer —
+um 502 genérico mandaria quem investiga procurar rede, chave e timeout por horas.
+
+→ **Item de operação:** pedir a habilitação de **Pix Automático** (e de cartão, se quiser
+os dois) em `ajuda@abacatepay.com`, e depois **medir** de novo.
+
+## ⚠️ Outras coisas medidas no mesmo dia
+
+- **O prefixo real da chave é `abc_dev_`**, não `dev_` como a documentação diz. O código
+  procura o segmento `_dev_`/`_prod_` e tem um terceiro estado (`desconhecido`) que grita
+  no boot — adivinhar foi o que errou da primeira vez.
+- **Eles validam dígito verificador de CPF.** `taxId: "12345678909"` volta
+  `Invalid taxId`; `11144477735` passa.
+- **`products/delete` quer o id na QUERY STRING**, não no corpo — com `id` no corpo devolve
+  `Expected property 'id' to be string but found: undefined`. E exige `PRODUCT:DELETE`, que
+  não está no escopo mínimo desta integração de propósito.
+- **O erro vem mesmo com HTTP 200.** Confirmado na prática, não só na documentação.
 
 ## Os dois modos
 

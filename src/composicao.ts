@@ -42,7 +42,7 @@ import { cobrancaStripe } from "@/adaptadores/saida/stripe/cobranca-stripe";
 import { estaConfigurado as isStripeConfigured } from "@/adaptadores/saida/stripe/config";
 import { cobrancaAbacatePay } from "@/adaptadores/saida/abacatepay/cobranca-abacatepay";
 import {
-  ehProducao as abacateEhProducao,
+  mundo as abacateMundo,
   estaConfigurado as isAbacateConfigured,
 } from "@/adaptadores/saida/abacatepay/config";
 import {
@@ -279,13 +279,23 @@ const provedorDeCobranca = isAbacateConfigured ? "abacatepay" as const : "stripe
 
 /* ⚠️ AVISO NO BOOT, E ELE EXISTE POR CAUSA DE UM MODO DE FALHA SILENCIOSO REAL: a
  * AbacatePay usa o MESMO endpoint para teste e produção, e quem separa é o prefixo da
- * chave. Uma `dev_` em produção responde 200, desenha um QR Code de Pix bonito e **não
- * cobra ninguém**. O produto parece vendido e não entrou dinheiro. Sem esta linha, a
- * descoberta acontece no fechamento do mês. */
-if (isAbacateConfigured && !abacateEhProducao) {
+ * chave. Uma chave de teste em produção responde 200, desenha um QR Code de Pix bonito e
+ * **não cobra ninguém**. O produto parece vendido e não entrou dinheiro. Sem esta linha, a
+ * descoberta acontece no fechamento do mês.
+ *
+ * O terceiro caso grita mais alto que o segundo de propósito: prefixo que não casa com
+ * nada significa que ou a chave está torta, ou eles mudaram o formato — e nos dois casos
+ * NÃO SABEMOS se o que está no ar cobra de verdade. Silêncio ali seria a pior resposta. */
+if (isAbacateConfigured && abacateMundo === "teste") {
   console.warn(
-    "[composicao] ⚠️ AbacatePay em DEV MODE (chave dev_): os pagamentos são SIMULADOS. "
+    "[composicao] ⚠️ AbacatePay em DEV MODE: os pagamentos são SIMULADOS. "
       + "Nada é cobrado de verdade.",
+  );
+}
+if (isAbacateConfigured && abacateMundo === "desconhecido") {
+  console.warn(
+    "[composicao] ⚠️ AbacatePay: NÃO SEI se esta chave cobra de verdade — o prefixo não é "
+      + "nem de teste nem de produção. Confira ABACATEPAY_API_KEY antes de vender.",
   );
 }
 
