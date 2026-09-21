@@ -941,10 +941,12 @@ export function useDetalhe(id: string | null): Detalhe | null {
     const aAssinar = r.assinar;
     if (aAssinar) {
       acoes.push({
-        label: st.cobrancaOcupada ? "Abrindo pagamento…" : "Assinar",
+        /* O rótulo diz o plano E o preço. "Assinar" sozinho é um botão que cobra sem
+         * dizer quanto — e o valor só apareceria na página do provedor, depois do clique. */
+        label: st.cobrancaOcupada ? "Abrindo pagamento…" : aAssinar.label,
         primaria: true,
         desabilitada: st.cobrancaOcupada,
-        onClick: () => st.assinarPlano(aAssinar),
+        onClick: () => st.assinarPlano(aAssinar.plano),
       });
     }
     if (r.gerenciar) {
@@ -965,6 +967,24 @@ export function useDetalhe(id: string | null): Detalhe | null {
       blocos: [
         ...(r.aviso ? [{ tipo: "aviso" as const, key: "av", texto: r.aviso.texto, tone: r.aviso.tone }] : []),
         ...(r.linhas.length ? [{ tipo: "stats" as const, key: "ass", label: "Assinatura", linhas: r.linhas }] : []),
+        /* Os outros planos, cada um com nome, preço e os dois números que decidem a
+         * escolha. Lista e não cartões: são três linhas de uma decisão, e a prominência
+         * já está no botão do rodapé — dois pesos visuais competindo fariam o olho achar
+         * que há duas ofertas principais. O rótulo muda quando não há botão primário,
+         * porque aí a lista deixa de ser "os outros" e passa a ser a escolha inteira. */
+        ...(r.outras.length
+          ? [{
+              tipo: "lista" as const,
+              key: "ofertas",
+              label: aAssinar ? "Outros planos" : "Escolha um plano",
+              itens: r.outras.map((o) => ({
+                id: o.plano,
+                nome: `${o.nome} · ${o.preco}`,
+                sub: o.resumo,
+                onClick: st.cobrancaOcupada ? undefined : () => st.assinarPlano(o.plano),
+              })),
+            }]
+          : []),
       ],
       acoes,
     };

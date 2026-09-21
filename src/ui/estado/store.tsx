@@ -1033,6 +1033,24 @@ export type EstadoAssinatura = {
   status: "carregando" | "ok" | "erro";
   /** O que a tabela diz. `null` quando não há linha — ver o ⚠️ acima. */
   assinatura: Assinatura | null;
+  /** Os três planos com nome e preço, como `GET /api/assinatura` devolveu. */
+  ofertas: Oferta[];
+};
+
+/**
+ * Um plano oferecível, montado pela rota a partir de `_lib/planos.ts`.
+ *
+ * ⚠️ `preco` É TEXTO ("R$ 197/mês"), e é de propósito: é o preço EXIBIDO, copy da landing
+ * page, e não um número para fazer conta. O preço cobrado é o do provedor, e ele chega por
+ * outro caminho — `assinatura.preco`, depois do webhook.
+ */
+export type Oferta = {
+  plano: ChaveDePlano;
+  nome: string;
+  preco: string;
+  resumo: string;
+  /** O plano base, o mesmo que a LP destaca. */
+  base: boolean;
 };
 
 /** Situação em português. A tabela guarda o nosso vocabulário, não o da Stripe. */
@@ -1065,8 +1083,20 @@ export type ResumoDaAssinatura = {
   sub: string;
   linhas: [string, string][];
   aviso: { texto: string; tone: "warn" | "danger" } | null;
-  /** O plano que o botão "Assinar" mandaria. `null` = sem botão. */
-  assinar: ChaveDePlano | null;
+  /**
+   * O botão primário, com o texto já montado — plano e preço juntos. `null` = sem botão
+   * primário, e aí as três ofertas vão para a lista (ver `outras`).
+   */
+  assinar: { plano: ChaveDePlano; label: string } | null;
+  /**
+   * Os planos que vão para o bloco de lista. Vazio = a gaveta não oferece troca nenhuma.
+   *
+   * ★ É AQUI QUE OS TRÊS PREÇOS DA LP ENTRAM NO APP. O botão primário é o plano da linha
+   * da tabela — `'Profissional'` para todo trial, por causa do `005_provisionar.sql`, o
+   * que faz R$ 197 ser a base. Os outros dois ficam disponíveis, com nome e preço à vista,
+   * em vez de exigirem uma conversa. Decisão do Bruno em 21/09/2026.
+   */
+  outras: Oferta[];
   /** Dá para abrir o portal de cobrança? */
   gerenciar: boolean;
 };
@@ -1080,7 +1110,12 @@ export type ResumoDaAssinatura = {
  * desconhecido abre uma página em branco no provedor.
  */
 export function resumoDaAssinatura(e: EstadoAssinatura): ResumoDaAssinatura {
-  const vazio = { linhas: [] as [string, string][], assinar: null, gerenciar: false };
+  const vazio = {
+    linhas: [] as [string, string][],
+    assinar: null,
+    outras: [] as Oferta[],
+    gerenciar: false,
+  };
 
   if (e.status === "carregando") {
     return { ...vazio, sub: "lendo sua assinatura…", aviso: null };
@@ -1103,7 +1138,20 @@ export function resumoDaAssinatura(e: EstadoAssinatura): ResumoDaAssinatura {
   /* `YYYY-MM-DD` formatado sem passar por `Date`: `new Date("2026-10-21")` é meia-noite
    * UTC, que em São Paulo ainda é o dia 20 — a tela mostraria a cobrança um dia antes. */
   const data = (iso: string | null) => (iso && D.ehDataCivil(iso) ? D.rotuloDia(iso) : "—");
+
+  /* O botão primário é o plano DA LINHA, com nome e preço da oferta correspondente. Sem
+   * oferta casada (payload antigo, ou lista vazia) ele ainda existe, com o texto curto: o
+   * plano é conhecido, só não se sabe o preço exibido dele. */
   const chave = chaveDoPlano(a.plano);
+  const daLinha = chave ? e.ofertas.find((o) => o.plano === chave) : undefined;
+  const assinar = chave
+    ? { plano: chave, label: daLinha ? `Assinar ${daLinha.nome} · ${daLinha.preco}` : "Assinar" }
+    : null;
+
+  /* As outras, para a lista. Quando não há botão primário — plano da linha fora da tabela
+   * — as TRÊS vão para a lista: cada uma com nome e preço à vista, que é o que torna a
+   * escolha informada. Esconder tudo deixaria a pessoa sem caminho nenhum. */
+  const outras = chave ? e.ofertas.filter((o) => o.plano !== chave) : e.ofertas;
 
   /* `assinaturaId` e não `clienteId`: o portal de um cliente SEM assinatura no provedor
    * abre vazio, e a LP promete "cancele quando quiser". Botão que abre página em branco é
@@ -1122,23 +1170,26 @@ export function resumoDaAssinatura(e: EstadoAssinatura): ResumoDaAssinatura {
 
   switch (a.status) {
     case "trial":
-      return { sub: `em teste até ${data(a.trialFim)}`, linhas, aviso: null, assinar: chave, gerenciar };
+      return { sub: `em teste até ${data(a.trialFim)}`, linhas, aviso: null, assinar, outras, gerenciar };
     case "ativa":
-      /* Sem "Assinar": ela já paga. Trocar de plano é assunto do portal. */
-      return { sub: `ativa · ${a.plano}`, linhas, aviso: null, assinar: null, gerenciar };
+      /* Sem "Assinar" e sem lista: ela já paga. Trocar de plano é assunto do portal, que
+       * sabe fazer proração — oferecer a troca aqui criaria uma segunda assinatura. */
+      return { sub: `ativa · ${a.plano}`, linhas, aviso: null, assinar: null, outras: [], gerenciar };
     case "inadimplente":
       /* Quem tem assinatura no provedor conserta pelo portal (trocar cartão, pagar a
        * fatura aberta). Assinar de novo criaria uma SEGUNDA assinatura e duas cobranças. */
       return {
         sub: "pagamento pendente", linhas,
         aviso: { texto: "O último pagamento não foi confirmado. Se foi boleto, ele pode levar um dia útil para cair.", tone: "danger" },
-        assinar: gerenciar ? null : chave, gerenciar,
+        assinar: gerenciar ? null : assinar,
+        outras: gerenciar ? [] : outras,
+        gerenciar,
       };
     case "cancelada":
       return {
         sub: `cancelada · ${a.plano}`, linhas,
         aviso: { texto: "Sua assinatura está cancelada. Você pode assinar de novo quando quiser.", tone: "warn" },
-        assinar: chave, gerenciar,
+        assinar, outras, gerenciar,
       };
   }
 }
@@ -3459,17 +3510,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* ── a assinatura deste negócio ──
    * Ver `EstadoAssinatura`. Uma leitura de `/api/assinatura`; quem mostra é a gaveta "plano". */
 
-  const [assinatura, setAssinatura] = useState<EstadoAssinatura>({ status: "carregando", assinatura: null });
+  const [assinatura, setAssinatura] = useState<EstadoAssinatura>({ status: "carregando", assinatura: null, ofertas: [] });
 
   const recarregarAssinatura = useCallback(async () => {
     try {
       /* Com prazo, como `/api/fiscal`: requisição pendurada deixaria `carregando` para
        * sempre, e `carregando` é o estado em que a gaveta não oferece botão nenhum. */
       const d = (await fetch("/api/assinatura", { cache: "no-store", signal: AbortSignal.timeout(15_000) })
-        .then((x) => x.json())) as { ok?: boolean; assinatura?: Assinatura | null } | null;
+        .then((x) => x.json())) as { ok?: boolean; assinatura?: Assinatura | null; ofertas?: Oferta[] } | null;
       if (!d?.ok) { setAssinatura((v) => ({ ...v, status: "erro" })); return; }
-      /* `?? null` e não um objeto chutado: ver o ⚠️ de `EstadoAssinatura`. */
-      setAssinatura({ status: "ok", assinatura: d.assinatura ?? null });
+      /* `?? null` e não um objeto chutado: ver o ⚠️ de `EstadoAssinatura`. Ofertas vazias
+       * não são erro — a gaveta só deixa de oferecer troca, e o botão do plano da linha
+       * continua lá com o texto curto. */
+      setAssinatura({
+        status: "ok",
+        assinatura: d.assinatura ?? null,
+        ofertas: Array.isArray(d.ofertas) ? d.ofertas : [],
+      });
     } catch {
       setAssinatura((v) => ({ ...v, status: "erro" }));
     }
