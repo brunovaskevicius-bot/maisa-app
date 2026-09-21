@@ -25,11 +25,26 @@
  * excedente são os mesmos números nos dois mundos, porque são o mesmo produto.
  *
  * ── DE ONDE VÊM ESTES NÚMEROS ─────────────────────────────────────────────
- * Da tabela calibrada sobre o stack atual (Evolution = WhatsApp a R$ 0) e ancorada em
- * pesquisa de preço real: acima dos booking apps (R$ 76–110), no meio da faixa dos
- * peers de IA (Zaia/Belasis/Flly/Cloudia) e abaixo do topo. Margem de caixa ~40% /
- * ~35% / ~47%. Não são preços inventados para encher card — é a mesma regra que a v3
- * de barbeiros já aplicava aos dados da <Duelo>: sem origem, não entra.
+ * Da §6 de `08 Attachments/MAISA-precificacao-unificada.md`, que é a tabela vigente.
+ * Ancorada em pesquisa de preço real: acima dos booking apps (R$ 76–110), no meio da
+ * faixa dos peers de IA (Zaia/Belasis/Flly/Cloudia) e abaixo do topo. Não são preços
+ * inventados para encher card — é a mesma regra que a v3 de barbeiros já aplicava aos
+ * dados da <Duelo>: sem origem, não entra.
+ *
+ * ── ⚠️ "PROFISSIONAIS: ILIMITADO" É A OFERTA, NÃO UMA GENEROSIDADE (21/09/2026) ──
+ *
+ * Até hoje este arquivo dizia "até 3" e "até 10", e a cota era 300/800/1.500 com
+ * excedente de R$ 0,29/0,24/0,19. Estava contra a própria estratégia: a §17.1 do
+ * documento de precificação chama "cobrança por profissional é imposto sobre
+ * crescimento" de **Brecha 2** — o argumento central contra a AVEC, que encarece quando
+ * o cliente contrata alguém. A LP escrevia exatamente o que devia atacar.
+ *
+ * O driver de custo nunca foi profissional; é CONVERSA (R$ 0,111 por agendamento). Então
+ * a escada é cota de agendamento, e o resto é ilimitado. A cota segmenta sozinha: quem
+ * cresce estoura e sobe de plano pelo próprio uso, sem a gente proibir nada.
+ *
+ * Números vigentes: 300 / 700 / 1.700 agendamentos, excedente R$ 0,42 / 0,28 / 0,23 —
+ * cobrado ao preço efetivo do próprio plano, que é por que ele não pune quem estoura.
  *
  * ⚠️ O EXCEDENTE É PARTE DA OFERTA, NÃO LETRA MIÚDA. Ele aparece como LINHA DO CARTÃO
  * nos dois mundos. Um limite de agendamentos sem o preço do que passa dele é a pegadinha
@@ -105,9 +120,9 @@ export const PLANOS: readonly Plano[] = [
     preco: "R$ 127",
     periodo: "/mês",
     specs: [
-      { rotulo: "Profissionais", valor: "até 3" },
+      { rotulo: "Profissionais", valor: "ilimitado" },
       { rotulo: "Agendamentos com IA", valor: "300/mês" },
-      { rotulo: "Excedente por agendamento", valor: "R$ 0,29" },
+      { rotulo: "Excedente por agendamento", valor: "R$ 0,42" },
       { rotulo: "Lembrete automático", valor: "incluído" },
       { rotulo: "Suporte", valor: "e-mail" },
     ],
@@ -118,9 +133,9 @@ export const PLANOS: readonly Plano[] = [
     preco: "R$ 197",
     periodo: "/mês",
     specs: [
-      { rotulo: "Profissionais", valor: "até 10" },
-      { rotulo: "Agendamentos com IA", valor: "800/mês" },
-      { rotulo: "Excedente por agendamento", valor: "R$ 0,24" },
+      { rotulo: "Profissionais", valor: "ilimitado" },
+      { rotulo: "Agendamentos com IA", valor: "700/mês" },
+      { rotulo: "Excedente por agendamento", valor: "R$ 0,28" },
       { rotulo: "Lembrete automático", valor: "incluído" },
       { rotulo: "Suporte", valor: "WhatsApp" },
     ],
@@ -133,8 +148,8 @@ export const PLANOS: readonly Plano[] = [
     periodo: "/mês",
     specs: [
       { rotulo: "Profissionais", valor: "ilimitado" },
-      { rotulo: "Agendamentos com IA", valor: "1.500/mês" },
-      { rotulo: "Excedente por agendamento", valor: "R$ 0,19" },
+      { rotulo: "Agendamentos com IA", valor: "1.700/mês" },
+      { rotulo: "Excedente por agendamento", valor: "R$ 0,23" },
       { rotulo: "Lembrete automático", valor: "incluído" },
       { rotulo: "Suporte", valor: "WhatsApp prioritário" },
     ],
@@ -181,17 +196,21 @@ type CopiaIcp = {
 export const COPIA: Record<ICP, CopiaIcp> = {
   barbeiros: {
     titulo: "Escolha o tamanho da sua operação.",
-    lead: "Todos atendem no WhatsApp que a barbearia já usa e começam a marcar horário no mesmo dia. A diferença é quantas cadeiras e quantos agendamentos cabem.",
+    /* ⚠️ O LEAD NÃO PODE FALAR DE CADEIRA. Cadeira é ilimitada nos três planos, e o
+       cartão logo abaixo diz isso. Enquanto esta frase dizia "quantas cadeiras cabem",
+       ela prometia um limite que a tabela não tem — e jogava fora o único argumento que
+       nenhum concorrente vertical consegue copiar. */
+    lead: "Todos atendem no WhatsApp que a barbearia já usa e começam a marcar horário no mesmo dia. Cadeira é ilimitada nos três — a diferença é quantos agendamentos a maisa fecha no mês.",
     extras: [],
     garantias: [
       "No ar em cerca de 30 minutos",
       "Se não se pagar no primeiro mês, a gente devolve",
       "Sem fidelidade — cancele quando quiser",
     ],
-    nota: "Um lembrete por agendamento, em todos os planos. A maisa atende no número que a barbearia já tem — você não troca de WhatsApp nem avisa cliente nenhum. Passou do limite do mês, você paga só o excedente; nada trava.",
+    nota: "Barbeiro é ilimitado em todos os planos: contrate quantos quiser, você paga pelo que a maisa agenda. Um lembrete por agendamento, sempre. Ela atende no número que a barbearia já tem — você não troca de WhatsApp nem avisa cliente nenhum. Passou do limite do mês, você paga só o excedente; nada trava.",
     planos: {
       essencial: {
-        resumo: "Pra barbearia de até três cadeiras que quer parar de perder horário.",
+        resumo: "Pra barbearia que ainda não enche a agenda e quer parar de perder horário.",
         cta: "Começar no Essencial",
       },
       profissional: {
@@ -199,14 +218,15 @@ export const COPIA: Record<ICP, CopiaIcp> = {
         cta: "Ativar minha agenda",
       },
       escala: {
-        resumo: "Pra rede com mais de uma unidade e time entrando e saindo.",
+        resumo: "Pra rede com mais de uma unidade e volume alto todo mês.",
         cta: "Falar sobre o Escala",
       },
     },
   },
   terapeutas: {
     titulo: "Custa menos que uma sessão por mês.",
-    lead: "Escolhe o plano e a maisa começa a atender no mesmo dia. A diferença é quantos terapeutas e quantos atendimentos cabem.",
+    /* Mesmo motivo do lead de barbeiros: terapeuta é ilimitado nos três. */
+    lead: "Escolhe o plano e a maisa começa a atender no mesmo dia. Terapeuta é ilimitado nos três — a diferença é quantos atendimentos ela marca no mês.",
     /* A linha que só existe neste mundo: a página inteira de terapeutas é sobre a
        NFS-e, e um cartão de preço que não a menciona parece esconder um adicional. */
     extras: [{ rotulo: "Nota fiscal e recibo", valor: "incluídos" }],
@@ -215,7 +235,7 @@ export const COPIA: Record<ICP, CopiaIcp> = {
       "Se não se pagar no primeiro mês, a gente devolve",
       "Sem fidelidade — cancele quando quiser",
     ],
-    nota: "Um lembrete por agendamento, em todos os planos. A maisa atende no número que você já usa e emite a nota de cada sessão. Passou do limite do mês, você paga só o excedente; nada trava.",
+    nota: "Terapeuta é ilimitado em todos os planos: traga quem quiser pra clínica, você paga pelo que a maisa agenda. Um lembrete por agendamento, sempre. Ela atende no número que você já usa e emite a nota de cada sessão. Passou do limite do mês, você paga só o excedente; nada trava.",
     planos: {
       essencial: {
         resumo: "Pra quem atende sozinho e quer parar de emitir nota à mão.",
@@ -226,7 +246,7 @@ export const COPIA: Record<ICP, CopiaIcp> = {
         cta: "Ativar a maisa",
       },
       escala: {
-        resumo: "Pra clínica com vários terapeutas na mesma sala.",
+        resumo: "Pra clínica com agenda cheia todos os dias e volume alto no mês.",
         cta: "Falar sobre o Escala",
       },
     },

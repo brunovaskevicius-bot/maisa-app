@@ -2901,8 +2901,8 @@ body:has(.lp-v3.mundo-barbeiros) {
   text-wrap: pretty;
 }
 
-/* O VALOR É MONO E TABULAR, e isso é o que permite comparar sem tabela: "R$ 0,29",
-   "R$ 0,24" e "R$ 0,19" ficam com a MESMA largura nos três cartões, então os três
+/* O VALOR É MONO E TABULAR, e isso é o que permite comparar sem tabela: "R$ 0,42",
+   "R$ 0,28" e "R$ 0,23" ficam com a MESMA largura nos três cartões, então os três
    alinham no mesmo eixo vertical mesmo em cartões de larguras diferentes. Em fonte
    proporcional eles dançariam, e a comparação exigiria ler número por número. */
 .lp-v3 .lp3-p-valor {
