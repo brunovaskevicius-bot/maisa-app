@@ -73,13 +73,27 @@ export const metadata: Metadata = {
   // Faz o iOS abrir em tela cheia (sem barra do Safari) ao "Adicionar à Tela de Início".
   appleWebApp: {
     capable: true,
-    title: "MAISA",
+    // ⚠️ `maisa`, minúsculo — é o rótulo embaixo do ícone na tela inicial do iPhone, e o
+    // design system é explícito: "nunca `Maisa` ou `MAISA`". Dizia "MAISA" até 22/09/2026.
+    title: "maisa",
     statusBarStyle: "default",
   },
 };
 
 export const viewport: Viewport = {
-  // acompanha --nav (oklch(0.290 0.078 262)); antes era o navy antigo #233E71
+  /* acompanha --nav (oklch(0.290 0.078 262)); antes era o navy antigo #233E71
+   *
+   * ⚠️ FICA AZUL DE PROPÓSITO, e isso NÃO é o mesmo descuido que o ícone tinha.
+   *
+   * Em 22/09/2026 o ícone, o apple-icon e o manifest foram alinhados ao verde do design
+   * system — são o que o Google e a tela inicial do celular mostram, e lá havia DUAS
+   * marcas concorrendo. Esta linha é outra coisa: ela pinta a moldura do navegador em
+   * volta do app, e o app inteiro (`--nav`, `--primary`) ainda roda na paleta navy
+   * antiga. Verde aqui com a tela azul embaixo pareceria defeito.
+   *
+   * O que isso revela é o gargalo de verdade: o painel nunca foi repintado no design
+   * system. Isso é decisão de produto, não conserto de arquivo — e enquanto não for
+   * tomada, o honesto é esta linha seguir o que a tela realmente é. */
   themeColor: "#152A52",
   width: "device-width",
   initialScale: 1,

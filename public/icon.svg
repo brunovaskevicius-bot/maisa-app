@@ -1,6 +1,17 @@
+<!-- maisa — favicon / ícone do PWA.
+     ⚠️ ERA NAVY #233E71 + DOURADO #EAAE3E EM PLUS JAKARTA SANS, até 22/09/2026. Isso
+     contradizia o design system E o logo que já subiu verificado na tela de consentimento
+     do Google (verde #0C2A1E + âmbar #E09A34). Eram duas marcas no mesmo produto, e a que
+     estava errada era esta — a outra já está publicada e aprovada.
+     As cores vêm de tokens/colors.css: --green-900, --cream-50, --ochre-400.
+     ⚠️ A FONTE CAI NO FALLBACK DO SISTEMA. Bricolage Grotesque é webfont e navegador não
+     carrega recurso externo dentro de SVG de favicon — nem o Plus Jakarta daqui carregava.
+     A 16–64px o que carrega a marca é a cor e o ponto âmbar, não a letra. Para ter a
+     letra certa, o caminho é gerar PNG com a fonte embutida (mesma receita do
+     `08 Attachments/(C) maisa — logo OAuth 120.png`), não emendar esta fonte-chain. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#233E71"/>
-  <text x="50%" y="51%" text-anchor="middle" dominant-baseline="middle"
-    font-family="'Plus Jakarta Sans', system-ui, -apple-system, Segoe UI, Arial, sans-serif"
-    font-size="122" font-weight="800" letter-spacing="-6" fill="#EAAE3E">maisa</text>
+  <rect width="512" height="512" rx="112" fill="#0C2A1E"/>
+  <text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle"
+    font-family="'Bricolage Grotesque', system-ui, -apple-system, Segoe UI, Arial, sans-serif"
+    font-size="122" font-weight="700" letter-spacing="-5.5" fill="#FDFBF7">maisa<tspan fill="#E09A34">.</tspan></text>
 </svg>
