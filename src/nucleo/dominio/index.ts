@@ -22,3 +22,4 @@ export * from "./assistente";
 export * from "./lembretes";
 export * from "./horarios";
 export * from "./erros";
+export * from "./caminho-de-volta";

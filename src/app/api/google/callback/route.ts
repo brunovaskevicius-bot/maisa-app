@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/adaptadores/saida/supabase/server";
-import { isGoogleConfigured, redirectUri, caminhoDeVolta } from "@/adaptadores/saida/google/config";
+import { isGoogleConfigured, redirectUri } from "@/adaptadores/saida/google/config";
+import { caminhoDeVolta } from "@/nucleo/dominio/caminho-de-volta";
 import { lerEstado } from "@/adaptadores/saida/google/cripto";
 import { trocarCodigo, emailDaConta, RecusaDoGoogle } from "@/adaptadores/saida/google/oauth";
 import { salvar } from "@/adaptadores/saida/google/conexoes";

@@ -34,22 +34,14 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/adaptadores/saida/supabase/client";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
-
-/**
- * O mesmo saneamento de `caminhoDeVolta`, reescrito de propósito.
+/* ⚠️ PELO CAMINHO DIRETO, não pelo barril `@/nucleo/dominio` — este arquivo é
+ * `"use client"` e o barril arrastaria o domínio inteiro para o bundle.
  *
- * ⚠️ NÃO IMPORTAR o original de `saida/google/config`: este arquivo é `"use client"` e
- * aquele módulo carrega configuração de servidor — importá-lo aqui puxaria segredo para
- * dentro do bundle. É a regra "segredo de servidor não cruza para o cliente", e a guarda
- * de arquitetura reprova. Duas linhas duplicadas custam menos que a exceção.
- *
- * O que ele impede: `//site-de-fora` é protocol-relative, e o navegador obedece.
- */
-function destinoSeguro(v: string | null): string {
-  if (!v || !v.startsWith("/")) return "/";
-  if (v.startsWith("//") || v.startsWith("/\\")) return "/";
-  return v;
-}
+ * Até 22/09/2026 estas três linhas estavam reescritas aqui dentro, com o motivo anotado:
+ * `saida/google/config` é módulo de servidor e importá-lo puxaria `GOOGLE_CLIENT_SECRET`
+ * para o navegador. O motivo continua valendo; o que mudou é que a função saiu de lá e
+ * foi para o núcleo, onde os dois lados alcançam a MESMA linha. */
+import { caminhoDeVolta } from "@/nucleo/dominio/caminho-de-volta";
 
 export function RecuperarSessaoDaUrl() {
   const [erro, setErro] = useState<string | null>(null);
@@ -98,7 +90,7 @@ export function RecuperarSessaoDaUrl() {
        *
        * `replace` também tira esta URL do histórico — com `push`, o botão "voltar" traria
        * de volta um fragmento já consumido, que não vira sessão duas vezes. */
-      const destino = destinoSeguro(new URLSearchParams(window.location.search).get("next"));
+      const destino = caminhoDeVolta(new URLSearchParams(window.location.search).get("next"));
       window.location.replace(destino);
     })();
 

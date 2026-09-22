@@ -3,7 +3,8 @@ import { app, servicos } from "@/composicao";
 import { barrou, exigirSessao, tenantDoUsuario } from "@/adaptadores/entrada/http/contexto";
 import { createClient } from "@/adaptadores/saida/supabase/server";
 import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
-import { caminhoDeVolta, isGoogleConfigured, redirectUri } from "@/adaptadores/saida/google/config";
+import { isGoogleConfigured, redirectUri } from "@/adaptadores/saida/google/config";
+import { caminhoDeVolta } from "@/nucleo/dominio/caminho-de-volta";
 import { assinarEstado, pkce } from "@/adaptadores/saida/google/cripto";
 import { urlDeConsentimento } from "@/adaptadores/saida/google/oauth";
 

@@ -11,7 +11,7 @@ a API do calendário (o que se faz com ele).
 | Arquivo | Assunto | Detalhe que não é óbvio |
 |---|---|---|
 | `agenda-google.ts` | **A fachada.** Implementa as portas amarrando os vizinhos. | É o único que o resto do app importa. É aqui que `AtendimentoMarcado` (domínio) vira `extendedProperties.private` (Google). |
-| `config.ts` | Env vars, escopos, `redirectUri`, `caminhoDeVolta` | Sem `GOOGLE_TOKEN_KEY` válida (32 bytes em base64) a integração fica **desligada**, não "degradada": ou os tokens são cifrados, ou o botão de conectar nem aparece. |
+| `config.ts` | Env vars, escopos, `redirectUri` | Sem `GOOGLE_TOKEN_KEY` válida (32 bytes em base64) a integração fica **desligada**, não "degradada": ou os tokens são cifrados, ou o botão de conectar nem aparece. ⚠️ `caminhoDeVolta` **saiu daqui em 22/09/2026** → `@/nucleo/dominio/caminho-de-volta`: ela é pura, mas estava presa num módulo de servidor, e quem roda no navegador não pode importar este arquivo sem arrastar o `client_secret` para o bundle. |
 | `oauth.ts` | Consent, troca de código, refresh, revogação, e‑mail da conta | Sem SDK — a API de token é um POST form‑urlencoded. `prompt=consent` é o que garante o refresh token de quem já autorizou antes. |
 | `cripto.ts` | AES‑256‑GCM dos tokens, assinatura do `state`, PKCE | O `state` é assinado; o verifier do PKCE fica em cookie httpOnly, nunca na URL. |
 | `conexoes.ts` | Onde os tokens moram (tabela `google_integracoes`) e como se renovam | `acessoValido()` é o único caminho para um token — ele já renova e regrava. Nenhuma rota precisa lembrar de nada. |

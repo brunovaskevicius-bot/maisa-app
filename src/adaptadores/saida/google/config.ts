@@ -79,17 +79,9 @@ export function redirectUri(origin: string): string {
   return GOOGLE.redirectUri ?? `${origin}/api/google/callback`;
 }
 
-/**
- * Saneia o caminho de retorno pós-consent.
+/* ⚠️ `caminhoDeVolta` SAIU DAQUI em 22/09/2026 → `@/nucleo/dominio/caminho-de-volta`.
  *
- * Só aceita caminho relativo à raiz. Um `startsWith("/")` sozinho deixaria passar
- * `//evil.com` e `/\evil.com`: hoje eles resolvem para dentro da própria origem,
- * mas dependem de como cada parser de URL trata o prefixo — é fino demais para
- * apostar num redirect. Qualquer coisa fora do formato vira "/".
- */
-export function caminhoDeVolta(volta: string | null | undefined): string {
-  const v = volta ?? "";
-  if (!v.startsWith("/")) return "/";
-  if (v.startsWith("//") || v.startsWith("/\\")) return "/";
-  return v;
-}
+ * Ela é pura e não sabe nada de Google, mas estava presa num módulo de SERVIDOR: quem
+ * roda no navegador (`RecuperarSessaoDaUrl`, `BotaoGoogle`) não pode importar este
+ * arquivo sem arrastar `GOOGLE_CLIENT_SECRET` para o bundle, e por isso já havia uma
+ * segunda cópia da regra. O motivo completo está no cabeçalho do arquivo novo. */

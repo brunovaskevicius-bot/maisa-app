@@ -34,7 +34,8 @@ import { useSearchParams } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
 import { CampoSenha } from "@/ui/componentes/CampoSenha";
 import { createClient } from "@/adaptadores/saida/supabase/client";
-import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/adaptadores/saida/supabase/config";
+import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
+import { BotaoGoogle } from "@/ui/componentes/BotaoGoogle";
 
 /**
  * Piso da senha.
@@ -45,17 +46,6 @@ import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/adaptad
  * pessoa lê um erro em inglês vindo do Supabase sobre um campo que a tela disse estar bom.
  */
 const SENHA_MIN = 8;
-
-function GoogleG() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-      <path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z" />
-      <path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z" />
-      <path fill="#FBBC05" d="M11.69 28.18c-.44-1.32-.69-2.73-.69-4.18s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z" />
-      <path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z" />
-    </svg>
-  );
-}
 
 const inputCss =
   "width:100%;border:1px solid var(--border);border-radius:12px;padding:13px 14px;font-size:var(--t-body);background:var(--surface);color:var(--ink);outline:none;font-family:inherit";
@@ -78,22 +68,6 @@ function CadastroInner() {
 
   /** Sucesso é TELA, não aviso. Guarda o e-mail porque a instrução precisa dizer qual. */
   const [enviadoPara, setEnviadoPara] = useState<string | null>(null);
-
-  /* Mesma checagem do `/login`: o botão do Google só existe se o provedor estiver LIGADO
-   * no projeto. Sem ela, ele navega para o `/authorize` do Supabase e devolve um JSON cru
-   * numa página branca. Medido em 15/08/2026: neste projeto `external.google` é `false` —
-   * o botão não aparece em nenhuma das duas telas hoje, e as duas voltam a mostrá-lo no
-   * dia em que o provedor for ligado, sem tocar em código. */
-  const [googleLigado, setGoogleLigado] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    let vivo = true;
-    fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_ANON_KEY! } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => vivo && setGoogleLigado(Boolean(j?.external?.google)))
-      .catch(() => vivo && setGoogleLigado(false));
-    return () => { vivo = false; };
-  }, []);
 
   /* ─────────────────────────────────────────────────────────────────────────────
    * A ABA QUE FICOU PARA TRÁS.
@@ -287,27 +261,6 @@ function CadastroInner() {
     setCarregando(false);
   };
 
-  const criarComGoogle = async () => {
-    if (!isSupabaseConfigured) return;
-    setErro(null);
-    setCarregando(true);
-    const supabase = createClient();
-    /* Entrar e cadastrar são a MESMA chamada no OAuth — o provedor não distingue, e o
-     * Supabase cria a conta no primeiro acesso. Por isso não há um `signUp` social. */
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      /* Mesmo destino do cadastro por e-mail: quem entra pelo Google a partir da tela de
-       * CADASTRO também está começando, e o painel não é o lugar de quem não tem negócio.
-       * Quem já tem cai em `/comecar`, a retomada pergunta ao mundo e o wizard o manda
-       * adiante — nenhum passo se repete. */
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=%2Fcomecar` },
-    });
-    if (error) {
-      setErro("Não foi possível continuar com o Google.");
-      setCarregando(false);
-    }
-  };
-
   const travado = !isSupabaseConfigured || carregando;
 
   return (
@@ -433,18 +386,11 @@ function CadastroInner() {
                 </button>
               </form>
 
-              {googleLigado && (
-                <>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={s("flex:1;height:1px;background:var(--border)")} />
-                    <span style={s("font-size:var(--t-label);color:var(--muted);font-weight:var(--w-title)")}>ou</span>
-                    <div style={s("flex:1;height:1px;background:var(--border)")} />
-                  </div>
-                  <button onClick={criarComGoogle} disabled={travado} className="m-hov-bg m-press m-focus" style={s(`display:flex;align-items:center;justify-content:center;gap:11px;height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:var(--w-title);font-size:var(--t-sm);cursor:${travado ? "not-allowed" : "pointer"};opacity:${travado ? ".6" : "1"};font-family:inherit`)}>
-                    <GoogleG /> Continuar com Google
-                  </button>
-                </>
-              )}
+              {/* Entrar e cadastrar são a MESMA chamada no Google — o provedor não
+                  distingue, e a conta nasce no primeiro acesso. Por isso não há um
+                  `signUp` social: o que muda aqui é só o texto do botão (`modo`) e o
+                  destino, `/comecar`, porque quem chega pelo cadastro não tem negócio. */}
+              <BotaoGoogle modo="criar" destino="/comecar" desabilitado={travado} />
             </>
           )}
         </div>

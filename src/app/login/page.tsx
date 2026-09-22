@@ -1,12 +1,14 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { LinhaLegal } from "@/app/(marketing)/_lib/LinhaLegal";
 import { useRouter, useSearchParams } from "next/navigation";
 import { s, Icon } from "@/ui/primitivos";
 import { CampoSenha } from "@/ui/componentes/CampoSenha";
 import { createClient } from "@/adaptadores/saida/supabase/client";
-import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/adaptadores/saida/supabase/config";
+import { isSupabaseConfigured } from "@/adaptadores/saida/supabase/config";
+import { BotaoGoogle } from "@/ui/componentes/BotaoGoogle";
+import { caminhoDeVolta } from "@/nucleo/dominio/caminho-de-volta";
 import { RecuperarSessaoDaUrl } from "@/app/auth/RecuperarSessaoDaUrl";
 
 /* Motivos que /auth/callback devolve, em português de gente. Cada um diz o que
@@ -28,17 +30,6 @@ const MOTIVO: Record<string, string> = {
   auth: "Não foi possível concluir o login. Tente de novo.", // legado: links antigos
 };
 
-function GoogleG() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-      <path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z" />
-      <path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z" />
-      <path fill="#FBBC05" d="M11.69 28.18c-.44-1.32-.69-2.73-.69-4.18s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z" />
-      <path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z" />
-    </svg>
-  );
-}
-
 function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
@@ -48,26 +39,6 @@ function LoginInner() {
   const motivo = params.get("error");
   const [erro, setErro] = useState<string | null>(motivo ? (MOTIVO[motivo] ?? MOTIVO.auth) : null);
   const [carregando, setCarregando] = useState(false);
-
-  /* O botão do Google só aparece se o provedor estiver LIGADO no projeto.
-   *
-   * Sem esta checagem ele navega para o /authorize do Supabase, que responde
-   * 400 com um JSON cru — e o usuário, que só queria entrar, encara
-   * {"code":400,…,"Unsupported provider"} numa página branca. Um botão que não
-   * pode funcionar é pior do que botão nenhum, então some.
-   *
-   * `null` = ainda checando: some também, para o botão não piscar na tela e
-   * sumir. É um GET público no mesmo host que a página já vai conversar. */
-  const [googleLigado, setGoogleLigado] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    let vivo = true;
-    fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_ANON_KEY! } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => vivo && setGoogleLigado(Boolean(j?.external?.google)))
-      .catch(() => vivo && setGoogleLigado(false));
-    return () => { vivo = false; };
-  }, []);
 
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,21 +52,10 @@ function LoginInner() {
       setCarregando(false);
       return;
     }
-    router.push(next.startsWith("/") ? next : "/");
+    /* ⚠️ `startsWith("/")` sozinho deixava passar `//site-de-fora`, que é
+     * protocol-relative e o navegador obedece. Mesma regra que o `/auth/callback` usa. */
+    router.push(caminhoDeVolta(next));
     router.refresh();
-  };
-
-  const entrarGoogle = async () => {
-    if (!isSupabaseConfigured) return;
-    setErro(null);
-    setCarregando(true);
-    const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
-    if (error) {
-      setErro("Não foi possível iniciar o login com Google.");
-      setCarregando(false);
-    }
   };
 
   const inputCss = "width:100%;border:1px solid var(--border);border-radius:12px;padding:13px 14px;font-size:var(--t-body);background:var(--surface);color:var(--ink);outline:none;font-family:inherit";
@@ -165,19 +125,9 @@ function LoginInner() {
             </button>
           </form>
 
-          {googleLigado && (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={s("flex:1;height:1px;background:var(--border)")} />
-                <span style={s("font-size:var(--t-label);color:var(--muted);font-weight:var(--w-title)")}>ou</span>
-                <div style={s("flex:1;height:1px;background:var(--border)")} />
-              </div>
-
-              <button onClick={entrarGoogle} disabled={!isSupabaseConfigured || carregando} className="m-hov-bg m-press m-focus" style={s(`display:flex;align-items:center;justify-content:center;gap:11px;height:48px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font-weight:var(--w-title);font-size:var(--t-sm);cursor:${!isSupabaseConfigured || carregando ? "not-allowed" : "pointer"};opacity:${!isSupabaseConfigured ? ".6" : "1"}`)}>
-                <GoogleG /> Continuar com Google
-              </button>
-            </>
-          )}
+          {/* Divisor, botão e erro do Google vivem inteiros aqui dentro — inclusive a
+              decisão de não aparecer quando o provedor está desligado no projeto. */}
+          <BotaoGoogle modo="entrar" destino={next} desabilitado={carregando} />
         </div>
 
         {/* Até 15/08/2026 aqui dizia "Acesso restrito. As contas são criadas pelo

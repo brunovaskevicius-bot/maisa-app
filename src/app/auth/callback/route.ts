@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/adaptadores/saida/supabase/server";
-import { caminhoDeVolta } from "@/adaptadores/saida/google/config";
+import { caminhoDeVolta } from "@/nucleo/dominio/caminho-de-volta";
 
 // Callback do OAuth (Google) e de confirmação por e-mail: transforma o que veio na URL
 // em sessão e redireciona pro destino. O Supabase manda pra cá após o login social.
