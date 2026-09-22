@@ -2,9 +2,21 @@
 /* ─────────────────────────────────────────────────────────────────────────────
  * CONFERE O CAMINHO DO E-MAIL — DNS da Resend + estado do Supabase.
  *
- *   npm run email:conferir
+ *   npm run email:conferir                        → só leitura
+ *   npm run email:conferir -- --enviar voce@x.com  → ⚠️ MANDA UM E-MAIL DE VERDADE
  *
- * **Só leitura.** Não escreve em DNS, não escreve no Supabase, não manda e-mail.
+ * O modo padrão **não escreve em nada**: não toca em DNS, não toca no Supabase, não manda
+ * e-mail. Mesma disciplina do `abacate:catalogo`, onde escrever é opt-in explícito.
+ *
+ * ── POR QUE O `--enviar` EXISTE ──
+ *
+ * Porque o Supabase engole a recusa da Resend. Quando o SMTP falha, ele devolve
+ * `500 "Error sending recovery email"` e mais nada — a causa real (chave errada? domínio
+ * não verificado? remetente recusado?) fica do outro lado de um log que pede PAT.
+ *
+ * Este modo fala SMTP na mão com a `smtp.resend.com` e **imprime cada linha do servidor**.
+ * Aí a resposta deixa de ser um 500 e vira, por exemplo, `535 Authentication failed` ou
+ * `403 domain is not verified` — que já diz qual campo do painel consertar.
  *
  * ── POR QUE ISTO EXISTE ──
  *
@@ -167,5 +179,107 @@ console.log(
   "com o link aberto em OUTRO aparelho — o teste que o template antigo reprova.\n" +
   "Passo a passo: 02 Integrações/(C) E-mail transacional — Resend + Supabase.md\n",
 );
+
+/* ── modo --enviar: a conversa SMTP crua ───────────────────────────────────────
+ *
+ * ⚠️ ÚNICO CAMINHO DESTE SCRIPT QUE PRODUZ EFEITO NO MUNDO. Manda um e-mail de verdade,
+ * pela conta de verdade, e gasta uma mensagem da cota.
+ *
+ * Sem biblioteca: a conversa é curta e o valor está em VER o diálogo. Um cliente SMTP
+ * pronto engoliria exatamente as linhas que a gente veio ler. */
+
+const iEnviar = process.argv.indexOf("--enviar");
+if (iEnviar !== -1) {
+  const destino = process.argv[iEnviar + 1];
+  const iDe = process.argv.indexOf("--de");
+  const remetente = iDe !== -1 ? process.argv[iDe + 1] : `nao-responda@${DOMINIO}`;
+
+  if (!destino || destino.startsWith("--")) {
+    console.error("\n✗ uso: npm run email:conferir -- --enviar voce@exemplo.com [--de outro@dominio]");
+    process.exit(1);
+  }
+  if (!RESEND_KEY) {
+    console.error("\n✗ falta RESEND_API_KEY no .env.local — é a senha do SMTP.");
+    process.exit(1);
+  }
+
+  const { connect } = await import("node:tls");
+  const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
+
+  titulo(`SMTP — conversa crua com smtp.resend.com (de ${remetente} para ${destino})`);
+
+  const socket = connect({ host: "smtp.resend.com", port: 465, servername: "smtp.resend.com" });
+  socket.setEncoding("utf8");
+
+  let buffer = "";
+  /** Espera a última linha da resposta: código + ESPAÇO (com hífen, ainda vem mais). */
+  const resposta = () => new Promise((ok, falha) => {
+    const tentar = () => {
+      const linhas = buffer.split("\r\n").filter(Boolean);
+      const ultima = linhas[linhas.length - 1];
+      if (ultima && /^\d{3} /.test(ultima)) {
+        const texto = buffer; buffer = "";
+        socket.off("data", aoDado);
+        ok({ codigo: Number(texto.slice(0, 3)), texto: texto.trim() });
+      }
+    };
+    const aoDado = (p) => { buffer += p; tentar(); };
+    socket.on("data", aoDado);
+    socket.once("error", falha);
+    tentar();
+  });
+
+  /** `esconder` existe para a chave não sair no terminal nem num print de tela. */
+  const dizer = async (linha, esconder = false) => {
+    console.log(`  \x1b[36m→\x1b[0m ${esconder ? "<escondido>" : linha}`);
+    socket.write(linha + "\r\n");
+    const r = await resposta();
+    const cor = r.codigo < 400 ? "32" : "31";
+    console.log(`  \x1b[${cor}m←\x1b[0m ${r.texto.split("\r\n").join("\n    ")}`);
+    return r;
+  };
+
+  try {
+    await new Promise((ok, falha) => { socket.once("secureConnect", ok); socket.once("error", falha); });
+    const saudacao = await resposta();
+    console.log(`  \x1b[32m←\x1b[0m ${saudacao.texto}`);
+
+    await dizer("EHLO maisa.local");
+    const auth = await dizer("AUTH LOGIN");
+    if (auth.codigo === 334) {
+      await dizer(b64("resend"), true);
+      const senha = await dizer(b64(RESEND_KEY), true);
+      if (senha.codigo !== 235) {
+        nao("autenticação recusada — a senha do SMTP é a chave `re_...` da Resend, e o usuário é a palavra `resend`");
+      }
+    }
+
+    const de = await dizer(`MAIL FROM:<${remetente}>`);
+    if (de.codigo >= 400) nao(`remetente recusado — o domínio de ${remetente} precisa estar verificado NA CONTA da Resend`);
+
+    const para = await dizer(`RCPT TO:<${destino}>`);
+    if (para.codigo >= 400) nao("destinatário recusado — com domínio não verificado, a Resend só aceita o e-mail do dono da conta");
+
+    if (de.codigo < 400 && para.codigo < 400) {
+      await dizer("DATA");
+      socket.write(
+        `From: maisa <${remetente}>\r\n` +
+        `To: <${destino}>\r\n` +
+        `Subject: teste de SMTP da maisa\r\n` +
+        `Content-Type: text/plain; charset=utf-8\r\n\r\n` +
+        `Se isto chegou, a Resend esta enviando. O que falta e o painel do Supabase.\r\n.\r\n`,
+      );
+      const fim = await resposta();
+      console.log(`  \x1b[32m←\x1b[0m ${fim.texto}`);
+      fim.codigo < 400 ? ok("aceito para entrega — confere a caixa (e o spam)") : nao("recusado no DATA");
+    }
+
+    await dizer("QUIT");
+  } catch (e) {
+    nao(`a conversa SMTP quebrou: ${e.message}`);
+  } finally {
+    socket.end();
+  }
+}
 
 process.exit(faltou ? 1 : 0);
