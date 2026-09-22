@@ -212,8 +212,19 @@ if (iEnviar !== -1) {
   socket.setEncoding("utf8");
 
   let buffer = "";
+
+  /* ⚠️ UM ÚNICO ouvinte de erro, guardado aqui. A versão anterior registrava um
+   * `socket.once("error")` DENTRO de `resposta()` e nunca o removia — com uma conversa de
+   * dez trocas, o Node avisava "possible EventEmitter memory leak". Era só ruído num
+   * script curto, mas ruído num diagnóstico é pior que em outro lugar: quem está lendo a
+   * saída para entender uma falha não sabe se o aviso faz parte dela. */
+  let quebrou = null;
+  const aguardando = [];
+  socket.once("error", (e) => { quebrou = e; aguardando.splice(0).forEach((f) => f(e)); });
+
   /** Espera a última linha da resposta: código + ESPAÇO (com hífen, ainda vem mais). */
   const resposta = () => new Promise((ok, falha) => {
+    if (quebrou) return falha(quebrou);
     const tentar = () => {
       const linhas = buffer.split("\r\n").filter(Boolean);
       const ultima = linhas[linhas.length - 1];
@@ -225,7 +236,7 @@ if (iEnviar !== -1) {
     };
     const aoDado = (p) => { buffer += p; tentar(); };
     socket.on("data", aoDado);
-    socket.once("error", falha);
+    aguardando.push(falha);
     tentar();
   });
 
@@ -240,7 +251,7 @@ if (iEnviar !== -1) {
   };
 
   try {
-    await new Promise((ok, falha) => { socket.once("secureConnect", ok); socket.once("error", falha); });
+    await new Promise((ok, falha) => { socket.once("secureConnect", ok); aguardando.push(falha); });
     const saudacao = await resposta();
     console.log(`  \x1b[32m←\x1b[0m ${saudacao.texto}`);
 
