@@ -61,11 +61,13 @@ function paginas(): { nome: string; texto: string }[] {
  * |---|---|---|
  * | `/privacidade`, `/termos` | documento legal; usam <PaginaJuridica>, com nav própria | 17/08/2026 |
  * | `/autorizar` | tutorial da Autorização de Acesso do e-CAC; quem lê está no site da Receita, não comprando | 26/08/2026 |
+ * | `/sobre` | home pública, neutra de ICP; o <World> exige um `icp` e monta a barra de conversão daquele mundo, e esta página apresenta o produto em vez de vender para um público | 21/09/2026 |
  */
 const NAO_SAO_LP = [
   "(marketing)/privacidade/page.tsx",
   "(marketing)/termos/page.tsx",
   "(marketing)/autorizar/page.tsx",
+  "(marketing)/sobre/page.tsx",
 ];
 
 /**
@@ -122,7 +124,7 @@ describe("o caminho para a política existe em toda página pública", () => {
    * tabela no comentário acima diz por quê e desde quando. Se este número subir sem a linha
    * correspondente, alguém usou a exceção como atalho. */
   it("a lista de exceção tem o tamanho que está documentado", () => {
-    expect(NAO_SAO_LP).toHaveLength(3);
+    expect(NAO_SAO_LP).toHaveLength(4);
   });
 
   /* ★ O TESTE QUE JUSTIFICA O ARQUIVO. Se alguém tirar a tira do <World> para "limpar o

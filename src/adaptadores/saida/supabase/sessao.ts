@@ -32,6 +32,11 @@ const PUBLIC_PREFIXES = [
    * seria **zero venda**: nenhum erro, nenhum log, só ninguém comprando. A checagem é por
    * SEGMENTO, então `/assinar` não herda de `/cadastro` nem de `/lp`. */
   "/assinar",
+  /* ⚠️ `/sobre` É A HOME PÚBLICA, e ela existe para o Google conseguir VERIFICAR o app:
+   * a exigência é uma página acessível que descreva o produto e linke a política. Uma home
+   * atrás do login seria a piada perfeita — a página que prova que o app é acessível,
+   * pedindo senha. A raiz `/` não serve: ela é o app. */
+  "/sobre",
   /* ⚠️ JURÍDICAS SÃO PÚBLICAS POR EXIGÊNCIA EXTERNA, não por conveniência. O Google
    * confere as URLs de privacidade e termos ao verificar um app que pede escopo sensível —
    * e `calendar.events` é sensível. Atrás do login, o revisor abre a política e vê um

@@ -39,6 +39,9 @@ describe("o funil é público", () => {
      * mais direta que existe: barrá-la é barrar quem está com o cartão na mão. */
     "/assinar",
     "/assinar/profissional",
+    /* A home pública. Ela existe para o Google conseguir verificar o app — atrás do login
+     * ela não cumpre a única função que tem. */
+    "/sobre",
   ])("%s abre sem login", (rota) => {
     expect(isPublic(rota)).toBe(true);
   });
