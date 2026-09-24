@@ -260,6 +260,24 @@ export const repositorioDemo: RepositorioNegocio = {
     CLIENTES.push(novo);
     return novo;
   },
+
+  async criarCliente(_t, p) {
+    const novo: Cliente = {
+      id: `cl-demo-${Date.now().toString(36)}`,
+      nome: p.nome,
+      telefone: p.telefone,
+      email: "",
+      cpf: p.cpf ?? "",
+      canal: "Online",
+      ativo: true,
+      desde: MES_ATUAL,
+      servicoId: "",
+      atendimentos: 0,
+      valor: 0,
+    };
+    CLIENTES.push(novo);
+    return novo;
+  },
 };
 
 /** `mar/2026` — o formato que `Cliente.desde` usa na tela (ver o adaptador Supabase). */

@@ -301,14 +301,9 @@ export function criarAjustarCliente(deps: { negocio: RepositorioNegocio }): Ajus
     /* O telefone guardado é o TEXTO como a pessoa escreveu — a coluna é assim de propósito
      * ("(11) 98123-4567"), e quem compara é a coluna gerada. Aqui só se colapsa espaço e
      * se conta DÍGITO: o `check` do banco mede caracteres, então "(11) 9" passaria lá com
-     * seis dígitos e viraria uma chave de telefone de seis. */
-    const telefone = colapsarEspaco(p?.telefone);
-    if (soDigitos(telefone).length < TELEFONE_MIN_DIGITOS) {
-      throw new DadoInvalido(
-        "O telefone precisa dos 8 dígitos do número, com DDD — é por ele que a MAISA reconhece quem está falando no WhatsApp.",
-        "telefone",
-      );
-    }
+     * seis dígitos e viraria uma chave de telefone de seis. Vazio vale desde 24/09/2026:
+     * cliente cadastrado à mão só com nome e CPF tem que continuar editável na gaveta. */
+    const telefone = telefoneOpcional(p?.telefone);
 
     /* ── os opcionais: `undefined` é "não mexe", `null` é "apaga" ──
      *
@@ -377,13 +372,13 @@ export function criarAjustarCliente(deps: { negocio: RepositorioNegocio }): Ajus
 /**
  * Cria um cliente a partir do botão "Novo cliente" da tela Clientes.
  *
- * Passa por `garantirCliente` de propósito — o mesmo que o agente chama —, para que a tela
- * e o WhatsApp tenham UMA regra de criação, a que deduplica por telefone. Se o número já é
- * de alguém, devolve esse alguém com `jaExistia`, e não reescreve o nome: quem manda no
- * cadastro existente é a gaveta, não um formulário de criação.
+ * Só o nome é obrigatório — ver `CadastrarCliente`. Telefone e CPF, quando vêm, passam pela
+ * MESMA régua do `ajustarCliente` (`telefoneOpcional`, `cpfOpcional`), para que criar e
+ * editar recusem as mesmas coisas.
  *
- * O resto da ficha (CPF, e-mail, canal) não vem aqui: a tela abre a gaveta logo depois, e
- * ela já grava campo por campo com a validação de `ajustarCliente`.
+ * Com telefone, deduplica pelo `clientePorTelefone` antes de criar — a mesma chave que o
+ * agente usa, então a tela e o WhatsApp não fazem a mesma pessoa duas vezes. Achou alguém,
+ * devolve esse alguém e não reescreve nada: quem manda no cadastro existente é a gaveta.
  */
 export function criarCadastrarCliente(deps: { negocio: RepositorioNegocio }): CadastrarCliente {
   return async (t, p) => {
@@ -394,24 +389,45 @@ export function criarCadastrarCliente(deps: { negocio: RepositorioNegocio }): Ca
     if (nome.length > NOME_CLIENTE_MAX) {
       throw new DadoInvalido(`O nome passa de ${NOME_CLIENTE_MAX} caracteres.`, "nome");
     }
-    const telefone = colapsarEspaco(p?.telefone);
-    if (soDigitos(telefone).length < TELEFONE_MIN_DIGITOS) {
-      throw new DadoInvalido(
-        "O telefone precisa dos 8 dígitos do número, com DDD — é por ele que a MAISA reconhece quem está falando no WhatsApp.",
-        "telefone",
-      );
+    const telefone = telefoneOpcional(p?.telefone);
+    const cpf = cpfOpcional(p?.cpf);
+
+    if (telefone) {
+      const existente = await deps.negocio.clientePorTelefone(t, telefone);
+      if (existente) return { cliente: existente, jaExistia: true };
     }
-
-    const existente = await deps.negocio.clientePorTelefone(t, telefone);
-    if (existente) return { cliente: existente, jaExistia: true };
-
-    /* `garantirCliente` devolve `null` em vez de lançar quando o banco recusa — lá isso
-     * protege o agendamento. Aqui não há agendamento a proteger, e silêncio seria a tela
-     * dizendo "criado" sem ter criado. */
-    const cliente = await deps.negocio.garantirCliente(t, { nome, telefone });
-    if (!cliente) throw new Error("O banco não aceitou o cadastro do cliente.");
+    const cliente = await deps.negocio.criarCliente(t, { nome, telefone, cpf });
     return { cliente, jaExistia: false };
   };
+}
+
+/**
+ * Vazio é "não tem telefone" e vira `""`; de 1 a 7 dígitos é número pela metade.
+ *
+ * Opcional desde 24/09/2026 (migração 029). Antes era obrigatório porque todo cliente
+ * nascia pelo WhatsApp; cadastrado à mão, ele pode existir só para o recibo.
+ */
+function telefoneOpcional(bruto: string | null | undefined): string {
+  const telefone = colapsarEspaco(bruto);
+  const d = soDigitos(telefone).length;
+  if (d === 0) return "";
+  if (d < TELEFONE_MIN_DIGITOS) {
+    throw new DadoInvalido(
+      "O telefone precisa dos 8 dígitos do número, com DDD — é por ele que a MAISA reconhece quem está falando no WhatsApp.",
+      "telefone",
+    );
+  }
+  return telefone;
+}
+
+/** Vazio é `null`; o resto tem que fechar no dígito verificador, e é guardado mascarado. */
+function cpfOpcional(bruto: string | null | undefined): string | null {
+  const t = colapsarEspaco(bruto);
+  if (!t) return null;
+  if (!cpfValido(t)) {
+    throw new DadoInvalido("Esse CPF não fecha na conta do dígito — confira os números.", "cpf");
+  }
+  return cpfMascarado(t);
 }
 
 /** `""` (ou só espaço) vira `null` — "apaga o e-mail", não "grava vazio". */

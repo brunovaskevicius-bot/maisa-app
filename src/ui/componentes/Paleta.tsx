@@ -57,7 +57,7 @@ export default function Paleta({ aberta, fechar }: { aberta: boolean; fechar: ()
       })),
       ...st.cadastro.clientes.map((c) => ({
         chave: c.id, titulo: c.nome, grupo: "Clientes", seed: c.id,
-        sub: `${st.nomeServico(c.servicoId)} · ${c.telefone}`,
+        sub: c.telefone ? `${st.nomeServico(c.servicoId)} · ${c.telefone}` : st.nomeServico(c.servicoId),
         executar: abrir(c.id, "clientes"),
       })),
       // st.conversas, não D.CONVERSAS: a busca acha quem escreveu de verdade — inclusive quem

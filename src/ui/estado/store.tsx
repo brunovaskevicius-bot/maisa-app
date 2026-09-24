@@ -734,7 +734,7 @@ export type StoreValue = {
    * tela fecha o formulário); `false` deixa o formulário aberto com o que foi digitado.
    * Telefone que já é de alguém abre esse alguém — mesma deduplicação do agente.
    */
-  criarCliente: (nome: string, telefone: string) => Promise<boolean>;
+  criarCliente: (c: { nome: string; telefone: string; cpf: string }) => Promise<boolean>;
   filtroSvc: string;
   setFiltroSvc: (f: string) => void;
   filtroCli: string;
@@ -2470,7 +2470,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    */
   const emDigitacao = useCallback((c: D.Cliente, patch: Partial<D.Cliente>): boolean => {
     if (!c.nome.trim()) return true;
-    if (soDigitos(c.telefone).length < TELEFONE_MIN_DIGITOS) return true;
+    /* Vazio é "sem telefone" (vale desde a 029); 1 a 7 dígitos é número pela metade. */
+    const tel = soDigitos(c.telefone).length;
+    if (tel > 0 && tel < TELEFONE_MIN_DIGITOS) return true;
     if ("cpf" in patch) {
       const d = soDigitos(c.cpf);
       /* Vazio é decisão ("não tenho o CPF dele"); 1 a 10 dígitos é meio caminho. */
@@ -2578,12 +2580,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   /* Espera o servidor antes de abrir a gaveta, pelo mesmo motivo do `criarServico`: o id
    * vem do banco, e editar uma linha de id inventado mandaria o PUT para ninguém. */
-  const criarCliente = useCallback(async (nome: string, telefone: string) => {
+  const criarCliente = useCallback(async (c: { nome: string; telefone: string; cpf: string }) => {
     try {
       const r = await fetch("/api/clientes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome, telefone }),
+        body: JSON.stringify(c),
       }).then((x) => x.json());
 
       if (!r?.ok || !r.cliente) {
@@ -2597,7 +2599,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setSel(novo.id);
       toast(r.jaExistia
         ? `Esse telefone já é de ${novo.nome} — abri o cadastro dele`
-        : "Cliente cadastrado — complete CPF e e-mail se for emitir nota");
+        : "Cliente cadastrado");
       return true;
     } catch {
       toast("Sem conexão com o servidor — o cliente não foi cadastrado.");

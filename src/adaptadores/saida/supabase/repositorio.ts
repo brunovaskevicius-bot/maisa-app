@@ -91,7 +91,8 @@ type LinhaServico = {
 type LinhaCliente = {
   id: string;
   nome: string;
-  telefone: string;
+  /** Nulo desde a 029: cliente cadastrado à mão só com nome e CPF. */
+  telefone: string | null;
   email: string | null;
   cpf: string | null;
   canal: string;
@@ -244,7 +245,7 @@ function paraCliente(l: LinhaCliente): Cliente {
   return {
     id: l.id,
     nome: l.nome,
-    telefone: l.telefone,
+    telefone: l.telefone ?? "",
     email: l.email ?? "",
     cpf: l.cpf ?? "",
     canal: canal(l.canal),
@@ -681,7 +682,9 @@ export const repositorioSupabase: RepositorioNegocio = {
     const supabase = clienteDoContexto(t);
     const campos = {
       nome: r.nome,
-      telefone: r.telefone,
+      /* `""` é "sem telefone" e vai como `null`: o `check` da coluna recusa texto curto,
+       * e string vazia não gera `telefone_chave` que case com ninguém. */
+      telefone: r.telefone || null,
       ...(r.email === undefined ? {} : { email: r.email }),
       ...(r.cpf === undefined ? {} : { cpf: r.cpf }),
       ...(r.canal === undefined ? {} : { canal: r.canal }),
@@ -762,6 +765,35 @@ export const repositorioSupabase: RepositorioNegocio = {
      * `valor` são contagens que só `v_clientes` sabe calcular, e devolver zeros fabricados
      * aqui faria a tela mostrar número errado com cara de número certo. */
     return repositorioSupabase.clientePorTelefone(t, p.telefone);
+  },
+
+  async criarCliente(t, p) {
+    const supabase = clienteDoContexto(t);
+    const { data, error } = await supabase
+      .from("clientes")
+      .insert({
+        tenant_id: t.tenantId,
+        nome: p.nome,
+        telefone: p.telefone || null,
+        cpf: p.cpf,
+        canal: "Online",
+        ativo: true,
+        desde: new Date().toISOString().slice(0, 10),
+      })
+      .select("id")
+      .single();
+
+    /* Sem a 029 rodada, cliente sem telefone bate no `not null` — e a frase do Postgres
+     * não diz ao dono o que fazer. Esta diz a quem mantém. */
+    if (error?.code === "23502") {
+      throw new Error("Cliente sem telefone precisa da migração 029_cliente_sem_telefone.sql no Supabase.");
+    }
+    exigirSemErro("o cadastro do cliente", error);
+
+    /* Relê pela view, pelo motivo do `garantirCliente` acima: `atendimentos` e `valor`. */
+    const salvo = await repositorioSupabase.cliente(t, (data as { id: string }).id);
+    if (!salvo) throw new NaoEncontrado("Cliente");
+    return salvo;
   },
 };
 

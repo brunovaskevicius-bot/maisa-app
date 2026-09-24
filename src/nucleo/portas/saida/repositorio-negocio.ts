@@ -78,7 +78,9 @@ export type RascunhoDeCliente = {
   /** Obrigatório: esta porta só EDITA. Ver o bloco acima. */
   id: string;
   nome: string;
-  /** Como a pessoa escreveu. É o que gera `telefone_chave`, por onde o agente reconhece. */
+  /** Como a pessoa escreveu. É o que gera `telefone_chave`, por onde o agente reconhece.
+   *  `""` = sem telefone (vira `null` no banco, desde a 029): cliente cadastrado à mão só
+   *  para o recibo, que a Rebots emite com CPF e nada mais. */
   telefone: string;
   /** `null` = apagar o que estava lá. Ausente = não mexe. */
   email?: string | null;
@@ -287,4 +289,20 @@ export interface RepositorioNegocio {
    * frase solta.
    */
   garantirCliente(t: ContextoTenant, p: { nome: string; telefone: string }): Promise<Cliente | null>;
+
+  /**
+   * Cria direto, sem deduplicar — a escrita do botão "Novo cliente" (24/09/2026).
+   *
+   * Existe porque `garantirCliente` só cria COM telefone, e o dono cadastra à mão gente de
+   * quem só tem nome e CPF (o recibo da Rebots pede CPF, não telefone). Quem deduplica é o
+   * caso de uso `cadastrarCliente`, antes de chamar: com telefone, olha `clientePorTelefone`.
+   *
+   * `telefone: ""` e `cpf: null` são "não tem". Ao contrário do `garantirCliente`, LANÇA
+   * quando o banco recusa: aqui não há agendamento a proteger, e devolver nulo faria a tela
+   * dizer "cadastrado" sem ter cadastrado.
+   */
+  criarCliente(
+    t: ContextoTenant,
+    p: { nome: string; telefone: string; cpf: string | null },
+  ): Promise<Cliente>;
 }

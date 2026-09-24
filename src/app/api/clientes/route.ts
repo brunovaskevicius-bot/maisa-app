@@ -8,7 +8,7 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 //
 // PUT  /api/clientes  { id, nome, telefone, email?, cpf?, canal?, servicoId?, ativo? }
 //                     →  { cliente }
-// POST /api/clientes  { nome, telefone }  →  { cliente, jaExistia }
+// POST /api/clientes  { nome, telefone?, cpf? }  →  { cliente, jaExistia }
 //
 // ── ★ POR QUE ESTA ROTA EXISTE (24/08/2026) ──
 //
@@ -32,13 +32,13 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 //     recusa sem ele" e não oferecia onde escrever o CPF: aviso sem porta, o mesmo defeito
 //     que criou a tela de Contatos em 17/08.
 //
-// ── POST CRIA, MAS PELA MESMA PORTA DO AGENTE (24/09/2026) ──
+// ── POST CRIA — SÓ O NOME É OBRIGATÓRIO (24/09/2026) ──
 //
-// *"estamos sem botão no front para adicionar novos clientes"*. O argumento abaixo contra
-// um segundo caminho de criação continua valendo, e por isso o POST não é esse caminho:
-// `cadastrarCliente` chama o MESMO `garantirCliente`, com a mesma deduplicação por
-// telefone. Número que já é de alguém devolve esse alguém com `jaExistia: true`, e a tela
-// abre o cadastro dele em vez de duplicar.
+// *"estamos sem botão no front para adicionar novos clientes"*, e em seguida: *"o contrato
+// da Rebots pede somente CPF"*. Por isso telefone e CPF são opcionais — dá para cadastrar
+// alguém só para emitir o recibo. Com telefone, `cadastrarCliente` deduplica pela mesma
+// chave do agente: número que já é de alguém devolve esse alguém com `jaExistia: true`, e
+// a tela abre o cadastro dele em vez de duplicar. Sem telefone não há chave, e cria.
 //
 // ── PUT, E SÓ EDITA ──
 //
@@ -125,11 +125,12 @@ export async function POST(req: Request) {
     );
   }
 
-  const { nome, telefone } = (corpo ?? {}) as Record<string, unknown>;
+  const { nome, telefone, cpf } = (corpo ?? {}) as Record<string, unknown>;
   try {
     const r = await app.cadastrarCliente(porteiro.tenant, {
       nome: String(nome ?? ""),
       telefone: String(telefone ?? ""),
+      cpf: String(cpf ?? ""),
     });
     return NextResponse.json({ ok: true, status: "ok", ...r });
   } catch (e) {

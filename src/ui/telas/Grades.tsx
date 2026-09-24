@@ -102,8 +102,9 @@ export function Clientes() {
   const st = useStore();
   /* Cadastro pela tela (24/09/2026). Até aqui cliente só nascia quando marcava pelo
    * WhatsApp, e quem atende gente que já existia antes da MAISA não tinha como pô-la na
-   * lista. O formulário pede só o que é IDENTIDADE — nome e telefone —; o resto da ficha é
-   * a gaveta, que abre sozinha logo depois. */
+   * lista. Só o nome é obrigatório: o recibo da Rebots pede CPF e nada mais, e o telefone
+   * só importa para quem vai falar com a MAISA. O resto da ficha é a gaveta, que abre
+   * sozinha logo depois. */
   const [novo, setNovo] = React.useState(false);
 
   const ativos = st.cadastro.clientes.filter((c) => st.cliAtivo(c.id));
@@ -145,7 +146,7 @@ export function Clientes() {
                 resumo={on && c.atendimentos > 0
                   ? `${c.atendimentos} atendimentos em ${D.PERIODO} · ${fmt(c.valor)} · cliente desde ${c.desde}`
                   : `Sem atendimentos em ${D.PERIODO} · cliente desde ${c.desde}`}
-                chips={[c.telefone, c.canal, ...(on ? [] : ["fora do faturamento"])]}
+                chips={[...(c.telefone ? [c.telefone] : []), c.canal, ...(on ? [] : ["fora do faturamento"])]}
               />
             );
           })}
@@ -159,13 +160,16 @@ function NovoCliente({ aoFechar }: { aoFechar: () => void }) {
   const st = useStore();
   const [nome, setNome] = React.useState("");
   const [telefone, setTelefone] = React.useState("");
+  const [cpf, setCpf] = React.useState("");
   const [enviando, setEnviando] = React.useState(false);
-  const pronto = nome.trim().length > 0 && telefone.replace(/\D/g, "").length >= 8;
+  /* Só o nome trava o botão. Telefone e CPF errados voltam do servidor com a frase do que
+   * corrigir, e o formulário fica aberto com o que foi digitado. */
+  const pronto = nome.trim().length > 0;
 
   const salvar = async () => {
     if (!pronto || enviando) return;
     setEnviando(true);
-    const ok = await st.criarCliente(nome, telefone);
+    const ok = await st.criarCliente({ nome, telefone, cpf });
     setEnviando(false);
     if (ok) aoFechar();
   };
@@ -180,10 +184,11 @@ function NovoCliente({ aoFechar }: { aoFechar: () => void }) {
       <Field label="Nome" style={s("flex:1 1 220px")}>
         <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Maria Silva" autoFocus onKeyDown={enter} />
       </Field>
-      {/* O telefone é por onde a MAISA reconhece a pessoa no WhatsApp — por isso é
-          obrigatório aqui, e não um campo a completar depois na gaveta. */}
-      <Field label="WhatsApp, com DDD" style={s("flex:1 1 200px")}>
+      <Field label="WhatsApp, com DDD (opcional)" style={s("flex:1 1 200px")}>
         <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(11) 98123-4567" inputMode="tel" onKeyDown={enter} />
+      </Field>
+      <Field label="CPF (opcional)" style={s("flex:1 1 170px")}>
+        <Input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" inputMode="numeric" onKeyDown={enter} />
       </Field>
       <span style={s("display:flex;gap:8px")}>
         <Btn variant="primary" icon="check" onClick={() => void salvar()}>

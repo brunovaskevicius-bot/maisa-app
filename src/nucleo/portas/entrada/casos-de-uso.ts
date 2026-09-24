@@ -279,16 +279,16 @@ export type RemoverServico = (t: ContextoTenant, id: string) => Promise<void>;
 export type AjustarCliente = (t: ContextoTenant, p: RascunhoDeCliente) => Promise<Cliente>;
 
 /**
- * CADASTRAR CLIENTE PELA TELA — a porta que faltava (24/09/2026).
+ * CADASTRAR CLIENTE PELA TELA — o botão "Novo cliente" (24/09/2026).
  *
- * Não é um segundo caminho de criação: por baixo é o MESMO `garantirCliente` que o agente
- * usa, e por isso deduplica por telefone igual. O que este caso de uso acrescenta é a
- * validação de quem digita (nome e 8 dígitos) e dizer à tela se o número JÁ ERA de alguém —
- * aí ela abre o cadastro existente em vez de fingir que criou um novo.
+ * Só o NOME é obrigatório. Telefone e CPF são opcionais porque o recibo da Rebots pede CPF
+ * e nada mais: quem atende alguém que nunca vai falar com a MAISA pelo WhatsApp cadastra
+ * nome e CPF e emite. Com telefone, deduplica igual ao agente — número que já é de alguém
+ * devolve esse alguém com `jaExistia`, e a tela abre o cadastro dele.
  */
 export type CadastrarCliente = (
   t: ContextoTenant,
-  p: { nome: string; telefone: string },
+  p: { nome: string; telefone?: string; cpf?: string },
 ) => Promise<{ cliente: Cliente; jaExistia: boolean }>;
 
 /* ───────────────────────────── quanto já está de pé ─────────────────────────────
