@@ -6,8 +6,9 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 // ─────────────────────────────────────────────────────────────────────────────
 // OS CLIENTES — agora graváveis.
 //
-// PUT /api/clientes  { id, nome, telefone, email?, cpf?, canal?, servicoId?, ativo? }
-//                    →  { cliente }
+// PUT  /api/clientes  { id, nome, telefone, email?, cpf?, canal?, servicoId?, ativo? }
+//                     →  { cliente }
+// POST /api/clientes  { nome, telefone }  →  { cliente, jaExistia }
 //
 // ── ★ POR QUE ESTA ROTA EXISTE (24/08/2026) ──
 //
@@ -30,6 +31,14 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 //     pessoa do lote de propósito. A tela de Faturamento escrevia "sem CPF — a prefeitura
 //     recusa sem ele" e não oferecia onde escrever o CPF: aviso sem porta, o mesmo defeito
 //     que criou a tela de Contatos em 17/08.
+//
+// ── POST CRIA, MAS PELA MESMA PORTA DO AGENTE (24/09/2026) ──
+//
+// *"estamos sem botão no front para adicionar novos clientes"*. O argumento abaixo contra
+// um segundo caminho de criação continua valendo, e por isso o POST não é esse caminho:
+// `cadastrarCliente` chama o MESMO `garantirCliente`, com a mesma deduplicação por
+// telefone. Número que já é de alguém devolve esse alguém com `jaExistia: true`, e a tela
+// abre o cadastro dele em vez de duplicar.
 //
 // ── PUT, E SÓ EDITA ──
 //
@@ -97,6 +106,32 @@ export async function PUT(req: Request) {
     });
 
     return NextResponse.json({ ok: true, status: "ok", cliente });
+  } catch (e) {
+    return falha("clientes", e);
+  }
+}
+
+export async function POST(req: Request) {
+  const porteiro = await sessaoOuDemo();
+  if (barrou(porteiro)) return porteiro.barrado;
+
+  let corpo: unknown;
+  try {
+    corpo = await req.json();
+  } catch {
+    return NextResponse.json(
+      { ok: false, status: "payload_invalido", info: "Corpo não é JSON." },
+      { status: 400 },
+    );
+  }
+
+  const { nome, telefone } = (corpo ?? {}) as Record<string, unknown>;
+  try {
+    const r = await app.cadastrarCliente(porteiro.tenant, {
+      nome: String(nome ?? ""),
+      telefone: String(telefone ?? ""),
+    });
+    return NextResponse.json({ ok: true, status: "ok", ...r });
   } catch (e) {
     return falha("clientes", e);
   }

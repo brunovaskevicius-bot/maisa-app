@@ -15,6 +15,7 @@
 
 import type {
   AjustarCliente,
+  CadastrarCliente,
   AjustarNegocio,
   AjustarProfissional,
   AjustarServico,
@@ -370,6 +371,46 @@ export function criarAjustarCliente(deps: { negocio: RepositorioNegocio }): Ajus
       ...(servicoId === undefined ? {} : { servicoId }),
       ...(p.ativo === undefined ? {} : { ativo: p.ativo }),
     });
+  };
+}
+
+/**
+ * Cria um cliente a partir do botão "Novo cliente" da tela Clientes.
+ *
+ * Passa por `garantirCliente` de propósito — o mesmo que o agente chama —, para que a tela
+ * e o WhatsApp tenham UMA regra de criação, a que deduplica por telefone. Se o número já é
+ * de alguém, devolve esse alguém com `jaExistia`, e não reescreve o nome: quem manda no
+ * cadastro existente é a gaveta, não um formulário de criação.
+ *
+ * O resto da ficha (CPF, e-mail, canal) não vem aqui: a tela abre a gaveta logo depois, e
+ * ela já grava campo por campo com a validação de `ajustarCliente`.
+ */
+export function criarCadastrarCliente(deps: { negocio: RepositorioNegocio }): CadastrarCliente {
+  return async (t, p) => {
+    const nome = colapsarEspaco(p?.nome);
+    if (!temConteudo(nome) || nome.length < NOME_CLIENTE_MIN) {
+      throw new DadoInvalido("Diga o nome do cliente.", "nome");
+    }
+    if (nome.length > NOME_CLIENTE_MAX) {
+      throw new DadoInvalido(`O nome passa de ${NOME_CLIENTE_MAX} caracteres.`, "nome");
+    }
+    const telefone = colapsarEspaco(p?.telefone);
+    if (soDigitos(telefone).length < TELEFONE_MIN_DIGITOS) {
+      throw new DadoInvalido(
+        "O telefone precisa dos 8 dígitos do número, com DDD — é por ele que a MAISA reconhece quem está falando no WhatsApp.",
+        "telefone",
+      );
+    }
+
+    const existente = await deps.negocio.clientePorTelefone(t, telefone);
+    if (existente) return { cliente: existente, jaExistia: true };
+
+    /* `garantirCliente` devolve `null` em vez de lançar quando o banco recusa — lá isso
+     * protege o agendamento. Aqui não há agendamento a proteger, e silêncio seria a tela
+     * dizendo "criado" sem ter criado. */
+    const cliente = await deps.negocio.garantirCliente(t, { nome, telefone });
+    if (!cliente) throw new Error("O banco não aceitou o cadastro do cliente.");
+    return { cliente, jaExistia: false };
   };
 }
 

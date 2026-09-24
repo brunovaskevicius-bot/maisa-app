@@ -8,7 +8,7 @@
  * Nenhuma delas tem estado próprio: tudo que muda vem do store. */
 
 import React from "react";
-import { s, Icon, fmt, fmtK, Filtros, EmptyState, Tabela, CelulaNome, Badge, SectionTitle, Btn, Monogram } from "@/ui/primitivos";
+import { s, Icon, fmt, fmtK, Filtros, EmptyState, Tabela, CelulaNome, Badge, SectionTitle, Btn, Monogram, Input, Field } from "@/ui/primitivos";
 import * as D from "@/adaptadores/saida/demo";
 import { useIsMobile, useEstreita } from "@/ui/useIsMobile";
 import { useStore, type LinhaDeFaturamento, type TelaId } from "@/ui/estado/store";
@@ -100,6 +100,11 @@ export function vocabulario(fiscal: { status: string; caminho: string | null }):
 
 export function Clientes() {
   const st = useStore();
+  /* Cadastro pela tela (24/09/2026). Até aqui cliente só nascia quando marcava pelo
+   * WhatsApp, e quem atende gente que já existia antes da MAISA não tinha como pô-la na
+   * lista. O formulário pede só o que é IDENTIDADE — nome e telefone —; o resto da ficha é
+   * a gaveta, que abre sozinha logo depois. */
+  const [novo, setNovo] = React.useState(false);
 
   const ativos = st.cadastro.clientes.filter((c) => st.cliAtivo(c.id));
   const lista = st.cadastro.clientes.filter((c) => {
@@ -118,7 +123,9 @@ export function Clientes() {
           { n: fmtK(ativos.reduce((a, c) => a + c.valor, 0)), label: "fechado no mês", tom: "success" },
           { n: st.cadastro.clientes.length - ativos.length, label: "inativos", tom: "neutral" },
         ]}
+        acao={novo ? undefined : { label: "Novo cliente", icon: "plus", onClick: () => setNovo(true) }}
       />
+      {novo && <NovoCliente aoFechar={() => setNovo(false)} />}
       <Filtros opcoes={["Ativos", "Inativos", "Todos"]} ativo={st.filtroCli} onChange={st.setFiltroCli} />
       {lista.length === 0 ? (
         <EmptyState icon="clientes" title="Nenhum cliente aqui" sub="Troque o filtro acima para ver os outros." />
@@ -145,6 +152,46 @@ export function Clientes() {
         </GradeCartoes>
       )}
     </TelaGrade>
+  );
+}
+
+function NovoCliente({ aoFechar }: { aoFechar: () => void }) {
+  const st = useStore();
+  const [nome, setNome] = React.useState("");
+  const [telefone, setTelefone] = React.useState("");
+  const [enviando, setEnviando] = React.useState(false);
+  const pronto = nome.trim().length > 0 && telefone.replace(/\D/g, "").length >= 8;
+
+  const salvar = async () => {
+    if (!pronto || enviando) return;
+    setEnviando(true);
+    const ok = await st.criarCliente(nome, telefone);
+    setEnviando(false);
+    if (ok) aoFechar();
+  };
+  const enter = (e: React.KeyboardEvent) => { if (e.key === "Enter") void salvar(); };
+
+  return (
+    /* `div` e não `form`: o `Btn` não declara `type`, e dentro de um form todo botão vira
+     * submit — o Cancelar cadastraria. O Enter vem do `onKeyDown` dos campos. */
+    <div
+      style={s("display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:16px 18px")}
+    >
+      <Field label="Nome" style={s("flex:1 1 220px")}>
+        <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Maria Silva" autoFocus onKeyDown={enter} />
+      </Field>
+      {/* O telefone é por onde a MAISA reconhece a pessoa no WhatsApp — por isso é
+          obrigatório aqui, e não um campo a completar depois na gaveta. */}
+      <Field label="WhatsApp, com DDD" style={s("flex:1 1 200px")}>
+        <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(11) 98123-4567" inputMode="tel" onKeyDown={enter} />
+      </Field>
+      <span style={s("display:flex;gap:8px")}>
+        <Btn variant="primary" icon="check" onClick={() => void salvar()}>
+          {enviando ? "Salvando…" : "Cadastrar"}
+        </Btn>
+        <Btn variant="ghost" onClick={aoFechar}>Cancelar</Btn>
+      </span>
+    </div>
   );
 }
 

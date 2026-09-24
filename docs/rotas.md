@@ -32,6 +32,7 @@ Definidos em [`src/adaptadores/entrada/http/contexto.ts`](../src/adaptadores/ent
 | `/api/servicos` | PUT · DELETE | `sessaoOuDemo` | `AjustarServico` — cria ou edita pelo `id` · `RemoverServico` |
 | `/api/equipe` | PUT | `sessaoOuDemo` | `AjustarProfissional` — cria ou edita quem atende. **Não mexe em expediente**: aquilo manda na grade inteira e pede caso de uso próprio |
 | `/api/clientes` | PUT | `sessaoOuDemo` | `AjustarCliente` — **só edita**, `id` obrigatório. Nome, telefone, e-mail, CPF, canal, serviço habitual e `ativo` |
+| `/api/clientes` | POST | `sessaoOuDemo` | `CadastrarCliente` — nome + telefone. Por baixo é o `garantirCliente` do agente: telefone que já existe devolve o cliente existente com `jaExistia: true` |
 
 ⚠️ **Serviço tem DELETE e profissional não**, e a assimetria vem do esquema, não de gosto:
 `atendimentos.servico_id` é snapshot **sem FK** (ao lado de `servico_nome` e `servico_valor`),
@@ -39,10 +40,11 @@ então apagar um serviço não toca faturamento fechado — enquanto `atendiment
 tem **`on delete cascade`**, e apagar a pessoa levaria os atendimentos dela junto. Quem sai da
 equipe vira `ativo: false`.
 
-⚠️ **`/api/clientes` não cria**, ao contrário de `/api/servicos` e `/api/faqs`: corpo sem `id`
-é recusado, não interpretado como "cadastre um". Quem cria cliente é `garantirCliente`, dentro
-do repositório, chamado quando alguém novo marca pelo WhatsApp — e é ele que **deduplica por
-telefone**. Um segundo caminho de criação, sem deduplicação, daria o mesmo cliente duas vezes.
+⚠️ **O `PUT /api/clientes` não cria**, ao contrário de `/api/servicos` e `/api/faqs`: corpo sem
+`id` é recusado, não interpretado como "cadastre um". Quem cria cliente é `garantirCliente`,
+dentro do repositório — e é ele que **deduplica por telefone**. O `POST` (botão "Novo cliente",
+24/09/2026) não é um segundo caminho: passa pelo mesmo `garantirCliente`. Um caminho de criação
+sem deduplicação daria o mesmo cliente duas vezes.
 
 Dois campos desta rota não são cadastro comum. **`telefone` é identidade**: a coluna gerada
 `telefone_chave` (8 últimos dígitos) é por onde o agente reconhece quem está falando. Ela

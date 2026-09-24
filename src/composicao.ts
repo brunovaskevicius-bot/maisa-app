@@ -31,6 +31,7 @@ import {
   criarAjustarNegocio,
   criarAjustarProfissional,
   criarAjustarServico,
+  criarCadastrarCliente,
   criarLerCadastro,
   criarRemoverServico,
 } from "@/nucleo/aplicacao/cadastro";
@@ -530,6 +531,8 @@ export const app = {
    * alguém novo marca pelo WhatsApp — e é ele que deduplica por telefone.
    */
   ajustarCliente: criarAjustarCliente({ negocio }),
+  /** CRIAR CLIENTE pela tela — por baixo, o mesmo `garantirCliente` do agente. */
+  cadastrarCliente: criarCadastrarCliente({ negocio }),
 
   /**
    * QUANTO JÁ ESTÁ DE PÉ — derivado do banco a cada leitura, nunca de uma flag.

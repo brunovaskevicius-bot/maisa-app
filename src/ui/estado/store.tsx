@@ -729,6 +729,12 @@ export type StoreValue = {
    * telefone.
    */
   editarCliente: (id: string, patch: Partial<D.Cliente>) => void;
+  /**
+   * Cadastra pelo botão "Novo cliente" e abre a gaveta dele. `true` quando deu certo (a
+   * tela fecha o formulário); `false` deixa o formulário aberto com o que foi digitado.
+   * Telefone que já é de alguém abre esse alguém — mesma deduplicação do agente.
+   */
+  criarCliente: (nome: string, telefone: string) => Promise<boolean>;
   filtroSvc: string;
   setFiltroSvc: (f: string) => void;
   filtroCli: string;
@@ -2570,6 +2576,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     mexerNoCliente(id, p);
   }, [mexerNoCliente]);
 
+  /* Espera o servidor antes de abrir a gaveta, pelo mesmo motivo do `criarServico`: o id
+   * vem do banco, e editar uma linha de id inventado mandaria o PUT para ninguém. */
+  const criarCliente = useCallback(async (nome: string, telefone: string) => {
+    try {
+      const r = await fetch("/api/clientes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome, telefone }),
+      }).then((x) => x.json());
+
+      if (!r?.ok || !r.cliente) {
+        toast(r?.info ?? "Não foi possível cadastrar o cliente.");
+        return false;
+      }
+      const novo = r.cliente as D.Cliente;
+      setCadastro((c) => (c.clientes.some((x) => x.id === novo.id)
+        ? c
+        : { ...c, clientes: [...c.clientes, novo] }));
+      setSel(novo.id);
+      toast(r.jaExistia
+        ? `Esse telefone já é de ${novo.nome} — abri o cadastro dele`
+        : "Cliente cadastrado — complete CPF e e-mail se for emitir nota");
+      return true;
+    } catch {
+      toast("Sem conexão com o servidor — o cliente não foi cadastrado.");
+      return false;
+    }
+  }, []);
+
   const alternarCli = useCallback((id: string) => {
     const atual = clienteDe(id);
     if (!atual) return;
@@ -3999,7 +4034,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cadastro, cadastroErro, cadastroCarregado,
     profissionalDe, clienteDe, nomeDoProfissional, nomeDoCliente,
     pidAgenda, atendeNoDia, podeComecarEm,
-    profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente,
+    profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente, criarCliente,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, setFiltroSvc, filtroCli, setFiltroCli,
     fiscal, aplicarFiscal, recarregarFiscal,
@@ -4031,7 +4066,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cadastro, cadastroErro, cadastroCarregado,
     profissionalDe, clienteDe, nomeDoProfissional, nomeDoCliente,
     pidAgenda, atendeNoDia, podeComecarEm,
-    profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente,
+    profAtivo, alternarProf, svcAtivo, alternarSvc, cliAtivo, alternarCli, editarCliente, criarCliente,
     servicos, servicoDe, nomeServico, editarServico, criarServico, excluirServico,
     filtroSvc, filtroCli,
     fiscal, aplicarFiscal, recarregarFiscal,

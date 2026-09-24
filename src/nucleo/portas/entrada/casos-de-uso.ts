@@ -278,6 +278,19 @@ export type RemoverServico = (t: ContextoTenant, id: string) => Promise<void>;
  */
 export type AjustarCliente = (t: ContextoTenant, p: RascunhoDeCliente) => Promise<Cliente>;
 
+/**
+ * CADASTRAR CLIENTE PELA TELA — a porta que faltava (24/09/2026).
+ *
+ * Não é um segundo caminho de criação: por baixo é o MESMO `garantirCliente` que o agente
+ * usa, e por isso deduplica por telefone igual. O que este caso de uso acrescenta é a
+ * validação de quem digita (nome e 8 dígitos) e dizer à tela se o número JÁ ERA de alguém —
+ * aí ela abre o cadastro existente em vez de fingir que criou um novo.
+ */
+export type CadastrarCliente = (
+  t: ContextoTenant,
+  p: { nome: string; telefone: string },
+) => Promise<{ cliente: Cliente; jaExistia: boolean }>;
+
 /* ───────────────────────────── quanto já está de pé ─────────────────────────────
  * O que o wizard usa para saber onde retomar, e o que a `FluxoHoje` usa para mostrar o
  * que falta. Derivado do banco a cada leitura, nunca de uma flag — o porquê inteiro está

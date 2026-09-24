@@ -13,7 +13,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
-  criarAjustarCliente, criarAjustarNegocio, criarAjustarProfissional, criarAjustarServico,
+  criarAjustarCliente, criarCadastrarCliente, criarAjustarNegocio, criarAjustarProfissional, criarAjustarServico,
 } from "./cadastro";
 import { NOME_NEGOCIO_MAX } from "../dominio/negocio";
 import { DURACAO_MAX, DURACAO_MIN, NOME_SERVICO_MAX, PRECO_MAX } from "../dominio/catalogo";
@@ -495,5 +495,40 @@ describe("ajustar um cliente", () => {
     await ajustarCliente(r)(T, { ...cliBase, ativo: false });
     const [, rascunho] = r.atualizarCliente.mock.calls[0];
     expect("cpf" in rascunho).toBe(false);
+  });
+});
+
+describe("cadastrar um cliente pela tela", () => {
+  const repo = (porTelefone: typeof CLIENTE | null, criado: typeof CLIENTE | null) => ({
+    clientePorTelefone: vi.fn(async () => porTelefone),
+    garantirCliente: vi.fn(async () => criado),
+  });
+  const cadastrar = (r: ReturnType<typeof repo>) =>
+    criarCadastrarCliente({ negocio: r as unknown as RepositorioNegocio });
+
+  it("cria pelo garantirCliente, o mesmo caminho do agente", async () => {
+    const r = repo(null, CLIENTE);
+    const out = await cadastrar(r)(T, { nome: "  Fernanda   Rocha ", telefone: "(11) 98123-4567" });
+    expect(r.garantirCliente).toHaveBeenCalledWith(T, { nome: "Fernanda Rocha", telefone: "(11) 98123-4567" });
+    expect(out).toEqual({ cliente: CLIENTE, jaExistia: false });
+  });
+
+  it("telefone que já é de alguém devolve esse alguém, sem criar outro", async () => {
+    const r = repo(CLIENTE, null);
+    const out = await cadastrar(r)(T, { nome: "Outra Pessoa", telefone: "11 98123-4567" });
+    expect(out.jaExistia).toBe(true);
+    expect(r.garantirCliente).not.toHaveBeenCalled();
+  });
+
+  it("recusa telefone sem 8 dígitos e nome vazio antes de tocar o banco", async () => {
+    const r = repo(null, CLIENTE);
+    await expect(cadastrar(r)(T, { nome: "Fernanda", telefone: "123" })).rejects.toMatchObject({ campo: "telefone" });
+    await expect(cadastrar(r)(T, { nome: "  ", telefone: "(11) 98123-4567" })).rejects.toMatchObject({ campo: "nome" });
+    expect(r.clientePorTelefone).not.toHaveBeenCalled();
+  });
+
+  it("lança quando o banco recusa — a tela não pode dizer 'criado' sem ter criado", async () => {
+    const r = repo(null, null);
+    await expect(cadastrar(r)(T, { nome: "Fernanda", telefone: "(11) 98123-4567" })).rejects.toThrow();
   });
 });
