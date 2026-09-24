@@ -356,6 +356,13 @@ export function criarAjustarCliente(deps: { negocio: RepositorioNegocio }): Ajus
       ? undefined
       : (colapsarEspaco(p.servicoId) || null);
 
+    const valorSessao = p?.valorSessao === undefined || p.valorSessao === null
+      ? p?.valorSessao
+      : Number(p.valorSessao);
+    if (typeof valorSessao === "number" && (!Number.isFinite(valorSessao) || valorSessao < 0 || valorSessao > 100_000)) {
+      throw new DadoInvalido("O valor da sessão precisa ser um número entre 0 e 100 mil.", "valorSessao");
+    }
+
     return deps.negocio.atualizarCliente(t, {
       id,
       nome,
@@ -365,6 +372,7 @@ export function criarAjustarCliente(deps: { negocio: RepositorioNegocio }): Ajus
       ...(p.canal === undefined ? {} : { canal: p.canal }),
       ...(servicoId === undefined ? {} : { servicoId }),
       ...(p.ativo === undefined ? {} : { ativo: p.ativo }),
+      ...(valorSessao === undefined ? {} : { valorSessao }),
     });
   };
 }

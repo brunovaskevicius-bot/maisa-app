@@ -89,6 +89,8 @@ export type RascunhoDeCliente = {
   /** `null` = sem serviço habitual. */
   servicoId?: string | null;
   ativo?: boolean;
+  /** Preço próprio da sessão. `null` = volta a valer o do serviço. Ausente = não mexe. */
+  valorSessao?: number | null;
 };
 
 export interface RepositorioNegocio {

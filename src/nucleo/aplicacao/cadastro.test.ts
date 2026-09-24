@@ -544,3 +544,18 @@ describe("editar cliente sem telefone", () => {
     expect(r.atualizarCliente).toHaveBeenCalledWith(T, expect.objectContaining({ telefone: "" }));
   });
 });
+
+describe("o valor da sessão na ficha", () => {
+  it("grava número, e null volta a valer o do serviço", async () => {
+    const r = repoCliente();
+    await ajustarCliente(r)(T, { ...cliBase, valorSessao: 150 });
+    expect(r.atualizarCliente).toHaveBeenLastCalledWith(T, expect.objectContaining({ valorSessao: 150 }));
+    await ajustarCliente(r)(T, { ...cliBase, valorSessao: null });
+    expect(r.atualizarCliente).toHaveBeenLastCalledWith(T, expect.objectContaining({ valorSessao: null }));
+  });
+
+  it("recusa negativo", async () => {
+    await expect(ajustarCliente(repoCliente())(T, { ...cliBase, valorSessao: -5 }))
+      .rejects.toMatchObject({ campo: "valorSessao" });
+  });
+});

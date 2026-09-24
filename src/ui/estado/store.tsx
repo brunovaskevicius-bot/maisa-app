@@ -2527,6 +2527,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           ...("canal" in patch ? { canal: alvo.canal } : {}),
           ...("servicoId" in patch ? { servicoId: alvo.servicoId } : {}),
           ...("ativo" in patch ? { ativo: alvo.ativo } : {}),
+          ...("valorSessao" in patch ? { valorSessao: alvo.valorSessao ?? null } : {}),
         }),
       }).then((x) => x.json());
 
@@ -3726,11 +3727,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* Quando terminou a última leitura bem-sucedida. Um alt-tab não deve virar um GET. */
   const lidoEm = useRef(0);
 
-  /* `pidAgenda` pode ser "" na primeira passada, antes de `/api/cadastro` responder. Sem a
-   * guarda, uma conexão com `profissionalId` vazio (que não existe, mas o `some` não sabe)
-   * daria falso positivo e a tela anunciaria "conectado" com o cadastro ainda em branco. */
-  const conectado = !!pidAgenda && google.conexoes.some((c) => c.profissionalId === pidAgenda);
-
   const lerAgenda = useCallback(async (de: string, ate: string) => {
     /* Sem agenda resolvida não há o que pedir. Acontece na primeira passada (o cadastro
      * ainda não voltou) e num negócio sem profissional ativo. Antes isto era impossível de
@@ -3872,29 +3868,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* ══ MARCAR UM ATENDIMENTO ══
    *
    * Clicar num vago abre um rascunho na gaveta com dia, hora e profissional já resolvidos
-   * pelo clique; falta escolher quem e o quê. Confirmar CRIA O EVENTO NO GOOGLE — não
-   * existe mais um passo "criar evento" separado, e não existe mais atendimento que só
-   * viva aqui. Era duas entradas para a mesma coisa: quem marcasse e não clicasse no botão
-   * da gaveta ficava com um horário que o Google nunca soube que existia.
+   * pelo clique; falta escolher quem e o quê. Confirmar grava o atendimento na tabela e,
+   * se o profissional conectou o Google, cria o evento lá também — no mesmo POST, sem um
+   * passo "criar evento" separado.
    *
-   * Mora nesta altura do arquivo porque depende de `conectado` e de `lerStatusGoogle`. */
+   * Mora nesta altura do arquivo porque depende de `lerStatusGoogle`. */
   const [rascunho, setRascunho] = useState<D.RascunhoAgendamento | null>(null);
   /** Enquanto o POST está no ar, e o que voltou se ele falhou. A gaveta é quem mostra. */
   const [rascunhoEstado, setRascunhoEstado] = useState<{ enviando: boolean; erro?: string }>({ enviando: false });
   const criacaoEmVoo = useRef(false);
 
   const novoAgendamento = useCallback((profissionalId: string, inicio: number, data: string) => {
-    /* Recusa cedo e explica. Sem isto o clique abriria a gaveta, o usuário escolheria
-     * cliente e serviço, e só então descobriria que não há para onde mandar. O ambiente
-     * local é exatamente esse caso: `.env.local` vazio ⇒ Google `nao_configurado`. */
-    if (!conectado) {
-      toast(
-        google.status === "ok"
-          ? "Conecte a agenda do Google em Minha Equipe — é lá que o atendimento é criado"
-          : (MOTIVO_GOOGLE[google.status] ?? "O Google Calendar não está disponível agora"),
-      );
-      return;
-    }
+    /* ⚠️ AQUI HAVIA UM `if (!conectado)` QUE RECUSAVA O CLIQUE com "Conecte a agenda do
+     * Google em Minha Equipe — é lá que o atendimento é criado". Era o terceiro portão do
+     * ADR-0009, e o que sobrou: os dois da leitura saíram, este não. O servidor já gravava
+     * sem Google e a tela nem deixava pedir. O atendimento nasce na tabela; o Google, se
+     * houver, recebe a cópia. */
     // A data entra no id junto com profissional e hora: com Semana e Mês na tela, "pr1 às 14h" já
     // não identifica um vago — existe um por dia.
     const id = `novo-${data}-${profissionalId}-${inicio}`;
@@ -3905,7 +3894,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setRascunho({ id, maisaAg: uuid(), data, profissionalId, inicio, clienteId: "", servicoId: "" });
     setRascunhoEstado({ enviando: false });
     setSel(id);
-  }, [conectado, google.status]);
+  }, []);
 
   const editarRascunho = useCallback((p: Partial<D.RascunhoAgendamento>) => {
     setRascunho((r) => (r ? { ...r, ...p } : r));
@@ -3940,6 +3929,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       : undefined;
     if (chaves && chaves !== r.chaves) setRascunho((x) => (x ? { ...x, chaves } : x));
 
+    /* Do profissional DO RASCUNHO, não o `conectado` da agenda aberta: é para a agenda dele
+     * que o evento iria. Sem Google, Meet não é pedido — pedir e não vir faria o toast
+     * avisar "sem link do Meet" a quem nunca quis um. */
+    const comGoogle = google.conexoes.some((c) => c.profissionalId === r.profissionalId);
+
     criacaoEmVoo.current = true;
     setRascunhoEstado({ enviando: true });
     try {
@@ -3961,7 +3955,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           servicoValor: valor,
           clienteNome: cl.nome,
           clienteTelefone: cl.telefone,
-          comMeet: true,
+          comMeet: comGoogle,
           ...(chaves ? { recorrencia: { cadaSemanas: cada, chaves } } : {}),
         }),
       }).then((x) => x.json());
@@ -3993,6 +3987,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setRascunho(null);
         setRascunhoEstado({ enviando: false });
         setSel(null);
+        /* A ficha APRENDE o preço na primeira vez que ele foge da tabela — é o que faz a
+         * próxima sessão dessa pessoa já nascer certa. Só quando a ficha está vazia: um
+         * preço já guardado foi decisão do dono, e um desconto avulso não o reescreve. */
+        const aprendeu = cl.valorSessao == null && valor !== sv.preco;
+        if (aprendeu) editarCliente(cl.id, { valorSessao: valor });
+        const nota = aprendeu ? ` · ${fmt(valor)} guardado na ficha de ${cl.nome}` : "";
         const quando = r.data === D.HOJE.iso ? "hoje" : D.rotuloDia(r.data);
         if (resp.serie) {
           /* As puladas vão NO toast, com data: é a única hora em que o dono fica sabendo que
@@ -4000,14 +4000,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const pulados: { data: string }[] = resp.serie.pulados ?? [];
           toast(
             `${criados.length} sessões de ${cl.nome} marcadas a partir de ${quando}` +
-            (pulados.length ? ` — ${pulados.length} puladas por horário ocupado: ${pulados.map((p) => D.rotuloDia(p.data)).join(", ")}` : ""),
+            (pulados.length ? ` — ${pulados.length} puladas por horário ocupado: ${pulados.map((p) => D.rotuloDia(p.data)).join(", ")}` : "") +
+            nota,
           );
           return;
         }
+        /* Três finais. Sem Google nenhum, nada a dizer: a agenda É a da MAISA. Com Google e
+         * `foraDoCalendario`, o evento não entrou lá — dizer, senão ele confia numa agenda
+         * que não recebeu. */
+        const onde = !comGoogle ? ""
+          : resp.foraDoCalendario ? " — não entrou na sua agenda do Google"
+          : resp.semMeet ? " — sem link do Meet"
+          : " · na sua agenda do Google";
         toast(
           resp.status === "ja_existia"
             ? `${cl.nome} já estava marcado ${quando} às ${D.hhmm(r.inicio)}`
-            : `${cl.nome} marcado ${quando} às ${D.hhmm(r.inicio)}${resp.semMeet ? " — sem link do Meet" : " · na sua agenda do Google"}`,
+            : `${cl.nome} marcado ${quando} às ${D.hhmm(r.inicio)}${onde}${nota}`,
         );
         return;
       }
@@ -4026,7 +4034,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } finally {
       criacaoEmVoo.current = false;
     }
-  }, [rascunho, servicoDe, lerStatusGoogle, clienteDe]);
+  }, [rascunho, servicoDe, lerStatusGoogle, clienteDe, google.conexoes, editarCliente]);
 
   const descartarRascunho = useCallback(() => {
     setRascunho(null);

@@ -93,6 +93,8 @@ type LinhaCliente = {
   nome: string;
   /** Nulo desde a 029: cliente cadastrado à mão só com nome e CPF. */
   telefone: string | null;
+  /** Só existe depois da 030 — ver `COLS_CLIENTE`. */
+  valor_sessao?: string | number | null;
   email: string | null;
   cpf: string | null;
   canal: string;
@@ -254,6 +256,7 @@ function paraCliente(l: LinhaCliente): Cliente {
     servicoId: l.servico_id ?? "",
     atendimentos: l.atendimentos ?? 0,
     valor: num(l.valor),
+    valorSessao: l.valor_sessao == null ? null : num(l.valor_sessao),
     /* `teste` é `not null default false` no banco, mas o campo do domínio é opcional.
      * Só propaga quando for true: um `teste: false` explícito em todo cliente faria o
      * store achar que a marca existe e vale checar. */
@@ -270,7 +273,10 @@ const COLS_NEGOCIO = "tenant_id, nome, plano, preco_plano, proxima_cobranca, car
 const COLS_PROFISSIONAL =
   "id, nome, papel, avaliacao, comissao, desde, ativo, horario, folga, expediente_folga, expediente_de, expediente_ate, servico_ids, atendimentos_mes";
 const COLS_SERVICO = "id, nome, categoria, preco, duracao, ativo, profissional_ids";
-const COLS_CLIENTE = "id, nome, telefone, email, cpf, canal, ativo, desde, servico_id, teste, atendimentos, valor";
+/* `*` e não a lista de colunas desde 24/09/2026: `valor_sessao` só existe depois da 030, e
+ * nomeá-la aqui derrubaria TODA leitura de cliente num banco que ainda não rodou a
+ * migração. Com `*`, antes dela o campo só não vem. */
+const COLS_CLIENTE = "*";
 
 /**
  * Um erro do PostgREST não é `null`.
@@ -280,6 +286,35 @@ const COLS_CLIENTE = "id, nome, telefone, email, cpf, canal, ativo, desde, servi
  * (que é o que um `?? null` faz) transforma banco fora do ar em "esse cliente não
  * existe" — e o caso de uso segue adiante marcando horário com dado faltando.
  */
+/**
+ * A recusa do Postgres ao gravar cliente, em português de quem usa a tela.
+ *
+ * ⚠️ Existe porque a frase crua chegava ao toast: *"null value in column "telefone" of
+ * relation "clientes" violates not-null constraint"* (24/09/2026). O detalhe técnico vai
+ * para o log, onde quem mantém procura; a tela recebe o que fazer.
+ */
+function recusaDeCliente(error: { code?: string; message: string } | null): void {
+  if (!error) return;
+  const campo = /"(telefone|nome|cpf|email|valor_sessao)"|clientes_(\w+?)_check/.exec(error.message);
+  const qual = campo?.[1] ?? campo?.[2];
+  if (error.code === "23502" && qual === "telefone") {
+    /* Só acontece num banco que ainda não rodou a 029 — o código já trata telefone como
+     * opcional. O log diz qual arquivo rodar. */
+    console.error("[supabase/repositorio] cliente sem telefone recusado: falta rodar supabase/029_cliente_sem_telefone.sql");
+    throw new FalhaDoProvedor("Ainda não dá para salvar cliente sem telefone. Preencha o WhatsApp por enquanto.");
+  }
+  if (error.code === "23502" || error.code === "23514") {
+    console.error(`[supabase/repositorio] cliente recusado (${error.code}): ${error.message}`);
+    const rotulo: Record<string, string> = {
+      telefone: "O telefone precisa dos 8 dígitos do número, com DDD.",
+      nome: "Diga o nome do cliente.",
+      valor: "O valor da sessão precisa ser um número entre 0 e 100 mil.",
+      valor_sessao: "O valor da sessão precisa ser um número entre 0 e 100 mil.",
+    };
+    throw new FalhaDoProvedor(rotulo[qual ?? ""] ?? "Algum campo do cliente não foi aceito — confira e tente de novo.");
+  }
+}
+
 function exigirSemErro(escopo: string, error: { message: string } | null): void {
   if (error) throw new FalhaDoProvedor(`Não foi possível ler ${escopo}: ${error.message}`);
 }
@@ -690,6 +725,7 @@ export const repositorioSupabase: RepositorioNegocio = {
       ...(r.canal === undefined ? {} : { canal: r.canal }),
       ...(r.servicoId === undefined ? {} : { servico_id: r.servicoId }),
       ...(r.ativo === undefined ? {} : { ativo: r.ativo }),
+      ...(r.valorSessao === undefined ? {} : { valor_sessao: r.valorSessao }),
     };
 
     /* O `.eq("tenant_id")` não é redundante com a RLS — ver o bloco acima do
@@ -702,6 +738,7 @@ export const repositorioSupabase: RepositorioNegocio = {
       .eq("tenant_id", t.tenantId)
       .select("id");
 
+    recusaDeCliente(error);
     exigirSemErro("o cliente", error);
     /* Zero linhas é "não era deste inquilino" ou "não existe" — e aqui o silêncio ENGANA:
      * sem esta linha a tela diria "salvo" e reverteria no próximo reload. */
@@ -783,11 +820,7 @@ export const repositorioSupabase: RepositorioNegocio = {
       .select("id")
       .single();
 
-    /* Sem a 029 rodada, cliente sem telefone bate no `not null` — e a frase do Postgres
-     * não diz ao dono o que fazer. Esta diz a quem mantém. */
-    if (error?.code === "23502") {
-      throw new Error("Cliente sem telefone precisa da migração 029_cliente_sem_telefone.sql no Supabase.");
-    }
+    recusaDeCliente(error);
     exigirSemErro("o cadastro do cliente", error);
 
     /* Relê pela view, pelo motivo do `garantirCliente` acima: `atendimentos` e `valor`. */

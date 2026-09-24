@@ -91,7 +91,10 @@ export function criarAgendarAtendimento({ agenda, negocio, registro, agora = Dat
     if (!duracaoValida(duracao)) throw new DadoInvalido("Duração fora do razoável.", "duracao");
 
     const nomeServico = String(p.servicoNome ?? doCatalogo?.nome ?? "Atendimento").slice(0, 120);
-    const valorServico = Number(p.servicoValor ?? doCatalogo?.preco ?? 0);
+    /* Pedido → ficha → catálogo. A ficha no meio é o que faz o agente de WhatsApp cobrar o
+     * preço DESTA pessoa sem saber dele: ele não manda valor, e o catálogo sozinho daria o
+     * preço de tabela para quem paga tabela social. */
+    const valorServico = Number(p.servicoValor ?? doCadastro?.valorSessao ?? doCatalogo?.preco ?? 0);
     // Nome e telefone do cliente também podem vir do pedido, pela mesma razão do serviço:
     // eles são GRAVADOS no evento para o app funcionar noutro navegador.
     const nomeCliente = String(p.clienteNome ?? doCadastro?.nome ?? "Cliente").slice(0, 120);

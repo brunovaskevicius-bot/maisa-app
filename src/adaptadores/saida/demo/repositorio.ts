@@ -207,6 +207,7 @@ export const repositorioDemo: RepositorioNegocio = {
       ...(r.canal === undefined ? {} : { canal: r.canal }),
       ...(r.servicoId === undefined ? {} : { servicoId: r.servicoId ?? "" }),
       ...(r.ativo === undefined ? {} : { ativo: r.ativo }),
+      ...(r.valorSessao === undefined ? {} : { valorSessao: r.valorSessao }),
     };
     CLIENTES[i] = novo;
     return novo;

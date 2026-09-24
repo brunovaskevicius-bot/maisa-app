@@ -21,6 +21,12 @@ export type Cliente = {
   /** Valor fechado na competência — base da nota fiscal. */
   valor: number;
   /**
+   * O preço da sessão DESTA pessoa, quando ela não paga o do catálogo. `null` = vale o
+   * do serviço. Na terapia o preço muda de pessoa para pessoa (tabela social, convênio),
+   * e é daqui que o novo atendimento e o agente puxam o valor. Migração 030.
+   */
+  valorSessao?: number | null;
+  /**
    * Cliente que existe só para validar a integração fiscal em produção.
    * A NFS-e só autoriza de verdade em produção, então testar exige emitir uma
    * nota real — e uma nota real de teste não pode ficar de pé. Marcar `teste`

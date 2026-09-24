@@ -363,3 +363,27 @@ describe("dois clientes não ficam com o mesmo horário", () => {
     expect(registro.linhas).toHaveLength(2);
   });
 });
+
+/* ───────────────────────────── o preço da ficha ───────────────────────────── */
+
+describe("o preço do atendimento: pedido → ficha → catálogo", () => {
+  const comFicha = (valorSessao: number | null) => {
+    const negocio = repoNegocio();
+    negocio.cliente = vi.fn(async () => ({
+      id: CLI, nome: "Ana", telefone: "11999990000", email: "", valorSessao,
+    })) as never;
+    return negocio;
+  };
+
+  it("sem valor no pedido, vale o da ficha — o agente de WhatsApp não sabe dele", async () => {
+    const registro = registroFake();
+    await criarAgendarAtendimento({ agenda: agendaQueQuebra(), negocio: comFicha(120), registro })(T, pedido());
+    expect(registro.linhas[0].servicoValor).toBe(120);
+  });
+
+  it("o valor digitado no pedido vence a ficha", async () => {
+    const registro = registroFake();
+    await criarAgendarAtendimento({ agenda: agendaQueQuebra(), negocio: comFicha(120), registro })(T, pedido({ servicoValor: 90 }));
+    expect(registro.linhas[0].servicoValor).toBe(90);
+  });
+});

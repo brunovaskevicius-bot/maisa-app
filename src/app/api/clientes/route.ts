@@ -79,7 +79,7 @@ export async function PUT(req: Request) {
     );
   }
 
-  const { id, nome, telefone, email, cpf, canal, servicoId, ativo } =
+  const { id, nome, telefone, email, cpf, canal, servicoId, ativo, valorSessao } =
     (corpo ?? {}) as Record<string, unknown>;
 
   try {
@@ -103,6 +103,9 @@ export async function PUT(req: Request) {
         ? {}
         : { servicoId: servicoId === null ? null : String(servicoId) }),
       ...(ativo === undefined ? {} : { ativo: Boolean(ativo) }),
+      ...(valorSessao === undefined
+        ? {}
+        : { valorSessao: valorSessao === null || valorSessao === "" ? null : Number(valorSessao) }),
     });
 
     return NextResponse.json({ ok: true, status: "ok", cliente });

@@ -439,6 +439,20 @@ export function useDetalhe(id: string | null): Detalhe | null {
               id: "email", label: "E-mail", valor: cli.email,
               onChange: (v) => st.editarCliente(cli.id, { email: v }),
             },
+            /* O preço DESTA pessoa (24/09/2026). É daqui que o novo atendimento e o agente
+               de WhatsApp puxam o valor; vazio = o do serviço. Em reais inteiros: o campo
+               grava a cada tecla, e uma vírgula no meio da digitação não tem número. */
+            {
+              id: "valorSessao", label: "Valor da sessão", tipo: "numero", prefixo: "R$",
+              valor: cli.valorSessao == null ? "" : String(cli.valorSessao),
+              hint: cli.valorSessao == null
+                ? `Vazio = o preço do serviço${svcCliente ? ` (${fmt(svcCliente.preco)})` : ""}. Preencha se esta pessoa paga outro valor.`
+                : "Todo atendimento novo desta pessoa nasce com este valor — pela tela e pelo WhatsApp.",
+              onChange: (v) => {
+                const d = v.replace(/\D/g, "");
+                st.editarCliente(cli.id, { valorSessao: d ? Number(d) : null });
+              },
+            },
             {
               id: "canal", label: "Atendimento", valor: cli.canal, tipo: "select",
               opcoes: ["Online", "Presencial"],
@@ -574,6 +588,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
     const disponiveis = st.servicos.filter((sv) => st.svcAtivo(sv.id));
     const svEscolhido = r.servicoId ? st.servicoDe(r.servicoId) : undefined;
     const valorDigitado = D.valorDoRascunho(r, svEscolhido);
+    const clEscolhido = r.clienteId ? st.clienteDe(r.clienteId) : undefined;
     const completo = !!r.clienteId && !!r.servicoId && valorDigitado !== null;
     const cada = r.cadaSemanas ?? 0;
     const sessoes = D.ocorrenciasDaSerie(cada, r.meses ?? 3);
@@ -590,7 +605,16 @@ export function useDetalhe(id: string | null): Detalhe | null {
               id: "cliente", label: "Cliente", valor: r.clienteId, tipo: "select",
               opcoes: ["", ...st.cadastro.clientes.filter((c) => st.cliAtivo(c.id)).map((c) => c.id)],
               rotuloOpcao: (v) => (v ? st.nomeDoCliente(v) : "Escolha o cliente"),
-              onChange: (v) => st.editarRascunho({ clienteId: v }),
+              /* Trocar a pessoa traz o preço DELA, se a ficha tiver um. */
+              onChange: (v) => {
+                const cl = st.clienteDe(v);
+                st.editarRascunho({
+                  clienteId: v,
+                  ...(cl?.valorSessao != null
+                    ? { valor: String(cl.valorSessao) }
+                    : svEscolhido ? { valor: String(svEscolhido.preco) } : {}),
+                });
+              },
             },
             {
               id: "servico", label: "Serviço", valor: r.servicoId, tipo: "select",
@@ -604,7 +628,8 @@ export function useDetalhe(id: string | null): Detalhe | null {
                  edita. Deixar o campo com o preço do serviço anterior cobraria errado. */
               onChange: (v) => {
                 const sv = st.servicoDe(v);
-                st.editarRascunho({ servicoId: v, valor: sv ? String(sv.preco) : "" });
+                const daFicha = st.clienteDe(r.clienteId)?.valorSessao;
+                st.editarRascunho({ servicoId: v, valor: daFicha != null ? String(daFicha) : sv ? String(sv.preco) : "" });
               },
             },
             /* O preço é DESTE atendimento (24/09/2026): na terapia ele muda de pessoa para
@@ -614,9 +639,11 @@ export function useDetalhe(id: string | null): Detalhe | null {
               valor: r.valor ?? (svEscolhido ? String(svEscolhido.preco) : ""),
               hint: valorDigitado === null
                 ? "Valor inválido — use só números, como 180 ou 180,50."
-                : svEscolhido && valorDigitado !== svEscolhido.preco
-                  ? `O serviço custa ${fmt(svEscolhido.preco)} — este atendimento sai por ${fmt(valorDigitado)}.`
-                  : "Mude se o preço desta pessoa for outro.",
+                : clEscolhido?.valorSessao != null && valorDigitado === clEscolhido.valorSessao
+                  ? `O valor da ficha de ${D.primeiroNome(clEscolhido.nome)}.`
+                  : svEscolhido && valorDigitado !== svEscolhido.preco
+                    ? `O serviço custa ${fmt(svEscolhido.preco)} — este atendimento sai por ${fmt(valorDigitado)}.${clEscolhido && clEscolhido.valorSessao == null ? " Vai ficar guardado na ficha." : ""}`
+                    : "Mude se o preço desta pessoa for outro.",
               onChange: (v) => st.editarRascunho({ valor: v }),
             },
           ],
@@ -651,7 +678,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
             tipo: "texto" as const, key: "onde", label: "Onde vai ser criado",
             texto: contaAg
               ? `Na agenda do Google de ${D.primeiroNome(st.nomeDoProfissional(r.profissionalId))} (${contaAg.googleEmail}), com link do Meet. O cliente NÃO é convidado por e-mail.`
-              : `Na agenda do Google de ${D.primeiroNome(st.nomeDoProfissional(r.profissionalId))}, com link do Meet.`,
+              : `Na agenda da MAISA. ${D.primeiroNome(st.nomeDoProfissional(r.profissionalId))} não conectou o Google, então não vira evento lá nem ganha link do Meet — dá para conectar em Minha Equipe.`,
           }]
           : []),
         ...(completo

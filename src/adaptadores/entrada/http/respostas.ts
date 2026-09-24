@@ -59,7 +59,23 @@ export function falha(escopo: string, e: unknown): NextResponse {
 
   console.error(`[${escopo}]`, String(e));
   return NextResponse.json(
-    { ok: false, status: "erro", info: e instanceof Error ? e.message : "Falha ao falar com o serviço." },
+    { ok: false, status: "erro", info: fraseParaATela(e) },
     { status: 502 },
   );
+}
+
+/**
+ * O que a tela pode ler de um erro inesperado.
+ *
+ * ⚠️ NÃO É "esconder tudo". Várias mensagens de provedor são escritas PARA o usuário e são
+ * a única pista do que consertar — "A Focus recusou o certificado: senha incorreta". O que
+ * se barra é a frase com cara de banco ou de biblioteca, que vazava crua até 24/09/2026
+ * ("null value in column "telefone" of relation "clientes" violates not-null constraint").
+ * Ela continua inteira no `console.error` de cima, que é onde quem mantém procura.
+ */
+const JARGAO = /violates|constraint|relation "|column "|PGRST|duplicate key|invalid input syntax|null value|syntax error|permission denied for|JWT|ECONN|ETIMEDOUT|fetch failed|TypeError|undefined is not|Cannot read prop|Unexpected token/i;
+export function fraseParaATela(e: unknown): string {
+  const msg = e instanceof Error ? e.message : "";
+  if (!msg || JARGAO.test(msg)) return "Algo falhou do nosso lado. Tente de novo em alguns instantes.";
+  return msg;
 }
