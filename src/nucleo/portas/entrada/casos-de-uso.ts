@@ -115,6 +115,26 @@ export type AgendaLida = {
 };
 
 export type AgendarAtendimento = (t: ContextoTenant, p: PedidoDeAgendamento) => Promise<AtendimentoAgendado>;
+
+/**
+ * UMA SÉRIE — "toda semana", "a cada 2 semanas" (24/09/2026).
+ *
+ * Não é evento recorrente no calendário: é um atendimento DE VERDADE por data, cada um
+ * com seu lembrete, seu recibo e sua checagem de conflito. Uma regra RRULE no Google
+ * seria uma linha só na tabela, e o faturamento contaria uma sessão por série.
+ */
+export type PedidoRecorrente = PedidoDeAgendamento & {
+  /** 1, 2, 3 ou 4. */
+  cadaSemanas: number;
+  /** Uma chave por ocorrência, cunhadas por quem pede. `chaves[0]` é a primeira data. */
+  chaves: string[];
+};
+export type SerieAgendada = {
+  criados: (AtendimentoAgendado & { data: string })[];
+  /** Datas que não entraram — horário já ocupado, na maioria. A série segue sem elas. */
+  pulados: { data: string; motivo: string }[];
+};
+export type AgendarRecorrente = (t: ContextoTenant, p: PedidoRecorrente) => Promise<SerieAgendada>;
 export type CancelarAtendimento = (t: ContextoTenant, p: { agendaId: string; eventoId: string }) => Promise<void>;
 export type LerAgenda = (t: ContextoTenant, p: { agendaId: string } & Janela) => Promise<AgendaLida>;
 

@@ -11,16 +11,16 @@
  * Ele conhece: as portas que recebe e os erros do domínio que lança.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-import type { AgendarAtendimento } from "../portas/entrada/casos-de-uso";
+import type { AgendarAtendimento, AgendarRecorrente, SerieAgendada } from "../portas/entrada/casos-de-uso";
 import type { AgendaExterna } from "../portas/saida/agenda-externa";
 import type { RepositorioNegocio } from "../portas/saida/repositorio-negocio";
 import type { LinhaDeAtendimento, RegistroDeAtendimentos } from "../portas/saida/registro-atendimentos";
 import type { ContextoAgenda } from "../dominio/tenant";
 import { rotuloDoAtor } from "../dominio/tenant";
-import { DIAS_DE_ALCANCE, duracaoValida, ehUuid, horaValida } from "../dominio/agenda";
-import { DadoInvalido, NaoEncontrado } from "../dominio/erros";
+import { DIAS_DE_ALCANCE, MAX_OCORRENCIAS, duracaoValida, ehUuid, horaValida } from "../dominio/agenda";
+import { DadoInvalido, ErroDeDominio, NaoEncontrado } from "../dominio/erros";
 import { primeiroNome } from "../dominio/catalogo";
-import { ehDataCivil, instanteISO } from "../dominio/tempo";
+import { ehDataCivil, instanteISO, somarDias } from "../dominio/tempo";
 
 /**
  * O vínculo com o calendário externo, quando ele existe.
@@ -289,5 +289,62 @@ export function criarAgendarAtendimento({ agenda, negocio, registro, agora = Dat
         return null;
       }
     }
+  };
+}
+
+/**
+ * Marca uma SÉRIE: o mesmo horário, a cada N semanas, uma chamada de `agendar` por data.
+ *
+ * Reusa o caso de uso inteiro em vez de gravar em lote, e é de propósito: cada sessão
+ * passa pela mesma validação, pela mesma idempotência e pela mesma constraint de conflito
+ * que uma marcação avulsa. O que muda é o que se faz com a recusa — numa avulsa ela sobe;
+ * numa série, a data que já está ocupada é PULADA e dita, e as outras entram. Derrubar
+ * doze sessões porque o feriado do dia 15 já tinha encaixe seria o pior dos dois mundos.
+ *
+ * Se NENHUMA entrou, a primeira recusa sobe como numa marcação avulsa: aí o problema não
+ * é uma data, é o pedido (agenda que não existe, horário fora do dia).
+ */
+export function criarAgendarRecorrente(deps: { agendar: AgendarAtendimento }): AgendarRecorrente {
+  return async (t, p) => {
+    const cada = Number(p.cadaSemanas);
+    if (![1, 2, 3, 4].includes(cada)) throw new DadoInvalido("A repetição é de 1 a 4 semanas.", "cadaSemanas");
+
+    const chaves = Array.isArray(p.chaves) ? p.chaves : [];
+    if (chaves.length < 1 || chaves.length > MAX_OCORRENCIAS) {
+      throw new DadoInvalido(`Uma série vai de 1 a ${MAX_OCORRENCIAS} sessões.`, "chaves");
+    }
+    /* Chave repetida faria a segunda data "já existir" na primeira — a série sairia com
+     * buracos e a resposta diria que entrou. */
+    if (new Set(chaves).size !== chaves.length || !chaves.every(ehUuid)) {
+      throw new DadoInvalido("Identificadores da série inválidos.", "chaves");
+    }
+    if (!ehDataCivil(p.data)) throw new DadoInvalido("Data inválida.", "data");
+
+    const serie: SerieAgendada = { criados: [], pulados: [] };
+    let primeiraRecusa: unknown = null;
+
+    /* Em lotes de 4: em série seriam 13 idas ao Google para três meses de semanais, e a
+     * rota tem prazo. Paralelo sem teto esbarraria na cota do Google. Datas diferentes
+     * não disputam horário entre si, então a ordem dentro do lote não importa. */
+    const datas = chaves.map((maisaAg, i) => ({ maisaAg, data: somarDias(p.data, i * 7 * cada) }));
+    for (let i = 0; i < datas.length; i += 4) {
+      await Promise.all(datas.slice(i, i + 4).map(async ({ maisaAg, data }) => {
+        try {
+          const r = await deps.agendar(t, { ...p, maisaAg, data });
+          serie.criados.push({ ...r, data });
+        } catch (e) {
+          primeiraRecusa ??= e;
+          serie.pulados.push({
+            data,
+            motivo: e instanceof ErroDeDominio ? e.message : "Não foi possível marcar.",
+          });
+        }
+      }));
+    }
+
+    if (serie.criados.length === 0) throw primeiraRecusa;
+    serie.criados.sort((a, b) => a.data.localeCompare(b.data));
+    serie.pulados.sort((a, b) => a.data.localeCompare(b.data));
+    return serie;
   };
 }

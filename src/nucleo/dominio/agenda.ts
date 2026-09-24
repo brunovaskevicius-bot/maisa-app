@@ -52,7 +52,49 @@ export type RascunhoAgendamento = {
   inicio: number;
   clienteId: string;
   servicoId: string;
+  /**
+   * O preço DESTE atendimento, como o dono digitou. `""` = o preço do serviço.
+   *
+   * Existe porque na terapia o valor muda de pessoa para pessoa (tabela social, convênio,
+   * pacote), e o catálogo só guarda um. Texto e não número: é o que está no campo,
+   * inclusive pela metade ("1" a caminho de "180").
+   */
+  valor?: string;
+  /** 0 = não repete; 1 = toda semana; 2 = a cada 2 semanas; 4 = a cada 4 semanas. */
+  cadaSemanas?: number;
+  /** Por quantos meses repetir, quando `cadaSemanas > 0`. */
+  meses?: number;
+  /**
+   * Uma chave de idempotência por ocorrência — a primeira é `maisaAg`. Cunhadas no
+   * primeiro envio e guardadas aqui, para "Tentar de novo" reencontrar as que já entraram
+   * em vez de marcar a série duas vezes. Somem quando a repetição muda.
+   */
+  chaves?: string[];
 };
+
+/** Quantas sessões cabem em `meses`, repetindo a cada `cadaSemanas`. Inclui a primeira. */
+export function ocorrenciasDaSerie(cadaSemanas: number, meses: number): number {
+  if (!(cadaSemanas > 0) || !(meses > 0)) return 1;
+  return Math.max(1, Math.ceil((meses * 30) / (7 * cadaSemanas)));
+}
+
+/** Teto de sessões numa série: um ano de semanais. O caso de uso recusa acima disso. */
+export const MAX_OCORRENCIAS = 52;
+
+/**
+ * O preço que vai no atendimento: o digitado, ou o do serviço quando o campo está vazio.
+ * `null` = o que está no campo não é dinheiro, e o botão de marcar trava.
+ *
+ * Aceita as duas grafias que um brasileiro digita — "180,50" e "1.250,00" com vírgula,
+ * "180.50" sem ela. Só com vírgula o ponto é milhar; sem vírgula ele é decimal.
+ */
+export function valorDoRascunho(r: RascunhoAgendamento, servico?: { preco: number }): number | null {
+  const bruto = (r.valor ?? "").trim().replace(/^R\$\s*/, "");
+  if (!bruto) return servico?.preco ?? 0;
+  const n = Number(bruto.includes(",") ? bruto.replace(/\./g, "").replace(",", ".") : bruto);
+  if (!Number.isFinite(n) || n < 0 || n > 100_000) return null;
+  return Math.round(n * 100) / 100;
+}
 
 /* ───────────────────────────── o que volta da agenda externa ───────────────────────────── */
 

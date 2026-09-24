@@ -21,7 +21,7 @@
 
 import { randomUUID } from "crypto";
 
-import { criarAgendarAtendimento } from "@/nucleo/aplicacao/agendar-atendimento";
+import { criarAgendarAtendimento, criarAgendarRecorrente } from "@/nucleo/aplicacao/agendar-atendimento";
 import {
   criarCancelarAtendimento, criarDesconectarAgenda, criarLerAgenda, criarListarConexoes,
 } from "@/nucleo/aplicacao/agenda";
@@ -489,9 +489,13 @@ const contatosProvedor = isEvolutionConfigured
   ? criarContatosEvolution({ instanciaDe: instanciaDoInquilino })
   : contatosDoCanalDemo;
 
+const agendarAtendimento = criarAgendarAtendimento({ agenda, negocio, registro });
+
 /** Tudo que o app sabe fazer, já montado. */
 export const app = {
-  agendarAtendimento: criarAgendarAtendimento({ agenda, negocio, registro }),
+  agendarAtendimento,
+  /** A série ("toda semana") é o mesmo `agendarAtendimento`, uma vez por data. */
+  agendarRecorrente: criarAgendarRecorrente({ agendar: agendarAtendimento }),
   cancelarAtendimento: criarCancelarAtendimento({ agenda, negocio, registro }),
   /* `registro` entrou nos quatro (ADR-0009): a agenda do produto é a fonte, `agenda` é
    * a camada aditiva por cima dela. Antes só os dois primeiros o recebiam, e era por isso

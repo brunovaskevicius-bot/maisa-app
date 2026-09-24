@@ -3927,6 +3927,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const sv = servicoDe(r.servicoId);
     const cl = clienteDe(r.clienteId);
     if (!sv || !cl) return;
+    const valor = D.valorDoRascunho(r, sv);
+    if (valor === null) return;
+
+    /* Série: uma chave por sessão, cunhadas UMA vez e guardadas no rascunho — é o que faz
+     * "Tentar de novo" reencontrar as sessões que já entraram em vez de marcá-las de novo.
+     * A primeira é a `maisaAg` do rascunho, então a série de uma sessão é o avulso. */
+    const cada = r.cadaSemanas ?? 0;
+    const n = cada ? D.ocorrenciasDaSerie(cada, r.meses ?? 3) : 1;
+    const chaves = cada
+      ? (r.chaves?.length === n ? r.chaves : [r.maisaAg, ...Array.from({ length: n - 1 }, () => uuid())])
+      : undefined;
+    if (chaves && chaves !== r.chaves) setRascunho((x) => (x ? { ...x, chaves } : x));
 
     criacaoEmVoo.current = true;
     setRascunhoEstado({ enviando: true });
@@ -3946,10 +3958,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           // atendimento não renderizaria em nenhum outro. Ver PROPS em calendario.ts.
           duracao: sv.duracao,
           servicoNome: sv.nome,
-          servicoValor: sv.preco,
+          servicoValor: valor,
           clienteNome: cl.nome,
           clienteTelefone: cl.telefone,
           comMeet: true,
+          ...(chaves ? { recorrencia: { cadaSemanas: cada, chaves } } : {}),
         }),
       }).then((x) => x.json());
 
@@ -3957,27 +3970,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         /* Entra na lista JÁ CONFIRMADO — não é inserção otimista, é o resultado do POST.
          * Poderia ser um refetch da janela, mas seria um segundo round-trip para saber o
          * que a resposta já disse. A leitura seguinte reconcilia de qualquer forma. */
+        type Criado = { data: string; eventoId: string; meetLink?: string | null; htmlLink?: string | null };
+        const criados: Criado[] = resp.serie?.criados ?? [{ ...resp, data: r.data }];
+        const ids = new Set(criados.map((c) => String(c.eventoId)));
         setAtendimentos((prev) => [
-          ...prev.filter((e) => e.eventId !== resp.eventoId),
-          {
-            eventId: String(resp.eventoId),
-            data: r.data,
+          ...prev.filter((e) => !ids.has(e.eventId)),
+          ...criados.map((c) => ({
+            eventId: String(c.eventoId),
+            data: c.data,
             inicio: r.inicio,
             fim: r.inicio + sv.duracao / 60,
             duracao: sv.duracao,
             profissionalId: r.profissionalId,
             clienteId: cl.id, clienteNome: cl.nome, clienteTel: cl.telefone,
-            servicoId: sv.id, servicoNome: sv.nome, servicoValor: sv.preco,
+            servicoId: sv.id, servicoNome: sv.nome, servicoValor: valor,
             confirmado: true,
-            meetLink: resp.meetLink ?? undefined,
-            htmlLink: resp.htmlLink ?? undefined,
-            recorrente: false,
-          },
+            meetLink: c.meetLink ?? undefined,
+            htmlLink: c.htmlLink ?? undefined,
+            recorrente: !!chaves,
+          })),
         ]);
         setRascunho(null);
         setRascunhoEstado({ enviando: false });
         setSel(null);
         const quando = r.data === D.HOJE.iso ? "hoje" : D.rotuloDia(r.data);
+        if (resp.serie) {
+          /* As puladas vão NO toast, com data: é a única hora em que o dono fica sabendo que
+           * a série tem buraco, e sem a data ele teria que varrer a agenda para achar. */
+          const pulados: { data: string }[] = resp.serie.pulados ?? [];
+          toast(
+            `${criados.length} sessões de ${cl.nome} marcadas a partir de ${quando}` +
+            (pulados.length ? ` — ${pulados.length} puladas por horário ocupado: ${pulados.map((p) => D.rotuloDia(p.data)).join(", ")}` : ""),
+          );
+          return;
+        }
         toast(
           resp.status === "ja_existia"
             ? `${cl.nome} já estava marcado ${quando} às ${D.hhmm(r.inicio)}`

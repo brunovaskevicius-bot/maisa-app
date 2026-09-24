@@ -85,7 +85,7 @@ silêncio e o webhook nunca ficava sabendo.
 | `/api/google/callback` | GET | `state` assinado + PKCE | fim do OAuth: troca o código e grava o token **cifrado** |
 | `/api/google/status` | GET | própria (ver abaixo) | `ListarConexoes` — quem já conectou. Nunca devolve token |
 | `/api/agenda` | GET | `exigirSessao` | `LerAgenda` — os atendimentos de uma janela |
-| `/api/atendimentos` | POST · DELETE | `exigirSessao` | `AgendarAtendimento` · `CancelarAtendimento` |
+| `/api/atendimentos` | POST · DELETE | `exigirSessao` | `AgendarAtendimento` · `CancelarAtendimento`. Com `recorrencia: { cadaSemanas, chaves[] }` no corpo, vira `AgendarRecorrente`: um atendimento por data, e a resposta traz `serie.criados` e `serie.pulados` (horário ocupado não derruba a série). `servicoValor` é o preço DESTE atendimento — a tela deixa o dono mudar |
 
 ⚠️ **`/api/agenda` saiu de baixo do prefixo do Google em 04/09/2026** (ADR-0009), e trocou
 de porteiro junto. A agenda é do produto; o Google é uma camada aditiva. Com

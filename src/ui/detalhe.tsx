@@ -573,7 +573,10 @@ export function useDetalhe(id: string | null): Detalhe | null {
     const r = st.rascunho;
     const disponiveis = st.servicos.filter((sv) => st.svcAtivo(sv.id));
     const svEscolhido = r.servicoId ? st.servicoDe(r.servicoId) : undefined;
-    const completo = !!r.clienteId && !!r.servicoId;
+    const valorDigitado = D.valorDoRascunho(r, svEscolhido);
+    const completo = !!r.clienteId && !!r.servicoId && valorDigitado !== null;
+    const cada = r.cadaSemanas ?? 0;
+    const sessoes = D.ocorrenciasDaSerie(cada, r.meses ?? 3);
     const { enviando, erro } = st.rascunhoEstado;
     const contaAg = st.googleDe(r.profissionalId);
     return {
@@ -597,8 +600,46 @@ export function useDetalhe(id: string | null): Detalhe | null {
                 return sv ? `${sv.nome} · ${sv.duracao} min · ${fmt(sv.preco)}` : "Escolha o serviço";
               },
               hint: svEscolhido ? `Ocupa a agenda até ${D.hhmm(r.inicio + svEscolhido.duracao / 60)}.` : "A duração vem do serviço.",
-              onChange: (v) => st.editarRascunho({ servicoId: v }),
+              /* Trocar o serviço traz o preço dele para o campo de valor — que o dono então
+                 edita. Deixar o campo com o preço do serviço anterior cobraria errado. */
+              onChange: (v) => {
+                const sv = st.servicoDe(v);
+                st.editarRascunho({ servicoId: v, valor: sv ? String(sv.preco) : "" });
+              },
             },
+            /* O preço é DESTE atendimento (24/09/2026): na terapia ele muda de pessoa para
+               pessoa, e o catálogo só guarda um. O serviço continua dando o padrão. */
+            {
+              id: "valor", label: "Valor desta sessão", tipo: "numero", prefixo: "R$",
+              valor: r.valor ?? (svEscolhido ? String(svEscolhido.preco) : ""),
+              hint: valorDigitado === null
+                ? "Valor inválido — use só números, como 180 ou 180,50."
+                : svEscolhido && valorDigitado !== svEscolhido.preco
+                  ? `O serviço custa ${fmt(svEscolhido.preco)} — este atendimento sai por ${fmt(valorDigitado)}.`
+                  : "Mude se o preço desta pessoa for outro.",
+              onChange: (v) => st.editarRascunho({ valor: v }),
+            },
+          ],
+        },
+        {
+          tipo: "campos", key: "repete", label: "Repetição",
+          campos: [
+            {
+              id: "cada", label: "Repete", valor: String(cada), tipo: "select",
+              opcoes: ["0", "1", "2", "4"],
+              rotuloOpcao: (v) => ({ "0": "Não repete", "1": "Toda semana", "2": "A cada 2 semanas", "4": "A cada 4 semanas" } as Record<string, string>)[v],
+              hint: cada ? `Sempre ${D.DOW_LONGO[D.dowDoDia(r.data)]}, às ${D.hhmm(r.inicio)}.` : undefined,
+              onChange: (v) => st.editarRascunho({ cadaSemanas: Number(v), chaves: undefined }),
+            },
+            ...(cada
+              ? [{
+                id: "meses", label: "Por quanto tempo", valor: String(r.meses ?? 3), tipo: "select" as const,
+                opcoes: ["1", "3", "6", "12"],
+                rotuloOpcao: (v: string) => ({ "1": "1 mês", "3": "3 meses", "6": "6 meses", "12": "1 ano" } as Record<string, string>)[v],
+                hint: `${sessoes} sessões. Data com horário ocupado é pulada, e a lista das puladas aparece no fim.`,
+                onChange: (v: string) => st.editarRascunho({ meses: Number(v), chaves: undefined }),
+              }]
+              : []),
           ],
         },
         /* Onde isto vai parar, dito ANTES de acontecer. Marcar deixou de ser uma anotação
@@ -626,7 +667,7 @@ export function useDetalhe(id: string | null): Detalhe | null {
       acoes: [
         { label: "Descartar", onClick: () => st.descartarRascunho() },
         {
-          label: enviando ? "Criando no Google…" : erro ? "Tentar de novo" : "Marcar atendimento",
+          label: enviando ? "Marcando…" : erro ? "Tentar de novo" : cada ? `Marcar ${sessoes} sessões` : "Marcar atendimento",
           primaria: true,
           desabilitada: !completo || enviando,
           onClick: () => st.confirmarRascunho(),

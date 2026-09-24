@@ -25,14 +25,17 @@ import { falha } from "@/adaptadores/entrada/http/respostas";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/* Uma série de semanais por três meses são 13 idas ao Google; o padrão da Vercel corta
+ * antes. */
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   const porteiro = await exigirSessao();
   if (barrou(porteiro)) return porteiro.barrado;
 
   const body = await request.json().catch(() => ({} as any));
 
-  try {
-    const r = await app.agendarAtendimento(porteiro.tenant, {
+  const pedido = {
       agendaId: String(body?.profissionalId ?? ""),
       maisaAg: String(body?.maisaAg ?? ""),
       data: String(body?.data ?? ""),
@@ -46,7 +49,33 @@ export async function POST(request: Request) {
       clienteTelefone: body?.clienteTelefone != null ? String(body.clienteTelefone) : undefined,
       comMeet: body?.comMeet !== false,
       convidarCliente: body?.convidarCliente === true,
-    });
+  };
+
+  try {
+    /* Série ("toda semana", "a cada 2 semanas"): uma marcação por data, e a resposta diz
+     * quais entraram e quais foram puladas por conflito. Os campos de cima repetem a
+     * PRIMEIRA que entrou, para quem só lê a resposta avulsa continuar funcionando. */
+    if (body?.recorrencia) {
+      const serie = await app.agendarRecorrente(porteiro.tenant, {
+        ...pedido,
+        cadaSemanas: Number(body.recorrencia.cadaSemanas),
+        chaves: Array.isArray(body.recorrencia.chaves) ? body.recorrencia.chaves.map(String) : [],
+      });
+      const r = serie.criados[0];
+      return NextResponse.json({
+        ok: true,
+        status: r.situacao === "ja_existia" ? "ja_existia" : "criado",
+        eventoId: r.eventoId,
+        meetLink: r.meetLink,
+        htmlLink: r.htmlLink,
+        inicioISO: r.inicioISO,
+        semMeet: r.semMeet,
+        foraDoCalendario: r.foraDoCalendario,
+        serie,
+      });
+    }
+
+    const r = await app.agendarAtendimento(porteiro.tenant, pedido);
 
     return NextResponse.json({
       ok: true,

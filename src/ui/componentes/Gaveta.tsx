@@ -248,16 +248,23 @@ export default function Gaveta() {
   const mobile = useIsMobile();
   const painel = useRef<HTMLDivElement>(null);
 
-  // Foco entra no painel ao abrir: o teclado não fica preso atrás do backdrop.
-  useEffect(() => { if (det) painel.current?.focus(); }, [det]);
+  /* Foco entra no painel ao ABRIR: o teclado não fica preso atrás do backdrop.
+   *
+   * ⚠️ A DEPENDÊNCIA É O ID ABERTO, NUNCA `det`. `useDetalhe` monta um objeto novo a cada
+   * render, e todo campo da gaveta grava no store a cada tecla — então com `[det]` cada
+   * caractere digitado re-renderizava, rodava este efeito e ARRANCAVA o cursor do campo
+   * para o painel. Editar qualquer coisa exigia clicar de novo no campo a cada letra
+   * (relato de 24/09/2026: "é quase inviável editar algum campo pelo front"). */
+  const aberta = det !== null;
+  useEffect(() => { if (aberta) painel.current?.focus(); }, [aberta, st.sel]);
 
   // Trava o scroll do fundo enquanto a gaveta está aberta.
   useEffect(() => {
-    if (!det) return;
+    if (!aberta) return;
     const antes = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = antes; };
-  }, [det]);
+  }, [aberta]);
 
   /* Esc fecha, e o Tab circula DENTRO do painel.
    * A gaveta declarava `role="dialog" aria-modal="true"` e não cumpria nenhuma das duas coisas: Esc
