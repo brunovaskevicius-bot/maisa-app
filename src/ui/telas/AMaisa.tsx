@@ -65,15 +65,15 @@ function FaixaAssistente() {
       <span style={s(`width:9px;height:9px;flex-shrink:0;border-radius:50%;background:${forte}`)} />
       <span style={s("flex:1;min-width:0")}>
         <span style={s(`display:block;font-size:var(--t-sm);font-weight:var(--w-title);color:${forte}`)}>
-          {ativa ? "Assistente ativa" : "Assistente pausada"}
+          {ativa ? "MAISA atende no WhatsApp" : "MAISA não atende no WhatsApp"}
         </span>
         <span style={s("display:block;font-size:var(--t-label);color:var(--ink);margin-top:2px;line-height:var(--lh-ui)")}>
           {ativa
-            ? "A MAISA responde no WhatsApp automaticamente"
-            : "As mensagens ficam esperando você responder"}
+            ? "Ela responde seus clientes sozinha. No número pessoal, só cliente marcado e número novo pedindo horário"
+            : "Desligada: ela não responde ninguém — as mensagens ficam para você"}
         </span>
       </span>
-      <Toggle on={ativa} onChange={(v) => st.setAssistente({ ativa: v })} rotulo="Assistente ativa" />
+      <Toggle on={ativa} onChange={(v) => st.setAssistente({ ativa: v })} rotulo="MAISA atende no WhatsApp" />
     </div>
   );
 }

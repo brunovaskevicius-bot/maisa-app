@@ -570,7 +570,7 @@ export const app = {
    * ou encenado. Sem banco, `provisionadorDemo` devolve um uuid de mentira para que o
    * fluxo inteiro seja percorrível por `curl` antes de existir tela.
    */
-  provisionarNegocio: criarProvisionarNegocio({ provisionador }),
+  provisionarNegocio: criarProvisionarNegocio({ provisionador, assistente }),
 
   /**
    * OS AJUSTES DA MAISA — a mesma linha que o agente lê para montar o prompt.
